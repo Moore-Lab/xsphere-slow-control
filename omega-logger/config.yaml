@@ -1,0 +1,33 @@
+# Omega RDXL6SD-USB logger configuration.
+# Values here override the defaults compiled into omega_logger.py.
+
+omega:
+  # Serial port — run `ls /dev/ttyUSB*` before and after plugging in the
+  # device to identify the correct port.  Common values: /dev/ttyUSB0, /dev/ttyUSB1
+  serial_port:    /dev/ttyUSB0    # VERIFY
+
+  baud_rate:      9600
+  modbus_address: 1               # VERIFY: matches device Modbus address setting
+
+  # How often to read and publish all channels (seconds)
+  poll_interval:  5.0
+
+  mqtt_host:      192.168.8.116   # xbox-pi broker IP
+  mqtt_port:      1883
+  mqtt_client_id: xsphere-omega-logger
+
+  topic_prefix:   xsphere/sensors/temperature/omega
+
+  # RDXL6SD register map — VERIFY against device documentation
+  num_channels:   6
+  reg_base:       0               # first holding register (decimal)
+  fault_threshold: 5000           # |raw| > this → open-circuit/fault
+
+# Channel labels (used in MQTT payload for human readability only)
+# Topics are always ch1..ch6 regardless of label
+# ch1: TC-1  — K-type TC, [LOCATION TBD]
+# ch2: TC-2  — K-type TC, [LOCATION TBD]
+# ch3: TC-3  — K-type TC, [LOCATION TBD]
+# ch4: TC-4  — K-type TC, [LOCATION TBD]
+# ch5: RTD-1 — PT100, clamp on ballast dewar exterior
+# ch6: RTD-2 — PT100, clamp on cryostat exterior

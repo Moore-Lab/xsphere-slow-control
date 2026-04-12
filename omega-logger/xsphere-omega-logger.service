@@ -1,0 +1,35 @@
+# systemd service unit for the Omega RDXL6SD-USB temperature logger.
+#
+# Install:
+#   sudo cp xsphere-omega-logger.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable xsphere-omega-logger
+#   sudo systemctl start xsphere-omega-logger
+#
+# Logs:
+#   journalctl -u xsphere-omega-logger -f
+#
+# Prerequisites:
+#   - Add user 'xbox' to the 'dialout' group to allow serial port access:
+#       sudo usermod -aG dialout xbox
+#   - Verify the serial port name (SERIAL_PORT below) with:
+#       ls -la /dev/ttyUSB*  (before and after plugging in the device)
+
+[Unit]
+Description=xsphere Omega RDXL6SD-USB Temperature Logger
+After=network-online.target mosquitto.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=xbox
+WorkingDirectory=/home/xbox/xsphere-slow-control/omega-logger
+ExecStart=/home/xbox/miniconda3/bin/python -u omega_logger.py -c config.yaml
+Restart=on-failure
+RestartSec=15
+StandardOutput=journal
+StandardError=journal
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target

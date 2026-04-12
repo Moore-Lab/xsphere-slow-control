@@ -1,0 +1,29 @@
+# systemd service unit for the xsphere slow control service.
+#
+# Install:
+#   sudo cp xsphere-slowcontrol.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable xsphere-slowcontrol
+#   sudo systemctl start xsphere-slowcontrol
+#
+# Logs:
+#   journalctl -u xsphere-slowcontrol -f
+
+[Unit]
+Description=xsphere Slow Control Service
+After=network-online.target mosquitto.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=xbox
+WorkingDirectory=/home/xbox/xsphere-slow-control/slowcontrol
+ExecStart=/home/xbox/miniconda3/bin/python -u -m slowcontrol.app -c config.yaml
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target

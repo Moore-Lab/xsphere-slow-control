@@ -1,0 +1,47 @@
+# xsphere slow control service configuration
+# All values shown are defaults — uncomment and edit to override.
+
+mqtt:
+  host: 192.168.8.116    # xbox-pi IP
+  port: 1883
+  client_id: xsphere-slowcontrol
+  keepalive: 60
+
+# Direct InfluxDB writes are disabled by default — Telegraf handles ingestion.
+influx:
+  enabled: false
+  url: http://192.168.8.116:8086
+  token: ""
+  org: xsphere
+  bucket: xsphere
+
+plc:
+  # !! Update host to the PLC's actual DHCP-assigned IP.
+  # Check the router's DHCP table or ping xbox-PLC on the local network.
+  host: 192.168.8.xxx
+  port: 502
+  unit_id: 1
+  poll_interval: 1.0     # seconds between Modbus reads
+  timeout: 3.0
+
+# Omega logger runs as a separate service (omega-logger/omega_logger.py)
+# and has its own config file (omega-logger/config.yaml).
+
+autovalve:
+  enabled: true
+  vessels:
+    cryostat:
+      level_high: 2.5       # close valve when filtered level > this
+      level_low: 0.25       # open valve when filtered level < this
+      fill_timeout_s: 920   # safety timeout (matches PLC ladder timer T3)
+    primary_xe:
+      level_high: 2.5
+      level_low: 0.5
+      fill_timeout_s: 600
+    ballast:
+      level_high: 2.5
+      level_low: 0.5
+      fill_timeout_s: 600
+
+heartbeat_interval: 10.0    # seconds between heartbeat MQTT publishes
+log_level: INFO
