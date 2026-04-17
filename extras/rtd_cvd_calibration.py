@@ -18,8 +18,8 @@ WORKFLOW
 This script is Step 2 of the three-step calibration workflow:
 
   Step 1  rtd_leadwire_calibration.py
-          → Measures individual lead resistances r1, r2, r3.
-          → Outputs delta_R  (= r2 − r3, the lead imbalance correction).
+          → Measures individual lead resistances r_Vp, r_Ip, r_Vm, r_Im.
+          → Outputs delta_R  (= r_Ip − r_Vm, the lead imbalance correction).
 
   Step 2  rtd_cvd_calibration.py  (this script)
           → You supply delta_R from Step 1 and two reference measurements:

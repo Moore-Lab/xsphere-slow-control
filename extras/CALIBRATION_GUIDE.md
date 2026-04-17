@@ -45,17 +45,17 @@ are still accessible at the connector end.  Power off the PLC first.
 can remain mounted in the cryostat.
 
 ```
-R(A1–A2)  both wires on Terminal A    → r_A1 + r_A2  (no RTD in path)
-R(B1–B2)  both wires on Terminal B    → r_B1 + r_B2  (no RTD in path)
-R(A1–B1)  A1 to B1                    → r_A1 + R_rtd + r_B1
-R(A2–B1)  A2 to B1                    → r_A2 + R_rtd + r_B1
-R(A1–B2)  A1 to B2                    → r_A1 + R_rtd + r_B2
+R(V+–I+)  both wires on Terminal +    → r_V+ + r_I+  (no RTD in path)
+R(V-–I-)  both wires on Terminal -    → r_V- + r_I-  (no RTD in path)
+R(V+–V-)  V+ to V-                    → r_V+ + R_rtd + r_V-
+R(I+–V-)  I+ to V-                    → r_I+ + R_rtd + r_V-
+R(V+–I-)  V+ to I-                    → r_V+ + R_rtd + r_I-
 ```
 
-> **Why R(A1–A2) bypasses the RTD:** both A wires connect to the same terminal
-> on the sensing element, so current travels A1 → terminal A → A2 without
-> passing through the platinum wire.  Same logic for R(B1–B2).  This is the
-> key advantage of a 4-wire RTD.
+> **Why R(V+–I+) bypasses the RTD:** both + terminal wires connect to the same
+> terminal on the sensing element, so current travels V+ → Terminal + → I+
+> without passing through the platinum wire.  Same logic for R(V-–I-).  This
+> is the key advantage of a 4-wire RTD.
 
 **Run the script:**
 
@@ -76,10 +76,10 @@ Copy this number — you will enter it in step 2.
 
 | PLC pin | Wire | Terminal |
 |---------|------|----------|
-| 1       | A1   | A — single lead |
-| 2       | A2   | A — compensation lead |
-| 3       | B1   | B — measurement return |
-| —       | B2   | leave disconnected |
+| 1       | V+   | + — voltage-sense lead |
+| 2       | I+   | + — compensation lead |
+| 3       | V-   | - — measurement return |
+| —       | I-   | leave disconnected |
 
 ---
 
