@@ -15,7 +15,12 @@ Channel map (configurable in config section below):
 
 MQTT topics published:
   xsphere/sensors/temperature/omega/ch{1-6}
-  payload: {"value_k": <float>, "value_c": <float>, "channel": <int>}
+  TC payload:  {"value_k", "value_c", "emf_mv", "channel", "label", "fault"}
+  RTD payload: {"value_k", "value_c", "resistance_ohm", "channel", "label", "fault"}
+
+  emf_mv and resistance_ohm are back-calculated from the instrument's temperature
+  reading via the NIST K-type polynomial and CVD equation respectively.  Use
+  these during ice-bath / LN2 calibration as inputs to the calibration scripts.
 
 HARDWARE NOTES (VERIFY BEFORE USE):
   ─────────────────────────────────
@@ -89,6 +94,72 @@ CHANNEL_LABELS = {
 }
 
 CELSIUS_TO_KELVIN = 273.15
+
+# Channel sensor types — used to compute back-calculated raw values
+# "RTD" → PT100 resistance via CVD; "TC" → K-type EMF via NIST ITS-90
+CHANNEL_TYPES = {
+    1: "TC",
+    2: "TC",
+    3: "TC",
+    4: "TC",
+    5: "RTD",
+    6: "RTD",
+}
+
+# ── PT100 CVD constants (IEC 60751) ──────────────────────────────────
+_R0 = 100.0
+_A  =  3.9083e-3
+_B  = -5.775e-7
+_C  = -4.183e-12   # below 0 °C only
+
+
+def _cvd_r_from_t(T_C: float) -> float:
+    """PT100 temperature (°C) → resistance (Ω) via Callendar-Van Dusen."""
+    if T_C >= 0.0:
+        return _R0 * (1.0 + _A * T_C + _B * T_C**2)
+    return _R0 * (1.0 + _A * T_C + _B * T_C**2 + _C * (T_C - 100.0) * T_C**3)
+
+
+# ── K-type NIST ITS-90 EMF polynomials ───────────────────────────────
+# Coefficients from NIST (mV output, T in °C)
+_K_NEG = [  # -200 °C to 0 °C
+    0.0,
+    3.9450128025e-2,
+    2.3622373598e-5,
+    -3.2858906784e-7,
+    -4.9904828777e-9,
+    -6.7509059173e-11,
+    -5.7410327428e-13,
+    -3.1088872894e-15,
+    -1.0451609365e-17,
+    -1.9889266878e-20,
+    -1.6322697486e-23,
+]
+_K_POS = [  # 0 °C to 1372 °C
+    -1.7600413686e-2,
+    3.8921204975e-2,
+    1.8558770032e-5,
+    -9.9457592874e-8,
+    3.1840945719e-10,
+    -5.6072844889e-13,
+    5.6075059059e-16,
+    -3.2020720003e-19,
+    9.7151147152e-23,
+    -1.2104721275e-26,
+]
+# Additional exponential term for T ≥ 0: a0*exp(a1*(T-a2)^2)
+_K_EXP = (0.118597600000e0, -0.118343200000e-3, 0.126968600000e3)
+
+
+def _k_emf_from_t(T_C: float) -> float:
+    """K-type thermocouple temperature (°C) → EMF (mV) via NIST ITS-90."""
+    if T_C < 0.0:
+        return sum(c * T_C**i for i, c in enumerate(_K_NEG))
+    E = sum(c * T_C**i for i, c in enumerate(_K_POS))
+    a0, a1, a2 = _K_EXP
+    E += a0 * (2.718281828 ** (a1 * (T_C - a2)**2))
+    return E
+
 
 # ──────────────────────────────────────────────────────────────────────
 
@@ -204,13 +275,19 @@ def publish_channels(
             })
         else:
             value_k = value_c + CELSIUS_TO_KELVIN
-            payload = json.dumps({
+            ch_type = CHANNEL_TYPES.get(ch, "TC")
+            msg: dict = {
                 "channel": ch,
                 "label":   CHANNEL_LABELS.get(ch, ""),
                 "value_c": round(value_c, 2),
                 "value_k": round(value_k, 2),
                 "fault":   False,
-            })
+            }
+            if ch_type == "RTD":
+                msg["resistance_ohm"] = round(_cvd_r_from_t(value_c), 4)
+            else:
+                msg["emf_mv"] = round(_k_emf_from_t(value_c), 4)
+            payload = json.dumps(msg)
         mqttc.publish(topic, payload, qos=0, retain=False)
 
 
