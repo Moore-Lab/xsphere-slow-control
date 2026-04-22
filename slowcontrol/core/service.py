@@ -36,6 +36,12 @@ from slowcontrol.drivers.base import SensorDriver
 from slowcontrol.drivers.plc import PlcDriver
 from slowcontrol.plugins.gradient_scanner import GradientScannerPlugin
 
+try:
+    from labjack_t7 import LabJackT7Controller
+    _HAS_LABJACK = True
+except ImportError:
+    _HAS_LABJACK = False
+
 log = logging.getLogger(__name__)
 
 
@@ -84,6 +90,11 @@ class SlowControlService:
             InterlocksController(self._config, self._mqtt),
             GradientScannerPlugin(self._config, self._mqtt),
         ]
+        if _HAS_LABJACK:
+            self._controllers.append(LabJackT7Controller(self._config, self._mqtt))
+            log.info("LabJack T7 controller registered")
+        else:
+            log.info("labjack_t7 package not found — LabJack T7 controller skipped")
         for ctrl in self._controllers:
             ctrl.start()
         log.info("Controllers started")
