@@ -1,0 +1,3 @@
+[submodule "extras/LJ-python-controller"]
+	path = extras/LJ-python-controller
+	url = https://github.com/Moore-Lab/LJ-python-controller.git
