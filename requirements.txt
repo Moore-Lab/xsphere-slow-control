@@ -1,0 +1,19 @@
+# xsphere slow control — Python dependencies
+# Install with:  pip install -r requirements.txt
+#
+# Then install the LabJack plugin in editable mode:
+#                pip install -e LJ-python-controller/
+#
+# NOTE: The LabJack T7 hardware also requires the LJM runtime library.
+#       Download and install it from https://labjack.com/pages/support
+#       before connecting to a device.
+
+# ── Core service ──────────────────────────────────────────────────────────────
+paho-mqtt>=2.0.0        # MQTT broker client
+pymodbus>=3.6.0         # Modbus TCP (CLICK PLC)
+pyserial>=3.5           # Serial (Omega logger, future devices)
+pyyaml>=6.0             # YAML config loader
+numpy>=1.24.0           # Numerical utilities
+
+# ── LabJack T7 ────────────────────────────────────────────────────────────────
+labjack-ljm             # LJM Python wrapper (requires LJM runtime installed separately)
