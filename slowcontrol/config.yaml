@@ -16,19 +16,20 @@ influx:
   bucket: xsphere
 
 plc:
-  # !! Update host to the PLC's actual DHCP-assigned IP.
-  # Check the router's DHCP table or ping xbox-PLC on the local network.
-  host: 192.168.8.xxx
+  host: 192.168.8.118    # CLICK PLC (Modbus TCP server, port 502)
   port: 502
   unit_id: 1
   poll_interval: 1.0     # seconds between Modbus reads
   timeout: 3.0
 
-# Omega logger runs as a separate service (omega-logger/omega_logger.py)
-# and has its own config file (omega-logger/config.yaml).
+# Omega logger is no longer in use.
 
 autovalve:
-  enabled: true
+  # Keep DISABLED until the level-sensor pF readings are calibrated and the
+  # level_low/level_high thresholds below are set for pF units (see
+  # VERIFICATION_CHECKLIST.md §3). With this false the controller still
+  # publishes valve status but never commands a valve.
+  enabled: false
   vessels:
     cryostat:
       level_high: 2.5       # close valve when filtered level > this

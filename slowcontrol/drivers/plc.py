@@ -304,12 +304,17 @@ class PlcDriver(SensorDriver):
     # ------------------------------------------------------------------
 
     def _read_float(self, address: int) -> Optional[float]:
-        """Read a 32-bit IEEE 754 float from two consecutive holding registers."""
+        """Read a 32-bit IEEE 754 float from two consecutive holding registers.
+
+        The CLICK PLC stores 32-bit floats low-word-first (little-endian word
+        order), big-endian byte order within each 16-bit word — i.e. the float
+        occupies [low_word @ address, high_word @ address+1].
+        """
         rr = self._client.read_holding_registers(address, count=2)
         if rr.isError():
             log.debug("[plc] read error at address %d", address)
             return None
-        raw = (rr.registers[0] << 16) | rr.registers[1]
+        raw = (rr.registers[1] << 16) | rr.registers[0]
         return struct.unpack(">f", struct.pack(">I", raw))[0]
 
     def _read_int(self, address: int) -> Optional[int]:
@@ -320,12 +325,15 @@ class PlcDriver(SensorDriver):
         return rr.registers[0]
 
     def _write_float(self, address: int, value: float) -> bool:
-        """Write a 32-bit float to two consecutive holding registers."""
+        """Write a 32-bit float to two consecutive holding registers.
+
+        Low word first, to match _read_float (CLICK little-endian word order).
+        """
         packed = struct.pack(">f", value)
         raw = struct.unpack(">I", packed)[0]
         hi = (raw >> 16) & 0xFFFF
         lo = raw & 0xFFFF
-        result = self._client.write_registers(address, [hi, lo])
+        result = self._client.write_registers(address, [lo, hi])
         return not result.isError()
 
     def _write_int(self, address: int, value: int) -> bool:
