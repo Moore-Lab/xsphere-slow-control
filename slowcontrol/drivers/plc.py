@@ -362,21 +362,27 @@ class PlcDriver(SensorDriver):
     # Publish: Level sensors
     # ------------------------------------------------------------------
 
+    # Per-vessel (raw register, filtered register) for the level readings
+    # the PLC samples on its analog inputs.  cryostat: DF203 raw / DF303
+    # filtered.  ballast / primary_xe: DF251 / DF252 carry the raw value
+    # and DF351 / DF352 the PLC-filtered value.
+    _LEVEL_PUBLISH = {
+        "cryostat":   (REG_LEVEL_RAW["cryostat"],   REG_LEVEL_FILTERED["cryostat"]),
+        "ballast":    (REG_LEVEL_WRITE["ballast"],    REG_LEVEL_FILTERED["ballast"]),
+        "primary_xe": (REG_LEVEL_WRITE["primary_xe"], REG_LEVEL_FILTERED["primary_xe"]),
+    }
+
     def _publish_level(self) -> None:
-        for vessel, addr_raw in {
-            "cryostat": REG_LEVEL_RAW["cryostat"],
-        }.items():
+        for vessel, (addr_raw, addr_filt) in self._LEVEL_PUBLISH.items():
             raw = self._read_float(addr_raw)
-            filtered = self._read_float(REG_LEVEL_FILTERED[vessel])
-            if raw is None:
+            filtered = self._read_float(addr_filt)
+            if raw is None and filtered is None:
                 continue
-            self._mqtt.publish_sensor(
-                "level", vessel,
-                payload={"raw": round(raw, 4),
-                         "filtered": round(filtered, 4) if filtered else raw},
-            )
-        # ballast and primary_xe levels come from ESP32 via MQTT (_level_raw)
-        # and are re-published by _write_level_to_plc after filtering.
+            payload = {}
+            if raw is not None:
+                payload["raw"] = round(raw, 4)
+            payload["filtered"] = round(filtered, 4) if filtered is not None else payload.get("raw")
+            self._mqtt.publish_sensor("level", vessel, payload=payload)
 
     def _write_level_to_plc(self) -> None:
         """Forward latest ESP32 level readings into PLC DF251/DF252 so the

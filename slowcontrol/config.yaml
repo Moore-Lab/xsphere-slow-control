@@ -25,16 +25,22 @@ plc:
 # Omega logger is no longer in use.
 
 autovalve:
-  # Keep DISABLED until the level-sensor pF readings are calibrated and the
-  # level_low/level_high thresholds below are set for pF units (see
-  # VERIFICATION_CHECKLIST.md §3). With this false the controller still
-  # publishes valve status but never commands a valve.
+  # LN2 autofill is owned by the PLC ladder (it reads the analog level
+  # inputs and decides when/how to open/close XV1/XV2/XV3). The Python
+  # AutovalveController is an *optional* software state machine that would
+  # do that logic itself from MQTT level readings — we keep it DISABLED so
+  # there is a single autofill authority. High-level control (arm/disarm
+  # autofill, manually command a valve) is done by writing the PLC's DS
+  # registers via the xsphere/commands/valve/{vessel}/{state,auto_open,
+  # auto_close} topics (handled by the PLC driver), and valve state is
+  # published on xsphere/status/valve/{vessel}. The thresholds below are
+  # only used if `enabled` is set true; the real ones live in the PLC.
   enabled: false
   vessels:
     cryostat:
-      level_high: 2.5       # close valve when filtered level > this
-      level_low: 0.25       # open valve when filtered level < this
-      fill_timeout_s: 920   # safety timeout (matches PLC ladder timer T3)
+      level_high: 2.5
+      level_low: 0.25
+      fill_timeout_s: 920
     primary_xe:
       level_high: 2.5
       level_low: 0.5
