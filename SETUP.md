@@ -44,6 +44,12 @@ The rest of this guide assumes the repo lives at:
 /home/xbox/xsphere-slow-control/
 ```
 
+Pull in the LabJack submodule (skip if you cloned with `--recurse-submodules`):
+```bash
+cd /home/xbox/xsphere-slow-control
+git submodule update --init --recursive
+```
+
 ---
 
 ## Step 2 — Python slow control service
@@ -53,9 +59,14 @@ The rest of this guide assumes the repo lives at:
 ```bash
 conda create -n slowcontrol python=3.11 -y
 conda activate slowcontrol
-cd /home/xbox/xsphere-slow-control/slowcontrol
+cd /home/xbox/xsphere-slow-control
 pip install -r requirements.txt
+pip install -e LJ-python-controller/      # LabJack T7 plugin (optional; needs the LJM runtime to actually talk to a T7)
 ```
+
+> The systemd unit files run `/home/xbox/miniconda3/envs/slowcontrol/bin/python`,
+> i.e. this `slowcontrol` env. If you use a different env name, edit the
+> `ExecStart=` line in both `.service` files.
 
 ### 2b. Edit the configuration
 
@@ -71,10 +82,13 @@ Everything else can be left as default for first boot.
 
 ### 2c. Test-run manually
 
+Run from the **repo root** — `slowcontrol` is a package, so `python -m slowcontrol.app`
+must be launched from the directory that contains it:
+
 ```bash
 conda activate slowcontrol
-cd /home/xbox/xsphere-slow-control/slowcontrol
-python -m slowcontrol.app -c config.yaml -v
+cd /home/xbox/xsphere-slow-control
+python -m slowcontrol.app -c slowcontrol/config.yaml -v
 ```
 
 Watch for:

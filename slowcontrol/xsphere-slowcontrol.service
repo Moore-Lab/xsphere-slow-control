@@ -17,8 +17,9 @@ Wants=network-online.target
 [Service]
 Type=simple
 User=xbox
-WorkingDirectory=/home/xbox/xsphere-slow-control/slowcontrol
-ExecStart=/home/xbox/miniconda3/bin/python -u -m slowcontrol.app -c config.yaml
+# Must run from the repo root so the `slowcontrol` package is importable.
+WorkingDirectory=/home/xbox/xsphere-slow-control
+ExecStart=/home/xbox/miniconda3/envs/slowcontrol/bin/python -u -m slowcontrol.app -c slowcontrol/config.yaml
 Restart=on-failure
 RestartSec=10
 StandardOutput=journal
