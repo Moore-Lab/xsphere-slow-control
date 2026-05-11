@@ -298,7 +298,7 @@ mosquitto_sub -h localhost -t 'xsphere/alerts/#' -v
 1. Confirm all temperatures are stable at operating setpoint (e.g., 165 K).
 2. Confirm pressure gauges are at expected values before transfer.
 3. Open gas handling valves manually as per the gas handling procedure.
-4. Monitor `xsphere/sensors/pressure/main` and `vacuum/xe_cube` during transfer.
+4. Monitor `xsphere/sensors/pressure/ghs/setra/+` and `xsphere/sensors/vacuum/ghs/+` during transfer.
 5. After transfer, confirm xenon pressure stabilizes.
 
 ### Cooling to operating temperature
@@ -337,12 +337,14 @@ names (set by Telegraf):
 
 | Measurement | Tags | Fields |
 |---|---|---|
-| `temperature` | `source` (plc/omega), `channel` | `value_k` |
-| `level` | `vessel` | `raw_pf`, `filtered` |
-| `pressure` | `gauge` | `value_psi` |
-| `vacuum` | `gauge` | `value_mbar` |
-| `pid` | `zone` | `setpoint_k`, `pv_k`, `output_pct` |
-| `environment` | `sensor` | `temperature_c`, `humidity_pct`, `pressure_hpa` |
+| `temperature` | `source` (plc/omega), `sensor_type` (rtd/tc), `channel` | `value_k`, `value_c` |
+| `level` | `vessel` | `raw`, `filtered` |
+| `pressure` | `source` (ghs), `gauge` (setra), `channel` | `value` (mbar) |
+| `vacuum` | `source` (ghs), `channel` | `value` (mbar) |
+| `pid_state` | `zone` | `setpoint_k`, `pv_k`, `output_pct`, `kp`, `ki`, `kd` |
+| `valve_state` | `vessel` | `state`, `desired`, `auto_open`, `auto_close` |
+| `environment` | `location` (ghs), `parameter` (temperature/humidity/baro_pressure) | `value` |
+| `service_heartbeat` | — | `uptime_s` |
 
 ### Subscribing to raw MQTT (debugging)
 

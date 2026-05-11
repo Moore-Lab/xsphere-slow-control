@@ -364,36 +364,47 @@ Modeled on the usphere-DAQ pattern. Each plugin is a self-contained Python modul
 - `scale_reader` — LN2 dewar mass scale (RS-232)
 - `pump_monitor` — Leybold pumping stand status (serial)
 
-### 6.5 MQTT Topic Schema (Proposed)
+### 6.5 MQTT Topic Schema (slowcontrol-v2)
+
+This is the schema consumed by Telegraf (`telegraf/telegraf.conf`) and published
+by the Python service, the Omega logger, the GHS ESP32, and the FDC1004 level
+boards.  All sensor/status payloads are JSON.
 
 ```
-xsphere/sensors/plc/rtd/{1..4}            # RTD values from PLC (K)
-xsphere/sensors/omega/rtd/{1..2}          # RTD values from Omega (K)
-xsphere/sensors/omega/tc/{1..4}           # TC values from Omega (K)
-xsphere/sensors/ghs/pressure/{gauge}      # Pressure gauges (Pa or mbar)
-xsphere/sensors/ghs/vacuum/{gauge}        # PenningVAC full-range (mbar)
-xsphere/sensors/ghs/ambient/temp          # BMP3XX temperature (C)
-xsphere/sensors/ghs/ambient/pressure      # BMP3XX barometric (hPa)
-xsphere/sensors/ghs/ambient/humidity      # DHT11 humidity (%)
-xsphere/sensors/level/{vessel}            # FDC1004 level (%)
+# ── Sensors (Telegraf ingests these) ──────────────────────────────────────
+xsphere/sensors/temperature/{source}/{type}/{channel}   {"value_k": <f>, "value_c": <f>}
+    source : plc | omega        type : rtd | tc        channel : 1-4
+xsphere/sensors/pressure/{source}/{gauge}/{channel}     {"value": <mbar>}
+    source : ghs   gauge : setra        channel : 1-2
+xsphere/sensors/vacuum/{source}/{channel}               {"value": <mbar>}
+    source : ghs                channel : 1-2   (PenningVAC full-range)
+xsphere/sensors/environment/{location}/{parameter}      {"value": <f>}
+    location : ghs   parameter : temperature | humidity | baro_pressure
+xsphere/sensors/level/{vessel}                          {"raw": <f>, "filtered": <f>}
+    vessel : cryostat | primary_xe | ballast    (FDC1004, pF; scaling done in Python)
 
-xsphere/status/service/heartbeat          # Python service uptime (retained)
-xsphere/status/controllers/{name}         # Controller state JSON (retained)
-xsphere/status/valves/{name}              # Solenoid valve state (retained)
-xsphere/alerts/{rule}                     # Interlock alerts
+# ── Status ────────────────────────────────────────────────────────────────
+xsphere/status/service/heartbeat          {"uptime_s": <int>}                 (retained)
+xsphere/status/pid/{zone}                  {"setpoint_k","pv_k","output_pct","kp","ki","kd"} (retained)
+xsphere/status/valve/{vessel}              {"state","desired","auto_close","auto_open"}      (retained)
+xsphere/status/ghs_esp32                   {"uptime_s","rssi","ip"}            (device health; not ingested by Telegraf)
+xsphere/status/level_{vessel}              {"uptime_s","rssi","ip","vessel"}   (device health; not ingested by Telegraf)
+xsphere/alerts/{rule}                      # Interlock alerts
 
-xsphere/commands/pid/{zone}/setpoint      # Write PID setpoint (K)
-xsphere/commands/pid/{zone}/pv_source     # Set PV source (e.g., "cube_top")
-xsphere/commands/gradient/vertical        # Set vertical ΔT (K)
-xsphere/commands/gradient/longitudinal    # Set longitudinal ΔT (K)
-xsphere/commands/valve/{name}/state       # Open/close solenoid valve
-xsphere/commands/autovalve/{vessel}/mode  # Enable/disable autofill
-xsphere/commands/plugin/{name}/start      # Activate plugin
-xsphere/commands/plugin/{name}/stop       # Deactivate plugin
+# ── Commands (Telegraf ignores these) ─────────────────────────────────────
+xsphere/commands/pid/{zone}/setpoint       # Write PID setpoint (K)
+xsphere/commands/pid/{zone}/pv_source      # Set PV source (e.g., "cube_top")
+xsphere/commands/gradient/base             # Set gradient base setpoint (K)
+xsphere/commands/gradient/vertical         # Set vertical ΔT (K)
+xsphere/commands/gradient/longitudinal     # Set longitudinal ΔT (K)
+xsphere/commands/valve/{vessel}/state      # Open/close solenoid valve
+xsphere/commands/valve/{vessel}/auto_open  # Arm/disarm auto-open
+xsphere/commands/valve/{vessel}/auto_close # Arm/disarm auto-close
+xsphere/commands/gradient_scanner/start    # Start gradient scan
+xsphere/commands/gradient_scanner/stop     # Stop gradient scan
 ```
 
 PID zone naming: `top`, `bottom`, `nozzle`  
-Valve naming: `ln2_cryostat`, `ln2_primary`, `ln2_ballast`  
 Vessel naming: `cryostat`, `primary_xe`, `ballast`
 
 ---

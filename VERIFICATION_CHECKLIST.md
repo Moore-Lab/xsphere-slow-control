@@ -101,15 +101,25 @@ lower risk.
   - cryostat: `fill_timeout_s = 920` (15 min) — is this long enough?
   If a fill timeout fires during normal operation, increase the value.
 
-- [ ] **IMPORTANT** Confirm the level sensor FDC1004 channel assignments in
-  `firmware/level-sensor/platformio.ini`:
-  - `FDC1004_CHANNEL=FDC1004_CHANNEL_0` for both ballast and primary_xe.
-  If the probes are wired to different FDC1004 channels, update accordingly.
+- [ ] **IMPORTANT** Build and flash the FDC1004 level firmware with the
+  correct per-vessel PlatformIO environment from
+  `firmware/liquid-level-sensor/Software/FDC1004 Level Sensor/`:
+  ```bash
+  pio run -e ballast    -t upload
+  pio run -e primary_xe -t upload
+  # (cryostat env also available)
+  ```
+  Each environment injects `VESSEL_NAME` / `MQTT_CLIENT_ID`.  The differential
+  pair is CH0 vs CH1; if your probes are wired differently, edit `cha`/`chb`
+  in `src/main.cpp`.
 
-- [ ] **IMPORTANT** Calibrate `CAPDAC_OFFSET_PF` in `firmware/level-sensor/src/main.cpp`
-  for each vessel. With the dewar empty (or at a known reference level),
-  note the raw_pf value and set CAPDAC_OFFSET_PF to that value so the
-  sensor reads ~0 at empty.
+- [ ] Confirm the FDC1004 firmware's empty-vessel CAPDAC auto-baseline runs at
+  power-up with the dewar empty (it averages 10 samples in `setup()` and picks
+  a CAPDAC).  Watch the serial log for the reported baseline and CAPDAC value.
+  Then determine the pF → level-fraction mapping for each probe geometry and
+  set `autovalve.vessels.*.level_high` / `level_low` in `slowcontrol/config.yaml`
+  in the same units that flow on `xsphere/sensors/level/{vessel}` (the firmware
+  publishes picofarads in `raw`/`filtered`).
 
 ---
 
@@ -145,31 +155,37 @@ lower risk.
 
 ## 5. GHS ESP32 Firmware
 
-- [ ] **IMPORTANT** Verify voltage divider constant `FEG = 180.1 / 36.0 = 5.003` in
-  `firmware/ghs-esp32/src/main.cpp` matches the actual resistor values on
-  the GHS board. Measure the actual resistors or check the schematic.
-  Test: apply a known voltage (e.g., 5.000 V) to an ADC input with no sensor
-  connected, confirm the published `voltage_v` reads 5.000.
+Source: `firmware/gas-handling-system/Software/Xenon Gas Handling System Sensor Suite/`
+(branch `slowcontrol-v2`).
 
-- [ ] **IMPORTANT** Verify pressure conversion coefficients:
-  - `PSI_PER_VOLT_MAIN = 2.5`  (10 V → 25 PSI): confirm gauge range
-  - `PSI_PER_VOLT_HIGH = 10.0` (10 V → 100 PSI): confirm gauge range
+- [ ] **IMPORTANT** Verify voltage divider constant `FEG = 180.1 / 36.0 = 5.003`
+  in `src/main.cpp` matches the actual resistor values on the GHS board.
+  Measure the actual resistors or check the schematic.
+
+- [ ] **IMPORTANT** Verify pressure conversion + unit constants:
+  - `SETRA1_PSI_PER_VOLT = 2.5`  (10 V → 25 PSI): confirm gauge range
+  - `SETRA2_PSI_PER_VOLT = 10.0` (10 V → 100 PSI): confirm gauge range
+  - `PSI_TO_MBAR = 68.9476` — Telegraf documents pressure in mbar; set to
+    `1.0` and adjust the per-volt constants if your gauges are mbar-native.
   Cross-check against the pressure gauge data sheets.
 
-- [ ] **IMPORTANT** Verify vacuum gauge formula `p = 10^(1.667 × V − 11.33)`.
-  This is correct for the Pfeiffer PKR-251 Pirani gauge and similar.
-  Check the data sheet for your specific gauge model. Update `VAC_A` and
-  `VAC_B` constants if different.
+- [ ] **IMPORTANT** Verify vacuum gauge formula `p[mbar] = 10^(VAC_A·V − VAC_B)`
+  (`VAC_A = 1.667`, `VAC_B = 11.33`). Correct for the Pfeiffer PKR-251 Pirani
+  gauge and similar; check your gauge's data sheet and update if different.
 
-- [ ] **IMPORTANT** Confirm physical channel assignments:
-  - ADC1 CH0 → which pressure gauge?
-  - ADC1 CH1 → which pressure gauge?
-  - ADC1 CH2 → which vacuum gauge?
-  - ADC1 CH3 → which vacuum gauge?
-  Update the MQTT topic names in `main.cpp` and Telegraf config if needed
-  (e.g., `xsphere/sensors/vacuum/xe_cube` → `xsphere/sensors/vacuum/pump_line`).
+- [ ] **IMPORTANT** Confirm physical channel assignments and topic mapping:
+  - ADC1 CH0 → `xsphere/sensors/pressure/ghs/setra/1`
+  - ADC1 CH1 → `xsphere/sensors/pressure/ghs/setra/2`
+  - ADC1 CH2 → `xsphere/sensors/vacuum/ghs/1`
+  - ADC1 CH3 → `xsphere/sensors/vacuum/ghs/2`
+  Update the topics in `main.cpp` (and the Telegraf `topic_parsing` patterns
+  if you add channels) if the wiring differs.
 
-- [ ] **INFO** Confirm DHT11 pin assignment (`DHT_PIN = 4`).
+- [ ] **INFO** The two legacy ADC2 analog level channels are no longer
+  published (FDC1004 boards are the level source). To re-enable, set
+  `PUBLISH_LEGACY_ANALOG_LEVEL` to 1 in `main.cpp`.
+
+- [ ] **INFO** Confirm DHT11 pin assignment (`initDHT(4)`).
 
 ---
 

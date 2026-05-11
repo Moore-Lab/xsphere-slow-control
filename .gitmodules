@@ -1,3 +1,9 @@
 [submodule "LJ-python-controller"]
 	path = LJ-python-controller
 	url = https://github.com/Moore-Lab/LJ-python-controller.git
+[submodule "firmware/gas-handling-system"]
+	path = firmware/gas-handling-system
+	url = https://github.com/Moore-Lab/gas-handling-system.git
+[submodule "firmware/liquid-level-sensor"]
+	path = firmware/liquid-level-sensor
+	url = https://github.com/Moore-Lab/liquid-level-sensor.git

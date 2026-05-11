@@ -233,35 +233,45 @@ Install PlatformIO on your **development machine** (not xbox-pi):
 pip install platformio
 ```
 
+The firmware lives in two git submodules under `firmware/` (run
+`git submodule update --init --recursive` after cloning).  The
+`slowcontrol-v2` branch of each submodule publishes the xsphere MQTT schema.
+
 ### 5a. GHS ESP32 (pressure / vacuum / environment)
 
-Before flashing, edit `firmware/ghs-esp32/src/main.cpp` and verify:
-- `WIFI_SSID` / `WIFI_PASSWORD`
-- `MQTT_BROKER` IP
+```bash
+cd "firmware/gas-handling-system/Software/Xenon Gas Handling System Sensor Suite"
+git checkout slowcontrol-v2
+```
+Before flashing, verify in `src/main.cpp`:
+- `ssid` / `password` (WiFi)
+- `mqtt_server` IP
+- `FEG`, `SETRA*_PSI_PER_VOLT`, `PSI_TO_MBAR`, `VAC_A`/`VAC_B` (see
+  VERIFICATION_CHECKLIST.md §5)
 
 ```bash
-cd firmware/ghs-esp32
 pio run -t upload       # connects via USB to the GHS ESP32
 ```
 
 Confirm data arrives:
 ```bash
 mosquitto_sub -h 192.168.8.116 -t 'xsphere/sensors/pressure/#' -v
+mosquitto_sub -h 192.168.8.116 -t 'xsphere/sensors/vacuum/#'   -v
+mosquitto_sub -h 192.168.8.116 -t 'xsphere/sensors/environment/#' -v
 ```
 
 ### 5b. Level sensor ESP32s
 
-There are two level sensor boards (ballast and primary_xe).
-Flash each one separately:
+One board per vessel.  Edit WiFi/MQTT settings in `src/main.cpp`, then build
+the matching PlatformIO environment:
 
 ```bash
-cd firmware/level-sensor
+cd "firmware/liquid-level-sensor/Software/FDC1004 Level Sensor"
+git checkout slowcontrol-v2
 
-# Flash the ballast board (connect it via USB)
-pio run -e ballast -t upload
-
-# Swap USB to the primary_xe board
-pio run -e primary_xe -t upload
+pio run -e ballast    -t upload    # connect the ballast board via USB
+pio run -e primary_xe -t upload    # swap USB to the primary_xe board
+# (a cryostat env is also available)
 ```
 
 Confirm data:

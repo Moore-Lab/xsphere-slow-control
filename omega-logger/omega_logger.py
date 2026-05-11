@@ -13,14 +13,17 @@ Channel map (configurable in config section below):
   ch5 — RTD-1 (PT100, clamp RTD — ballast dewar)
   ch6 — RTD-2 (PT100, clamp RTD — cryostat exterior)
 
-MQTT topics published:
-  xsphere/sensors/temperature/omega/ch{1-6}
+MQTT topics published (xsphere slowcontrol-v2 schema):
+  xsphere/sensors/temperature/omega/tc/{1-4}    (channels 1-4)
+  xsphere/sensors/temperature/omega/rtd/{1-2}   (channels 5-6)
   TC payload:  {"value_k", "value_c", "emf_mv", "channel", "label", "fault"}
   RTD payload: {"value_k", "value_c", "resistance_ohm", "channel", "label", "fault"}
 
-  emf_mv and resistance_ohm are back-calculated from the instrument's temperature
-  reading via the NIST K-type polynomial and CVD equation respectively.  Use
-  these during ice-bath / LN2 calibration as inputs to the calibration scripts.
+  "channel" in the payload is 1-based within the sensor type (tc 1-4, rtd 1-2),
+  matching the topic.  emf_mv and resistance_ohm are back-calculated from the
+  instrument's temperature reading via the NIST K-type polynomial and CVD
+  equation respectively — use these during ice-bath / LN2 calibration as
+  inputs to the calibration scripts.
 
 HARDWARE NOTES (VERIFY BEFORE USE):
   ─────────────────────────────────
@@ -105,6 +108,22 @@ CHANNEL_TYPES = {
     5: "RTD",
     6: "RTD",
 }
+
+# MQTT sub-path per channel: (sensor_type, channel_index) where channel_index
+# is 1-based *within* the sensor type, matching the Telegraf schema
+#   xsphere/sensors/temperature/{source}/{type}/{channel}
+# e.g. ch1..4 → tc/1..4 ; ch5..6 → rtd/1..2
+def _build_channel_paths() -> dict:
+    counters: dict = {}
+    paths: dict = {}
+    for ch in sorted(CHANNEL_TYPES):
+        t = CHANNEL_TYPES[ch].lower()
+        counters[t] = counters.get(t, 0) + 1
+        paths[ch] = (t, counters[t])
+    return paths
+
+
+CHANNEL_PATHS = _build_channel_paths()
 
 # ── PT100 CVD constants (IEC 60751) ──────────────────────────────────
 _R0 = 100.0
@@ -266,24 +285,24 @@ def publish_channels(
 ) -> None:
     prefix = cfg["topic_prefix"]
     for ch, value_c in readings.items():
-        topic = f"{prefix}/ch{ch}"
+        sensor_type, type_ch = CHANNEL_PATHS.get(ch, ("tc", ch))
+        topic = f"{prefix}/{sensor_type}/{type_ch}"
         if value_c is None:
             payload = json.dumps({
-                "channel": ch,
+                "channel": type_ch,
                 "label": CHANNEL_LABELS.get(ch, ""),
                 "fault": True,
             })
         else:
             value_k = value_c + CELSIUS_TO_KELVIN
-            ch_type = CHANNEL_TYPES.get(ch, "TC")
             msg: dict = {
-                "channel": ch,
+                "channel": type_ch,
                 "label":   CHANNEL_LABELS.get(ch, ""),
                 "value_c": round(value_c, 2),
                 "value_k": round(value_k, 2),
                 "fault":   False,
             }
-            if ch_type == "RTD":
+            if sensor_type == "rtd":
                 msg["resistance_ohm"] = round(_cvd_r_from_t(value_c), 4)
             else:
                 msg["emf_mv"] = round(_k_emf_from_t(value_c), 4)

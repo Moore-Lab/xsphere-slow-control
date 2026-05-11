@@ -77,13 +77,11 @@ xsphere-slow-control/
 │   ├── telegraf.conf
 │   └── .env.example            ← copy to .env and fill in secrets
 │
-├── firmware/
-│   ├── ghs-esp32/              ← Gas Handling System ESP32 (pressure/vacuum)
-│   │   ├── platformio.ini
-│   │   └── src/main.cpp
-│   └── level-sensor/           ← LN2 level sensor ESP32 (FDC1004)
-│       ├── platformio.ini      ← builds two environments: ballast, primary_xe
-│       └── src/main.cpp
+├── firmware/                   ← git submodules (run: git submodule update --init)
+│   ├── gas-handling-system/    ← Moore-Lab/gas-handling-system
+│   │   └── Software/Xenon Gas Handling System Sensor Suite/   (ESP32, branch slowcontrol-v2)
+│   └── liquid-level-sensor/    ← Moore-Lab/liquid-level-sensor
+│       └── Software/FDC1004 Level Sensor/   (ESP32, branch slowcontrol-v2; per-vessel envs)
 │
 └── nodered/
     └── dashboard-flows.json    ← import into Node-RED
@@ -104,21 +102,23 @@ xsphere-slow-control/
 
 ## MQTT topic schema
 
-| Topic | Direction | Description |
+All sensor/status payloads are JSON.  Full schema and payload shapes:
+`SYSTEM_ARCHITECTURE.md` §6.5 (must match `telegraf/telegraf.conf`).
+
+| Topic | Direction | Payload |
 |---|---|---|
-| `xsphere/sensors/temperature/plc/{ch}` | PLC→broker | RTD/TC readings from PLC |
-| `xsphere/sensors/temperature/omega/{ch}` | Omega→broker | TC/RTD readings from Omega logger |
-| `xsphere/sensors/level/{vessel}` | ESP32→broker | LN2 level (raw pF) |
-| `xsphere/sensors/pressure/{gauge}` | GHS ESP32→broker | Pressure (PSI) |
-| `xsphere/sensors/vacuum/{gauge}` | GHS ESP32→broker | Vacuum (mbar) |
-| `xsphere/sensors/environment/{sensor}` | GHS ESP32→broker | Lab T/RH/P |
-| `xsphere/status/pid/{zone}` | PLC driver→broker | PID setpoint/PV/output |
-| `xsphere/status/gradient` | Python→broker | Gradient mode and parameters |
-| `xsphere/status/interlocks` | Python→broker | Active alerts and ok flag |
-| `xsphere/alerts/{rule}/{channel}` | Python→broker | Individual alert payloads |
-| `xsphere/commands/gradient/{param}` | Dashboard→Python | Setpoint/mode commands |
-| `xsphere/commands/valve/{vessel}/{action}` | Dashboard→Python | Valve control |
-| `xsphere/commands/gradient_scanner/{cmd}` | Dashboard→Python | Scan start/stop |
+| `xsphere/sensors/temperature/{plc\|omega}/{rtd\|tc}/{ch}` | PLC / Omega→broker | `{"value_k","value_c"}` |
+| `xsphere/sensors/pressure/ghs/setra/{1,2}` | GHS ESP32→broker | `{"value"}` (mbar) |
+| `xsphere/sensors/vacuum/ghs/{1,2}` | GHS ESP32→broker | `{"value"}` (mbar) |
+| `xsphere/sensors/environment/ghs/{temperature\|humidity\|baro_pressure}` | GHS ESP32→broker | `{"value"}` |
+| `xsphere/sensors/level/{vessel}` | FDC1004 ESP32→broker | `{"raw","filtered"}` (pF) |
+| `xsphere/status/pid/{zone}` | PLC driver→broker | `{"setpoint_k","pv_k","output_pct","kp","ki","kd"}` (retained) |
+| `xsphere/status/valve/{vessel}` | Python→broker | `{"state","desired","auto_open","auto_close"}` (retained) |
+| `xsphere/status/service/heartbeat` | Python→broker | `{"uptime_s"}` (retained) |
+| `xsphere/status/ghs_esp32`, `xsphere/status/level_{vessel}` | ESP32→broker | `{"uptime_s","rssi","ip"}` (device health; not ingested) |
+| `xsphere/status/gradient`, `xsphere/status/gradient_scanner`, `xsphere/status/interlocks` | Python→broker | controller state |
+| `xsphere/alerts/{rule}/{channel}` | Python→broker | individual alert payloads |
+| `xsphere/commands/...` | Dashboard→Python | setpoint / valve / scan commands (Telegraf ignores) |
 
 ## Key contacts / resources
 
