@@ -12,7 +12,7 @@ import json
 import logging
 import threading
 import time
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 import paho.mqtt.client as mqtt
 
@@ -44,7 +44,12 @@ class MqttClient:
         self._port = port
         self._keepalive = keepalive
         self._lock = threading.Lock()
-        self._subscriptions: Dict[str, Callable] = {}
+        self._connected = threading.Event()
+        # topic pattern -> list of callbacks. Multiple components may subscribe
+        # to the same topic (e.g. the PLC driver and the gradient controller
+        # both listen on xsphere/commands/pid/+/setpoint); every matching
+        # callback is invoked.
+        self._subscriptions: Dict[str, List[Callable]] = {}
 
         self._client = mqtt.Client(client_id=client_id,
                                    protocol=mqtt.MQTTv5)
@@ -56,12 +61,20 @@ class MqttClient:
     # Connection
     # ------------------------------------------------------------------
 
-    def connect(self) -> None:
+    def connect(self, wait_timeout: float = 10.0) -> None:
         log.info("Connecting to MQTT broker at %s:%d", self._host, self._port)
+        self._connected.clear()
         self._client.connect(self._host, self._port, self._keepalive)
         self._client.loop_start()
+        # Block until CONNACK so that any subscribe() calls made by drivers /
+        # controllers immediately after this return actually reach the broker
+        # (and are registered before the first command is published).
+        if not self._connected.wait(timeout=wait_timeout):
+            log.warning("MQTT broker did not acknowledge connection within %.1fs; "
+                        "continuing anyway", wait_timeout)
 
     def disconnect(self) -> None:
+        self._connected.clear()
         self._client.loop_stop()
         self._client.disconnect()
         log.info("Disconnected from MQTT broker")
@@ -96,11 +109,19 @@ class MqttClient:
     def subscribe(self, topic: str,
                   callback: Callable[[str, Any], None],
                   qos: int = 1) -> None:
-        """Subscribe to a topic. callback(topic, payload_dict)."""
+        """Register a callback for a topic. callback(topic, payload).
+
+        Multiple callbacks may be registered for the same topic; all of them
+        are invoked when a matching message arrives. The broker subscription
+        is sent once per topic.
+        """
         with self._lock:
-            self._subscriptions[topic] = callback
-            self._client.subscribe(topic, qos=qos)
-        log.debug("Subscribed to %s", topic)
+            first = topic not in self._subscriptions
+            self._subscriptions.setdefault(topic, []).append(callback)
+            if first:
+                self._client.subscribe(topic, qos=qos)
+        log.debug("Subscribed to %s (%d callback(s))",
+                  topic, len(self._subscriptions[topic]))
 
     # ------------------------------------------------------------------
     # Callbacks
@@ -113,6 +134,7 @@ class MqttClient:
             with self._lock:
                 for topic in self._subscriptions:
                     client.subscribe(topic)
+            self._connected.set()
         else:
             log.error("MQTT connect failed: rc=%d", rc)
 
@@ -125,13 +147,17 @@ class MqttClient:
 
         # Match against subscriptions (including wildcards via paho)
         with self._lock:
-            callbacks = list(self._subscriptions.items())
-        for pattern, cb in callbacks:
-            if mqtt.topic_matches_sub(pattern, topic):
-                try:
-                    cb(topic, payload)
-                except Exception:
-                    log.exception("Error in MQTT callback for %s", topic)
+            matched = [
+                cb
+                for pattern, cbs in self._subscriptions.items()
+                if mqtt.topic_matches_sub(pattern, topic)
+                for cb in cbs
+            ]
+        for cb in matched:
+            try:
+                cb(topic, payload)
+            except Exception:
+                log.exception("Error in MQTT callback for %s", topic)
 
     def _on_disconnect(self, client, userdata, rc, properties=None):
         if rc != 0:
