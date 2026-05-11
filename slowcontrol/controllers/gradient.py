@@ -6,9 +6,13 @@ Abstracts the three PID zones into two high-level parameters:
   - delta_v_k    : vertical gradient  ΔT = T_bottom − T_top (Kelvin)
   - delta_l_k    : longitudinal gradient ΔT = T_nozzle − T_top (Kelvin)
 
-In gradient mode the controller continuously recomputes each zone's
-absolute setpoint and publishes it as an MQTT command, which the PLC
-driver then writes via Modbus TCP.
+When a parameter changes (via a dashboard command) the controller
+recomputes each zone's absolute setpoint and publishes it as an MQTT
+command, which the PLC driver then writes via Modbus TCP.  It does NOT
+write anything on startup — the running system is assumed to already be in
+its desired state; on startup the controller only *observes* the PLC's
+reported PID setpoints (xsphere/status/pid/+) so its published state
+mirrors what is actually on the PLC.
 
 Modes
 ─────
@@ -90,8 +94,15 @@ class GradientController(Controller):
             command_topic("gradient", "longitudinal"), self._on_longitudinal)
         self._mqtt.subscribe(
             command_topic("pid", "+", "setpoint"),   self._on_abs_setpoint)
-        log.info("[gradient] started (mode=%s)", self._mode)
-        self._apply()
+        # Observe the PLC's actual PID setpoints so our published state mirrors
+        # reality.  We do NOT write setpoints on startup — the running system
+        # is assumed to already be in its desired state; the PLC's PID
+        # registers change only in response to an explicit operator command.
+        self._mqtt.subscribe(
+            status_topic("pid", "+"), self._on_plc_pid_status)
+        log.info("[gradient] started (mode=%s) — read-only until first command",
+                 self._mode)
+        self._publish_status()
 
     def stop(self) -> None:
         log.info("[gradient] stopped")
@@ -153,9 +164,44 @@ class GradientController(Controller):
         with self._lock:
             self._abs_setpoints[zone] = float(val)
         log.info("[gradient] abs setpoint %s → %.2f K", zone, float(val))
-        # In absolute mode we just pass the command through to PLC driver
-        # (already subscribed there); publish status only.
+        # In absolute mode we just pass the command through to the PLC driver
+        # (also subscribed there); publish status only.
         self._publish_status()
+
+    def _on_plc_pid_status(self, topic: str, payload) -> None:
+        """Adopt the PLC's reported PID setpoints into our state.
+
+        Keeps the gradient/absolute state (and therefore the published
+        status / dashboard sliders) consistent with what is actually on the
+        PLC. Never writes back — purely observational.
+        """
+        if not isinstance(payload, dict):
+            return
+        zone = topic.rsplit("/", 1)[-1]   # xsphere/status/pid/{zone}
+        if zone not in ZONES:
+            return
+        sp_k = payload.get("setpoint_k")
+        if sp_k is None:
+            return
+        try:
+            sp_k = float(sp_k)
+        except (TypeError, ValueError):
+            return
+        changed = False
+        with self._lock:
+            if self._abs_setpoints.get(zone) != sp_k:
+                self._abs_setpoints[zone] = sp_k
+                changed = True
+            top = self._abs_setpoints.get("top")
+            if top is not None:
+                new_base = top
+                new_dv = self._abs_setpoints.get("bottom", top) - top
+                new_dl = self._abs_setpoints.get("nozzle", top) - top
+                if (self._base_k, self._delta_v_k, self._delta_l_k) != (new_base, new_dv, new_dl):
+                    self._base_k, self._delta_v_k, self._delta_l_k = new_base, new_dv, new_dl
+                    changed = True
+        if changed:
+            self._publish_status()
 
     # ------------------------------------------------------------------
     # Apply computed setpoints
@@ -194,6 +240,16 @@ class GradientController(Controller):
             base_k    = self._base_k
             delta_v_k = self._delta_v_k
             delta_l_k = self._delta_l_k
+            abs_sp    = dict(self._abs_setpoints)
+        if setpoints is None:
+            if mode == "gradient":
+                setpoints = {
+                    "top":    base_k,
+                    "bottom": base_k + delta_v_k,
+                    "nozzle": base_k + delta_l_k,
+                }
+            else:
+                setpoints = abs_sp
         self._mqtt.publish_status(
             "gradient",
             payload={
@@ -201,6 +257,6 @@ class GradientController(Controller):
                 "base_k":     base_k,
                 "delta_v_k":  delta_v_k,
                 "delta_l_k":  delta_l_k,
-                "setpoints_k": setpoints or {},
+                "setpoints_k": {z: round(v, 3) for z, v in setpoints.items()},
             },
         )
