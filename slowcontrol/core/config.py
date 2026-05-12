@@ -101,6 +101,10 @@ class ServiceConfig:
     omega: OmegaConfig = field(default_factory=OmegaConfig)
     autovalve: AutovalveConfig = field(default_factory=AutovalveConfig)
     gradient: GradientConfig = field(default_factory=GradientConfig)
+    # Raw `labjack:` block from the YAML, passed through to the LabJack T7
+    # controller (see LJ-python-controller / LabjackT7Config.from_dict).
+    # None ⇒ the controller uses its built-in defaults (no channels).
+    labjack: Optional[dict] = None
     heartbeat_interval: float = 10.0    # seconds between heartbeat publishes
     log_level: str = "INFO"
 
@@ -170,6 +174,9 @@ def load(path: str = "config.yaml") -> ServiceConfig:
             enabled=av.get("enabled", True),
             vessels=vessels or cfg.autovalve.vessels,
         )
+
+    if "labjack" in raw:
+        cfg.labjack = raw["labjack"]
 
     cfg.heartbeat_interval = raw.get("heartbeat_interval", cfg.heartbeat_interval)
     cfg.log_level = raw.get("log_level", cfg.log_level)

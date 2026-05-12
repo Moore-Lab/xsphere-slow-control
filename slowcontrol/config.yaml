@@ -50,5 +50,25 @@ autovalve:
       level_low: 0.5
       fill_timeout_s: 600
 
+# LabJack T7 — thermometry via the AIN extended features (the device does the
+# PT100 conversion itself; type-K TCs are differential gradiometers, re-referenced
+# in software to a nearby RTD).  Global RTD numbering: 1-3 on the LabJack, 4-6 on
+# the PLC.  Topics: xsphere/sensors/temperature/labjack/{rtd|tc}/<channel>.
+labjack:
+  connection_type: ETHERNET
+  device_identifier: "192.168.8.194"   # T7 serial 470037304
+  poll_interval_s: 1.0
+  read_internal_temp: false            # the board temp is reported as each TC's cjc_k
+  thermometry_channels:
+    # RTDs — PT100, AINx_EF_INDEX=40, 4-wire, 200 µA current source
+    - {name: rtd1, kind: rtd, ain: 0,  channel: 1, label: "nozzle"}
+    - {name: rtd2, kind: rtd, ain: 2,  channel: 2, label: "top cube"}
+    - {name: rtd3, kind: rtd, ain: 4,  channel: 3, label: "bottom cube"}
+    # Type-K thermocouple gradiometers — AINx_EF_INDEX=22, re-referenced to an RTD
+    - {name: tc1, kind: tc, ain: 6,  channel: 1, label: "LN vessel <-> base", reference: "plc/rtd/4"}
+    - {name: tc2, kind: tc, ain: 8,  channel: 2, label: "along nipple",       reference: "rtd1"}
+    - {name: tc3, kind: tc, ain: 10, channel: 3, label: "cube left<->right",  reference: "rtd3"}
+    - {name: tc4, kind: tc, ain: 12, channel: 4, label: "cube front<->back",  reference: "rtd3"}
+
 heartbeat_interval: 10.0    # seconds between heartbeat MQTT publishes
 log_level: INFO
