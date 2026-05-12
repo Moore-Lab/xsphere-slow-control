@@ -247,51 +247,81 @@ Install PlatformIO on your **development machine** (not xbox-pi):
 pip install platformio
 ```
 
-The firmware lives in two git submodules under `firmware/` (run
-`git submodule update --init --recursive` after cloning).  The
-`slowcontrol-v2` branch of each submodule publishes the xsphere MQTT schema.
+The firmware lives in git submodules under `firmware/` (run
+`git submodule update --init --recursive` after cloning — `git submodule
+update` always checks out the commit this repo pins, which is on each
+submodule's `main`).
 
-### 5a. GHS ESP32 (pressure / vacuum / environment)
+### 5a. GHS ESP32 (pressure / vacuum / environment / legacy LN2 level)
 
-```bash
-cd "firmware/gas-handling-system/Software/Xenon Gas Handling System Sensor Suite"
-git checkout slowcontrol-v2
-```
+`firmware/gas-handling-system/Software/Xenon Gas Handling System Sensor Suite/`
+
 Before flashing, verify in `src/main.cpp`:
-- `ssid` / `password` (WiFi)
-- `mqtt_server` IP
-- `FEG`, `SETRA*_PSI_PER_VOLT`, `PSI_TO_MBAR`, `VAC_A`/`VAC_B` (see
-  VERIFICATION_CHECKLIST.md §5)
+- `ssid` / `password` (WiFi), `mqtt_server` IP
+- `FEG`, `SETRA{1,2,3}_PSI_PER_VOLT`, `PSI_TO_MBAR`, `VAC_A`/`VAC_B`
+  (see VERIFICATION_CHECKLIST.md §5)
+- `PUBLISH_LEGACY_ANALOG_LEVEL` — set to 1 if this board's ADC2 CH0/CH1 are
+  reading the ballast / primary_xe analog level signals (it then publishes
+  `xsphere/sensors/level/{ballast,primary_xe}`); 0 otherwise.
 
 ```bash
-pio run -t upload       # connects via USB to the GHS ESP32
+pio run -t upload       # connect the GHS ESP32 via USB
 ```
 
-Confirm data arrives:
+Confirm:
 ```bash
-mosquitto_sub -h 192.168.8.116 -t 'xsphere/sensors/pressure/#' -v
-mosquitto_sub -h 192.168.8.116 -t 'xsphere/sensors/vacuum/#'   -v
+mosquitto_sub -h 192.168.8.116 -t 'xsphere/sensors/pressure/#'    -v
+mosquitto_sub -h 192.168.8.116 -t 'xsphere/sensors/vacuum/#'      -v
 mosquitto_sub -h 192.168.8.116 -t 'xsphere/sensors/environment/#' -v
 ```
 
-### 5b. Level sensor ESP32s
+### 5b. LN2 level sensors — MPR121 (analog output)
 
-One board per vessel.  Edit WiFi/MQTT settings in `src/main.cpp`, then build
-the matching PlatformIO environment:
+`firmware/liquid-level-sensor/Software/MPR121 Level Sensor/`
 
+Each board reads an MPR121 capacitive electrode and emits an **analog (PWM)
+level signal on GPIO26** — it does *not* use WiFi/MQTT, so the autofill loop
+keeps working if the network is down. That analog signal goes to the GHS
+ESP32's ADC2 (which publishes `xsphere/sensors/level/{ballast,primary_xe}`)
+and/or to a PLC analog input.
+
+For each electrode/vessel, edit `src/main.cpp`:
+- `ELECTRODE` (MPR121 electrode number, e.g. 0 = internal LN, 5 = ballast/bottle)
+- `EMPTY_COUNT` / `FULL_COUNT` (calibration counts — set both to 0.0 to run an
+  interactive calibration over serial at startup)
+- the per-electrode charge-current / charge-time registers in
+  `apply_high_sensitivity_settings()`
+
+then build and flash:
 ```bash
-cd "firmware/liquid-level-sensor/Software/FDC1004 Level Sensor"
-git checkout slowcontrol-v2
-
-pio run -e ballast    -t upload    # connect the ballast board via USB
-pio run -e primary_xe -t upload    # swap USB to the primary_xe board
-# (a cryostat env is also available)
+cd "firmware/liquid-level-sensor/Software/MPR121 Level Sensor"
+pio run -e esp32dev -t upload
 ```
 
-Confirm data:
+The cryostat LN2 level is read on a CLICK analog input (the PLC publishes it
+on `xsphere/sensors/level/cryostat` via the slow-control service). Confirm all
+levels:
 ```bash
 mosquitto_sub -h 192.168.8.116 -t 'xsphere/sensors/level/#' -v
 ```
+
+### 5c. LabJack T7 (RTDs and gradiometer thermocouples)
+
+The T7 is not "flashed" — it is configured via its registers (AIN extended
+features: `AINx_EF_INDEX=40` for the PT100 RTDs with the 200 µA current
+source, `AINx_EF_INDEX=22` for the type-K thermocouples; differential AIN
+pairs). On xbox-pi, install the LJM runtime and point the `labjack:` block of
+`slowcontrol/config.yaml` at the device:
+```bash
+# LJM runtime (aarch64) — https://support.labjack.com/docs/ljm-software-installer-linux-arm-family
+curl -fsSLO "https://files.labjack.com/installers/LJM/Linux/AArch64/release/LabJack-LJM_2025-05-07.zip"
+unzip LabJack-LJM_2025-05-07.zip && cd LabJack-LJM_2025-05-07
+sudo ./labjack_ljm_installer.run -- --without-kipling
+```
+The slow-control service then reads the EF registers and publishes
+`xsphere/sensors/temperature/labjack/{rtd,tc}/<channel>`; the type-K
+gradiometers are re-referenced in software to a nearby RTD (configured in the
+`labjack:` block — a LabJack RTD by name, or `plc/rtd/<n>` for a PLC RTD).
 
 > **Before enabling autofill**, read the level calibration section in
 > VERIFICATION_CHECKLIST.md §3. The raw pF values need to be mapped to

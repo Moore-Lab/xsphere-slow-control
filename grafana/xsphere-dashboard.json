@@ -1,0 +1,155 @@
+{
+  "title": "xsphere Slow Control",
+  "uid": "xsphere-slowcontrol",
+  "tags": ["xsphere"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "refresh": "10s",
+  "time": { "from": "now-3h", "to": "now" },
+  "templating": {
+    "list": [
+      {
+        "name": "DS_INFLUX",
+        "type": "datasource",
+        "query": "influxdb",
+        "current": { "text": "InfluxDB-xsphere", "value": "InfluxDB-xsphere" },
+        "hide": 0
+      }
+    ]
+  },
+  "panels": [
+    {
+      "type": "row", "title": "Temperatures", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 }, "collapsed": false
+    },
+    {
+      "type": "timeseries",
+      "title": "All temperatures (°C)",
+      "datasource": { "type": "influxdb", "uid": "${DS_INFLUX}" },
+      "gridPos": { "h": 9, "w": 16, "x": 0, "y": 1 },
+      "fieldConfig": { "defaults": { "unit": "celsius", "custom": { "drawStyle": "line", "showPoints": "never", "lineWidth": 1 } }, "overrides": [] },
+      "options": { "legend": { "displayMode": "table", "placement": "right", "calcs": ["last"] }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "influxdb", "uid": "${DS_INFLUX}" },
+          "query": "from(bucket: \"xsphere\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"temperature\" and r._field == \"value_c\")\n  |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false)\n  |> map(fn: (r) => ({ r with series: r.source + \" \" + r.sensor_type + \"/\" + r.channel }))\n  |> keep(columns: [\"_time\", \"_value\", \"series\"])\n  |> group(columns: [\"series\"])"
+        }
+      ]
+    },
+    {
+      "type": "table",
+      "title": "Latest readings",
+      "datasource": { "type": "influxdb", "uid": "${DS_INFLUX}" },
+      "gridPos": { "h": 9, "w": 8, "x": 16, "y": 1 },
+      "options": { "showHeader": true },
+      "fieldConfig": { "defaults": { "custom": { "align": "auto" } }, "overrides": [ { "matcher": { "id": "byName", "options": "value_c" }, "properties": [ { "id": "unit", "value": "celsius" }, { "id": "decimals", "value": 2 } ] } ] },
+      "transformations": [ { "id": "merge" } ],
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "influxdb", "uid": "${DS_INFLUX}" },
+          "query": "from(bucket: \"xsphere\")\n  |> range(start: -5m)\n  |> filter(fn: (r) => r._measurement == \"temperature\" and (r._field == \"value_c\" or r._field == \"value_k\" or r._field == \"resistance_ohm\" or r._field == \"emf_mv\"))\n  |> last()\n  |> keep(columns: [\"source\", \"sensor_type\", \"channel\", \"_field\", \"_value\"])\n  |> pivot(rowKey: [\"source\", \"sensor_type\", \"channel\"], columnKey: [\"_field\"], valueColumn: \"_value\")\n  |> sort(columns: [\"source\", \"sensor_type\", \"channel\"])"
+        }
+      ]
+    },
+    {
+      "type": "row", "title": "LN2 levels", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 10 }
+    },
+    {
+      "type": "timeseries",
+      "title": "LN2 level (0–10 scale)",
+      "datasource": { "type": "influxdb", "uid": "${DS_INFLUX}" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 11 },
+      "fieldConfig": { "defaults": { "min": 0, "max": 10, "custom": { "drawStyle": "line", "showPoints": "never", "lineWidth": 1, "fillOpacity": 10 } }, "overrides": [] },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom", "calcs": ["last"] }, "tooltip": { "mode": "multi" } },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "influxdb", "uid": "${DS_INFLUX}" },
+          "query": "from(bucket: \"xsphere\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"level\")\n  |> filter(fn: (r) => (r.vessel == \"cryostat\" and r._field == \"filtered\") or (r.vessel != \"cryostat\" and r._field == \"raw\"))\n  |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false)\n  |> keep(columns: [\"_time\", \"_value\", \"vessel\"])\n  |> group(columns: [\"vessel\"])"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Heater PID (zone setpoint / PV, K — and output %)",
+      "datasource": { "type": "influxdb", "uid": "${DS_INFLUX}" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 11 },
+      "fieldConfig": { "defaults": { "custom": { "drawStyle": "line", "showPoints": "never", "lineWidth": 1 } }, "overrides": [ { "matcher": { "id": "byRegexp", "options": ".*output_pct.*" }, "properties": [ { "id": "custom.axisPlacement", "value": "right" }, { "id": "unit", "value": "percent" } ] } ] },
+      "options": { "legend": { "displayMode": "table", "placement": "right", "calcs": ["last"] }, "tooltip": { "mode": "multi" } },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "influxdb", "uid": "${DS_INFLUX}" },
+          "query": "from(bucket: \"xsphere\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"pid_state\" and (r._field == \"setpoint_k\" or r._field == \"pv_k\" or r._field == \"output_pct\"))\n  |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false)\n  |> map(fn: (r) => ({ r with series: r.zone + \" \" + r._field }))\n  |> keep(columns: [\"_time\", \"_value\", \"series\"])\n  |> group(columns: [\"series\"])"
+        }
+      ]
+    },
+    {
+      "type": "row", "title": "Gas handling", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 19 }
+    },
+    {
+      "type": "timeseries",
+      "title": "Pressure (mbar)",
+      "datasource": { "type": "influxdb", "uid": "${DS_INFLUX}" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 20 },
+      "fieldConfig": { "defaults": { "unit": "pressurembar", "custom": { "drawStyle": "line", "showPoints": "never", "lineWidth": 1 } }, "overrides": [] },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom", "calcs": ["last"] }, "tooltip": { "mode": "multi" } },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "influxdb", "uid": "${DS_INFLUX}" },
+          "query": "from(bucket: \"xsphere\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"pressure\" and r._field == \"value\")\n  |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false)\n  |> map(fn: (r) => ({ r with series: r.gauge + \"/\" + r.channel }))\n  |> keep(columns: [\"_time\", \"_value\", \"series\"])\n  |> group(columns: [\"series\"])"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Vacuum (mbar, log)",
+      "datasource": { "type": "influxdb", "uid": "${DS_INFLUX}" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 20 },
+      "fieldConfig": { "defaults": { "unit": "pressurembar", "custom": { "drawStyle": "line", "showPoints": "never", "lineWidth": 1, "scaleDistribution": { "type": "log", "log": 10 } } }, "overrides": [] },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom", "calcs": ["last"] }, "tooltip": { "mode": "multi" } },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "influxdb", "uid": "${DS_INFLUX}" },
+          "query": "from(bucket: \"xsphere\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"vacuum\" and r._field == \"value\")\n  |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false)\n  |> keep(columns: [\"_time\", \"_value\", \"channel\"])\n  |> group(columns: [\"channel\"])"
+        }
+      ]
+    },
+    {
+      "type": "row", "title": "Valves & status", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 28 }
+    },
+    {
+      "type": "state-timeline",
+      "title": "Valve state (1 = open)",
+      "datasource": { "type": "influxdb", "uid": "${DS_INFLUX}" },
+      "gridPos": { "h": 7, "w": 16, "x": 0, "y": 29 },
+      "fieldConfig": { "defaults": { "custom": { "fillOpacity": 70 }, "mappings": [ { "type": "value", "options": { "0": { "text": "closed", "color": "dark-blue" }, "1": { "text": "OPEN", "color": "green" } } } ] }, "overrides": [] },
+      "options": { "showValue": "auto", "mergeValues": true, "legend": { "displayMode": "list", "placement": "bottom" } },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "influxdb", "uid": "${DS_INFLUX}" },
+          "query": "from(bucket: \"xsphere\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"valve_state\" and r._field == \"state\")\n  |> aggregateWindow(every: v.windowPeriod, fn: last, createEmpty: false)\n  |> keep(columns: [\"_time\", \"_value\", \"vessel\"])\n  |> group(columns: [\"vessel\"])"
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Slow-control uptime",
+      "datasource": { "type": "influxdb", "uid": "${DS_INFLUX}" },
+      "gridPos": { "h": 7, "w": 8, "x": 16, "y": 29 },
+      "fieldConfig": { "defaults": { "unit": "s", "color": { "mode": "thresholds" }, "thresholds": { "steps": [ { "color": "red", "value": null }, { "color": "green", "value": 1 } ] } }, "overrides": [] },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background", "graphMode": "none" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "influxdb", "uid": "${DS_INFLUX}" },
+          "query": "from(bucket: \"xsphere\")\n  |> range(start: -10m)\n  |> filter(fn: (r) => r._measurement == \"service_heartbeat\" and r._field == \"uptime_s\")\n  |> last()"
+        }
+      ]
+    }
+  ]
+}
