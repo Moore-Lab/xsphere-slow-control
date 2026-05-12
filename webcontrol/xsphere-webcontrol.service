@@ -1,0 +1,31 @@
+# systemd unit for the xsphere web control panel (Flask + paho-mqtt).
+#
+# Install:
+#   sudo cp webcontrol/xsphere-webcontrol.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now xsphere-webcontrol
+#
+# Then browse to  http://<pi>:8088/
+# Logs:  journalctl -u xsphere-webcontrol -f
+
+[Unit]
+Description=xsphere Web Control Panel
+After=network-online.target mosquitto.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=xbox
+WorkingDirectory=/home/xbox/xsphere-slow-control
+ExecStart=/home/xbox/miniconda3/envs/slowcontrol/bin/python -u webcontrol/app.py
+Environment=PYTHONUNBUFFERED=1
+Environment=XSPHERE_MQTT_HOST=localhost
+Environment=XSPHERE_MQTT_PORT=1883
+Environment=XSPHERE_WEB_PORT=8088
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
