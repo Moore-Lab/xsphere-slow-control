@@ -1,0 +1,5286 @@
+[
+    {
+        "id": "611302fba5b8a444",
+        "type": "tab",
+        "label": "Database Loop",
+        "disabled": false,
+        "info": "",
+        "env": []
+    },
+    {
+        "id": "f330bec27993f9b0",
+        "type": "tab",
+        "label": "Read Sensors",
+        "disabled": false,
+        "info": "",
+        "env": []
+    },
+    {
+        "id": "03a0706ad6285197",
+        "type": "tab",
+        "label": "Read Valve Registers",
+        "disabled": false,
+        "info": "",
+        "env": []
+    },
+    {
+        "id": "17f7f3624d243018",
+        "type": "tab",
+        "label": "Read PID",
+        "disabled": false,
+        "info": "",
+        "env": []
+    },
+    {
+        "id": "0ff59ca3c89b9370",
+        "type": "tab",
+        "label": "Valve Control",
+        "disabled": false,
+        "info": "",
+        "env": []
+    },
+    {
+        "id": "4ecafdf989b5b0cc",
+        "type": "tab",
+        "label": "PID Control",
+        "disabled": false,
+        "info": "",
+        "env": []
+    },
+    {
+        "id": "da2bbf304d342fbe",
+        "type": "tab",
+        "label": "Flow 1",
+        "disabled": false,
+        "info": "",
+        "env": []
+    },
+    {
+        "id": "709a5ccf8d4c4dd2",
+        "type": "mqtt-broker",
+        "name": "",
+        "broker": "http://192.168.8.116",
+        "port": "1883",
+        "clientid": "",
+        "autoConnect": true,
+        "usetls": false,
+        "protocolVersion": "4",
+        "keepalive": "60",
+        "cleansession": true,
+        "birthTopic": "",
+        "birthQos": "0",
+        "birthPayload": "",
+        "birthMsg": {},
+        "closeTopic": "",
+        "closeQos": "0",
+        "closePayload": "",
+        "closeMsg": {},
+        "willTopic": "",
+        "willQos": "0",
+        "willPayload": "",
+        "willMsg": {},
+        "userProps": "",
+        "sessionExpiry": ""
+    },
+    {
+        "id": "13a5c92475559470",
+        "type": "inject",
+        "z": "611302fba5b8a444",
+        "name": "Poll Registers",
+        "props": [
+            {
+                "p": "payload"
+            },
+            {
+                "p": "topic",
+                "vt": "str"
+            }
+        ],
+        "repeat": "1",
+        "crontab": "",
+        "once": true,
+        "onceDelay": 0.1,
+        "topic": "",
+        "payload": "",
+        "payloadType": "date",
+        "x": 160,
+        "y": 100,
+        "wires": [
+            [
+                "686b1bff6a499843"
+            ]
+        ]
+    },
+    {
+        "id": "686b1bff6a499843",
+        "type": "link out",
+        "z": "611302fba5b8a444",
+        "name": "Out from loop",
+        "mode": "link",
+        "links": [
+            "363614b152045781",
+            "1eeda89c87dbffa2",
+            "6610054de5969b24",
+            "9a02acb649984047",
+            "3679b31eab4ec606",
+            "7c8815fb2cab450b",
+            "26565cf2de650f26",
+            "348a7ce2df90d62b",
+            "16268fe6ad553f5f",
+            "2536d0622438136e",
+            "6c1367913928a277",
+            "c6596a0a3b4ffdfe",
+            "09e56d985f0491fe"
+        ],
+        "x": 295,
+        "y": 100,
+        "wires": []
+    },
+    {
+        "id": "69a89328e3a49ad1",
+        "type": "link in",
+        "z": "611302fba5b8a444",
+        "name": "In from XV1",
+        "links": [
+            "7315319dcd0eccb3"
+        ],
+        "x": 295,
+        "y": 160,
+        "wires": [
+            [
+                "b693fce60471f0fc"
+            ]
+        ]
+    },
+    {
+        "id": "ca20d5a9892d6434",
+        "type": "link in",
+        "z": "611302fba5b8a444",
+        "name": "In from XV2",
+        "links": [
+            "caa1f7f0b2809d1d"
+        ],
+        "x": 295,
+        "y": 220,
+        "wires": [
+            [
+                "0dbe830608696379"
+            ]
+        ]
+    },
+    {
+        "id": "8d0cd18a32391f2c",
+        "type": "link in",
+        "z": "611302fba5b8a444",
+        "name": "In from XV3",
+        "links": [
+            "0449f16ea5bf4dcb"
+        ],
+        "x": 295,
+        "y": 280,
+        "wires": [
+            [
+                "df1a17f8d9c11e57"
+            ]
+        ]
+    },
+    {
+        "id": "b693fce60471f0fc",
+        "type": "mqtt out",
+        "z": "611302fba5b8a444",
+        "name": "",
+        "topic": "PLC XV1",
+        "qos": "",
+        "retain": "",
+        "respTopic": "",
+        "contentType": "",
+        "userProps": "",
+        "correl": "",
+        "expiry": "",
+        "broker": "709a5ccf8d4c4dd2",
+        "x": 420,
+        "y": 160,
+        "wires": []
+    },
+    {
+        "id": "0dbe830608696379",
+        "type": "mqtt out",
+        "z": "611302fba5b8a444",
+        "name": "",
+        "topic": "PLC XV2",
+        "qos": "",
+        "retain": "",
+        "respTopic": "",
+        "contentType": "",
+        "userProps": "",
+        "correl": "",
+        "expiry": "",
+        "broker": "709a5ccf8d4c4dd2",
+        "x": 420,
+        "y": 220,
+        "wires": []
+    },
+    {
+        "id": "df1a17f8d9c11e57",
+        "type": "mqtt out",
+        "z": "611302fba5b8a444",
+        "name": "",
+        "topic": "PLC XV3",
+        "qos": "",
+        "retain": "",
+        "respTopic": "",
+        "contentType": "",
+        "userProps": "",
+        "correl": "",
+        "expiry": "",
+        "broker": "709a5ccf8d4c4dd2",
+        "x": 420,
+        "y": 280,
+        "wires": []
+    },
+    {
+        "id": "e9ed8e3de36775fc",
+        "type": "mqtt out",
+        "z": "611302fba5b8a444",
+        "name": "",
+        "topic": "PLC RTD",
+        "qos": "",
+        "retain": "",
+        "respTopic": "",
+        "contentType": "",
+        "userProps": "",
+        "correl": "",
+        "expiry": "",
+        "broker": "709a5ccf8d4c4dd2",
+        "x": 420,
+        "y": 340,
+        "wires": []
+    },
+    {
+        "id": "a29c6b8f26784866",
+        "type": "link in",
+        "z": "611302fba5b8a444",
+        "name": "In from RTD",
+        "links": [
+            "538c3ab7c00a4928"
+        ],
+        "x": 295,
+        "y": 340,
+        "wires": [
+            [
+                "e9ed8e3de36775fc"
+            ]
+        ]
+    },
+    {
+        "id": "4eb6709c5ebff35d",
+        "type": "link in",
+        "z": "611302fba5b8a444",
+        "name": "In from ADC",
+        "links": [
+            "974b35a64eb46c3f"
+        ],
+        "x": 295,
+        "y": 400,
+        "wires": [
+            [
+                "4ac51d717da6c77a"
+            ]
+        ]
+    },
+    {
+        "id": "4ac51d717da6c77a",
+        "type": "mqtt out",
+        "z": "611302fba5b8a444",
+        "name": "",
+        "topic": "PLC ADC",
+        "qos": "",
+        "retain": "",
+        "respTopic": "",
+        "contentType": "",
+        "userProps": "",
+        "correl": "",
+        "expiry": "",
+        "broker": "709a5ccf8d4c4dd2",
+        "x": 420,
+        "y": 400,
+        "wires": []
+    },
+    {
+        "id": "89a29ea9a50eecc1",
+        "type": "mqtt out",
+        "z": "611302fba5b8a444",
+        "name": "",
+        "topic": "PLC PID1",
+        "qos": "",
+        "retain": "",
+        "respTopic": "",
+        "contentType": "",
+        "userProps": "",
+        "correl": "",
+        "expiry": "",
+        "broker": "709a5ccf8d4c4dd2",
+        "x": 420,
+        "y": 460,
+        "wires": []
+    },
+    {
+        "id": "345677ab995357fc",
+        "type": "link in",
+        "z": "611302fba5b8a444",
+        "name": "In from PID1",
+        "links": [
+            "3a48f51b239b58f7",
+            "66fa89093843e0b7"
+        ],
+        "x": 295,
+        "y": 460,
+        "wires": [
+            [
+                "89a29ea9a50eecc1"
+            ]
+        ]
+    },
+    {
+        "id": "ccd610a0b73ff080",
+        "type": "mqtt out",
+        "z": "611302fba5b8a444",
+        "name": "",
+        "topic": "PLC PID2",
+        "qos": "",
+        "retain": "",
+        "respTopic": "",
+        "contentType": "",
+        "userProps": "",
+        "correl": "",
+        "expiry": "",
+        "broker": "709a5ccf8d4c4dd2",
+        "x": 420,
+        "y": 520,
+        "wires": []
+    },
+    {
+        "id": "7081591f061ba9fd",
+        "type": "link in",
+        "z": "611302fba5b8a444",
+        "name": "In from PID2",
+        "links": [
+            "66fa89093843e0b7",
+            "7f286a0a90b7e525"
+        ],
+        "x": 295,
+        "y": 520,
+        "wires": [
+            [
+                "ccd610a0b73ff080"
+            ]
+        ]
+    },
+    {
+        "id": "5eb1282e59a39903",
+        "type": "mqtt out",
+        "z": "611302fba5b8a444",
+        "name": "",
+        "topic": "PLC PID3",
+        "qos": "",
+        "retain": "",
+        "respTopic": "",
+        "contentType": "",
+        "userProps": "",
+        "correl": "",
+        "expiry": "",
+        "broker": "709a5ccf8d4c4dd2",
+        "x": 420,
+        "y": 580,
+        "wires": []
+    },
+    {
+        "id": "ddb55d0a90b09d53",
+        "type": "link in",
+        "z": "611302fba5b8a444",
+        "name": "In from PID3",
+        "links": [
+            "66fa89093843e0b7",
+            "8537bea2bc694a72"
+        ],
+        "x": 295,
+        "y": 580,
+        "wires": [
+            [
+                "5eb1282e59a39903"
+            ]
+        ]
+    },
+    {
+        "id": "2bf8ae7d96bfe716",
+        "type": "CLICK Read",
+        "z": "f330bec27993f9b0",
+        "name": "",
+        "memorytype": "DF",
+        "memoryaddress": "1",
+        "memorysize": "1",
+        "wswap": "OFF",
+        "showErrCode": 0,
+        "showErrText": 0,
+        "x": 390,
+        "y": 80,
+        "wires": [
+            [
+                "187dbb24426f1136"
+            ]
+        ]
+    },
+    {
+        "id": "1dd826ff611986c1",
+        "type": "CLICK Read",
+        "z": "f330bec27993f9b0",
+        "name": "",
+        "memorytype": "DF",
+        "memoryaddress": "2",
+        "memorysize": "1",
+        "wswap": "OFF",
+        "showErrCode": 0,
+        "showErrText": 0,
+        "x": 390,
+        "y": 120,
+        "wires": [
+            [
+                "bb0a15ae75e461d8"
+            ]
+        ]
+    },
+    {
+        "id": "dc20c6a87641b716",
+        "type": "CLICK Read",
+        "z": "f330bec27993f9b0",
+        "name": "",
+        "memorytype": "DF",
+        "memoryaddress": "3",
+        "memorysize": "1",
+        "wswap": "OFF",
+        "showErrCode": 0,
+        "showErrText": 0,
+        "x": 390,
+        "y": 160,
+        "wires": [
+            [
+                "28ec8d8b16f04489"
+            ]
+        ]
+    },
+    {
+        "id": "6dc2a2afabc32789",
+        "type": "CLICK Read",
+        "z": "f330bec27993f9b0",
+        "name": "",
+        "memorytype": "DF",
+        "memoryaddress": "4",
+        "memorysize": "1",
+        "wswap": "OFF",
+        "showErrCode": 0,
+        "showErrText": 0,
+        "x": 390,
+        "y": 200,
+        "wires": [
+            [
+                "d7e14768898a3aaa"
+            ]
+        ]
+    },
+    {
+        "id": "187dbb24426f1136",
+        "type": "function",
+        "z": "f330bec27993f9b0",
+        "name": "Store RTD1",
+        "func": "// Define which RTD key this node is responsible for\nconst rtdKey = \"RTD1\"; // Change to RTD2, RTD3, RTD4 in other nodes\n\n// Extract the value from the incoming message\nconst value = msg.payload.data[0];\n\n// Store the value in the flow context\nflow.set(rtdKey, value);\n\n// Retrieve all current RTD values from context\nconst RTD1 = flow.get(\"RTD1\");\nconst RTD2 = flow.get(\"RTD2\");\nconst RTD3 = flow.get(\"RTD3\");\nconst RTD4 = flow.get(\"RTD4\");\n\n// Check if all values are available\nif (RTD1 !== undefined && RTD2 !== undefined && RTD3 !== undefined && RTD4 !== undefined) {\n    // Create a new combined message\n    return {\n        payload: {\n            RTD1: RTD1,\n            RTD2: RTD2,\n            RTD3: RTD3,\n            RTD4: RTD4\n        }\n    };\n}\n\n// If not all values are present yet, return nothing\nreturn null;\n",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 610,
+        "y": 80,
+        "wires": [
+            [
+                "cc788b151770282a"
+            ]
+        ]
+    },
+    {
+        "id": "bb0a15ae75e461d8",
+        "type": "function",
+        "z": "f330bec27993f9b0",
+        "name": "Store RTD2",
+        "func": "// Define which RTD key this node is responsible for\nconst rtdKey = \"RTD2\"; // Change to RTD2, RTD3, RTD4 in other nodes\n\n// Extract the value from the incoming message\nconst value = msg.payload.data[0];\n\n// Store the value in the flow context\nflow.set(rtdKey, value);\n\n// Retrieve all current RTD values from context\nconst RTD1 = flow.get(\"RTD1\");\nconst RTD2 = flow.get(\"RTD2\");\nconst RTD3 = flow.get(\"RTD3\");\nconst RTD4 = flow.get(\"RTD4\");\n\n// Check if all values are available\nif (RTD1 !== undefined && RTD2 !== undefined && RTD3 !== undefined && RTD4 !== undefined) {\n    // Create a new combined message\n    return {\n        payload: {\n            RTD1: RTD1,\n            RTD2: RTD2,\n            RTD3: RTD3,\n            RTD4: RTD4\n        }\n    };\n}\n\n// If not all values are present yet, return nothing\nreturn null;\n",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 610,
+        "y": 120,
+        "wires": [
+            [
+                "cc788b151770282a"
+            ]
+        ]
+    },
+    {
+        "id": "28ec8d8b16f04489",
+        "type": "function",
+        "z": "f330bec27993f9b0",
+        "name": "Store RTD3",
+        "func": "// Define which RTD key this node is responsible for\nconst rtdKey = \"RTD3\"; // Change to RTD2, RTD3, RTD4 in other nodes\n\n// Extract the value from the incoming message\nconst value = msg.payload.data[0];\n\n// Store the value in the flow context\nflow.set(rtdKey, value);\n\n// Retrieve all current RTD values from context\nconst RTD1 = flow.get(\"RTD1\");\nconst RTD2 = flow.get(\"RTD2\");\nconst RTD3 = flow.get(\"RTD3\");\nconst RTD4 = flow.get(\"RTD4\");\n\n// Check if all values are available\nif (RTD1 !== undefined && RTD2 !== undefined && RTD3 !== undefined && RTD4 !== undefined) {\n    // Create a new combined message\n    return {\n        payload: {\n            RTD1: RTD1,\n            RTD2: RTD2,\n            RTD3: RTD3,\n            RTD4: RTD4\n        }\n    };\n}\n\n// If not all values are present yet, return nothing\nreturn null;\n",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 610,
+        "y": 160,
+        "wires": [
+            [
+                "cc788b151770282a"
+            ]
+        ]
+    },
+    {
+        "id": "d7e14768898a3aaa",
+        "type": "function",
+        "z": "f330bec27993f9b0",
+        "name": "Store RTD4",
+        "func": "// Define which RTD key this node is responsible for\nconst rtdKey = \"RTD4\"; // Change to RTD2, RTD3, RTD4 in other nodes\n\n// Extract the value from the incoming message\nconst value = msg.payload.data[0];\n\n// Store the value in the flow context\nflow.set(rtdKey, value);\n\n// Retrieve all current RTD values from context\nconst RTD1 = flow.get(\"RTD1\");\nconst RTD2 = flow.get(\"RTD2\");\nconst RTD3 = flow.get(\"RTD3\");\nconst RTD4 = flow.get(\"RTD4\");\n\n// Check if all values are available\nif (RTD1 !== undefined && RTD2 !== undefined && RTD3 !== undefined && RTD4 !== undefined) {\n    // Create a new combined message\n    return {\n        payload: {\n            RTD1: RTD1,\n            RTD2: RTD2,\n            RTD3: RTD3,\n            RTD4: RTD4\n        }\n    };\n}\n\n// If not all values are present yet, return nothing\nreturn null;\n",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 610,
+        "y": 200,
+        "wires": [
+            [
+                "cc788b151770282a"
+            ]
+        ]
+    },
+    {
+        "id": "cc788b151770282a",
+        "type": "function",
+        "z": "f330bec27993f9b0",
+        "name": "Combine RTDs",
+        "func": "// Get all RTD values from context\nlet RTD1 = flow.get(\"RTD1\");\nlet RTD2 = flow.get(\"RTD2\");\nlet RTD3 = flow.get(\"RTD3\");\nlet RTD4 = flow.get(\"RTD4\");\n\n// Only continue if all are present\nif (RTD1 !== undefined && RTD2 !== undefined && RTD3 !== undefined && RTD4 !== undefined) {\n    // Optionally clear them after sending\n    flow.set(\"RTD1\", undefined);\n    flow.set(\"RTD2\", undefined);\n    flow.set(\"RTD3\", undefined);\n    flow.set(\"RTD4\", undefined);\n\n    return {\n        payload: {\n            RTD1,\n            RTD2,\n            RTD3,\n            RTD4\n        }\n    };\n}\n\n// If not all values are ready, do nothing\nreturn null;\n",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 940,
+        "y": 80,
+        "wires": [
+            [
+                "538c3ab7c00a4928"
+            ]
+        ]
+    },
+    {
+        "id": "9a02acb649984047",
+        "type": "link in",
+        "z": "f330bec27993f9b0",
+        "name": "In to RTDs",
+        "links": [
+            "686b1bff6a499843"
+        ],
+        "x": 175,
+        "y": 80,
+        "wires": [
+            [
+                "2bf8ae7d96bfe716",
+                "1dd826ff611986c1",
+                "dc20c6a87641b716",
+                "6dc2a2afabc32789"
+            ]
+        ]
+    },
+    {
+        "id": "538c3ab7c00a4928",
+        "type": "link out",
+        "z": "f330bec27993f9b0",
+        "name": "RTD out to MQTT",
+        "mode": "link",
+        "links": [
+            "a29c6b8f26784866"
+        ],
+        "x": 1145,
+        "y": 80,
+        "wires": []
+    },
+    {
+        "id": "3679b31eab4ec606",
+        "type": "link in",
+        "z": "f330bec27993f9b0",
+        "name": "In to ADCs",
+        "links": [
+            "686b1bff6a499843"
+        ],
+        "x": 175,
+        "y": 300,
+        "wires": [
+            [
+                "3e4c4778ce925870",
+                "dfb91bfe9c85c897"
+            ]
+        ]
+    },
+    {
+        "id": "3e4c4778ce925870",
+        "type": "CLICK Read",
+        "z": "f330bec27993f9b0",
+        "name": "",
+        "memorytype": "DF",
+        "memoryaddress": "203",
+        "memorysize": "1",
+        "wswap": "OFF",
+        "showErrCode": 0,
+        "showErrText": 0,
+        "x": 390,
+        "y": 300,
+        "wires": [
+            [
+                "346f1b15e28a09bf"
+            ]
+        ]
+    },
+    {
+        "id": "dfb91bfe9c85c897",
+        "type": "CLICK Read",
+        "z": "f330bec27993f9b0",
+        "name": "",
+        "memorytype": "DF",
+        "memoryaddress": "303",
+        "memorysize": "1",
+        "wswap": "OFF",
+        "showErrCode": 0,
+        "showErrText": 0,
+        "x": 390,
+        "y": 340,
+        "wires": [
+            [
+                "9782cdaadf1f0c31"
+            ]
+        ]
+    },
+    {
+        "id": "346f1b15e28a09bf",
+        "type": "function",
+        "z": "f330bec27993f9b0",
+        "name": "Store ADC3_raw",
+        "func": "// Define which ADC key this node is responsible for\nconst adcKey = \"ADC3_raw\"; // Change to ADC3_raw, ADC3_filt\n\n// Extract the value from the incoming message\nconst value = msg.payload.data[0];\n\n// Store the value in the flow context\nflow.set(adcKey, value);\n\n// Retrieve all current ADC values from context\nconst ADC3_raw = flow.get(\"ADC3_raw\");\nconst ADC3_filt = flow.get(\"ADC3_filt\");\n\n// Check if all values are available\nif (ADC3_raw !== undefined && ADC3_filt !== undefined) {\n    // Create a new combined message\n    return {\n        payload: {\n            ADC3_raw: ADC3_raw,\n            ADC3_filt: ADC3_filt\n        }\n    };\n}\n\n// If not all values are present yet, return nothing\nreturn null;\n",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 630,
+        "y": 300,
+        "wires": [
+            [
+                "b9cccb7b7aa7271b"
+            ]
+        ]
+    },
+    {
+        "id": "9782cdaadf1f0c31",
+        "type": "function",
+        "z": "f330bec27993f9b0",
+        "name": "Store ADC3_filt",
+        "func": "// Define which ADC key this node is responsible for\nconst adcKey = \"ADC3_filt\"; // Change to ADC3_raw, ADC3_filt\n\n// Extract the value from the incoming message\nconst value = msg.payload.data[0];\n\n// Store the value in the flow context\nflow.set(adcKey, value);\n\n// Retrieve all current ADC values from context\nconst ADC3_raw = flow.get(\"ADC3_raw\");\nconst ADC3_filt = flow.get(\"ADC3_filt\");\n\n// Check if all values are available\nif (ADC3_raw !== undefined && ADC3_filt !== undefined) {\n    // Create a new combined message\n    return {\n        payload: {\n            ADC3_raw: ADC3_raw,\n            ADC3_filt: ADC3_filt\n        }\n    };\n}\n\n// If not all values are present yet, return nothing\nreturn null;\n",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 620,
+        "y": 340,
+        "wires": [
+            [
+                "b9cccb7b7aa7271b"
+            ]
+        ]
+    },
+    {
+        "id": "b9cccb7b7aa7271b",
+        "type": "function",
+        "z": "f330bec27993f9b0",
+        "name": "Combine ADCs",
+        "func": "// Get all ADC values from context\nlet ADC3_raw = flow.get(\"ADC3_raw\");\nlet ADC3_filt = flow.get(\"ADC3_filt\");\n\n// Only continue if all are present\nif (ADC3_raw !== undefined && ADC3_filt !== undefined) {\n    // Optionally clear them after sending\n    flow.set(\"ADC3_raw\", undefined);\n    flow.set(\"ADC3_filt\", undefined);\n\n    return {\n        payload: {\n            ADC3_raw,\n            ADC3_filt\n        }\n    };\n}\n\n// If not all values are ready, do nothing\nreturn null;\n",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 940,
+        "y": 300,
+        "wires": [
+            [
+                "974b35a64eb46c3f",
+                "eb0600816e675207"
+            ]
+        ]
+    },
+    {
+        "id": "974b35a64eb46c3f",
+        "type": "link out",
+        "z": "f330bec27993f9b0",
+        "name": "ADC out to MQTT",
+        "mode": "link",
+        "links": [
+            "4eb6709c5ebff35d"
+        ],
+        "x": 1145,
+        "y": 300,
+        "wires": []
+    },
+    {
+        "id": "af17a84e6e07a007",
+        "type": "mqtt in",
+        "z": "f330bec27993f9b0",
+        "name": "",
+        "topic": "sensor/ch4_voltage",
+        "qos": "2",
+        "datatype": "auto-detect",
+        "broker": "709a5ccf8d4c4dd2",
+        "nl": false,
+        "rap": true,
+        "rh": 0,
+        "inputs": 0,
+        "x": 410,
+        "y": 440,
+        "wires": [
+            [
+                "1aed01c5f031bee3"
+            ]
+        ]
+    },
+    {
+        "id": "b917c57da941e176",
+        "type": "mqtt in",
+        "z": "f330bec27993f9b0",
+        "name": "",
+        "topic": "sensor/ch5_voltage",
+        "qos": "2",
+        "datatype": "auto-detect",
+        "broker": "709a5ccf8d4c4dd2",
+        "nl": false,
+        "rap": true,
+        "rh": 0,
+        "inputs": 0,
+        "x": 410,
+        "y": 480,
+        "wires": [
+            [
+                "218ae1d90cf4227b"
+            ]
+        ]
+    },
+    {
+        "id": "07fef1e5b8433a76",
+        "type": "CLICK Write",
+        "z": "f330bec27993f9b0",
+        "name": "",
+        "memorytype": "DF",
+        "memoryaddress": "251",
+        "memorysize": "1",
+        "wswap": "OFF",
+        "showErrCode": 0,
+        "showErrText": 0,
+        "x": 930,
+        "y": 440,
+        "wires": [
+            [
+                "a0a9a4e42ca02110"
+            ]
+        ]
+    },
+    {
+        "id": "9fd2c0d7e67fa25e",
+        "type": "CLICK Write",
+        "z": "f330bec27993f9b0",
+        "name": "",
+        "memorytype": "DF",
+        "memoryaddress": "252",
+        "memorysize": "1",
+        "wswap": "OFF",
+        "showErrCode": 0,
+        "showErrText": 0,
+        "x": 930,
+        "y": 480,
+        "wires": [
+            [
+                "a0a9a4e42ca02110"
+            ]
+        ]
+    },
+    {
+        "id": "218ae1d90cf4227b",
+        "type": "function",
+        "z": "f330bec27993f9b0",
+        "name": "Parse Bottle Level Sensor",
+        "func": "msg.payload = [msg.payload];\nreturn msg;",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 650,
+        "y": 480,
+        "wires": [
+            [
+                "9fd2c0d7e67fa25e"
+            ]
+        ]
+    },
+    {
+        "id": "1aed01c5f031bee3",
+        "type": "function",
+        "z": "f330bec27993f9b0",
+        "name": "Parse Ballast Level Sensor",
+        "func": "msg.payload = [msg.payload];\nreturn msg;",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 660,
+        "y": 440,
+        "wires": [
+            [
+                "07fef1e5b8433a76"
+            ]
+        ]
+    },
+    {
+        "id": "a0a9a4e42ca02110",
+        "type": "debug",
+        "z": "f330bec27993f9b0",
+        "name": "debug 19",
+        "active": false,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "false",
+        "statusVal": "",
+        "statusType": "auto",
+        "x": 1160,
+        "y": 440,
+        "wires": []
+    },
+    {
+        "id": "eb0600816e675207",
+        "type": "debug",
+        "z": "f330bec27993f9b0",
+        "name": "debug 22",
+        "active": false,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "false",
+        "statusVal": "",
+        "statusType": "auto",
+        "x": 1120,
+        "y": 220,
+        "wires": []
+    },
+    {
+        "id": "2574f9f7dfa95322",
+        "type": "CLICK Read",
+        "z": "03a0706ad6285197",
+        "name": "XV1 Coil State",
+        "memorytype": "X",
+        "memoryaddress": "001",
+        "memorysize": "1",
+        "wswap": "OFF",
+        "showErrCode": 0,
+        "showErrText": 0,
+        "x": 380,
+        "y": 80,
+        "wires": [
+            [
+                "bbe3e7ac1c90cd2b"
+            ]
+        ]
+    },
+    {
+        "id": "402c9c7b6444a691",
+        "type": "CLICK Read",
+        "z": "03a0706ad6285197",
+        "name": "XV1 Data Read",
+        "memorytype": "DS",
+        "memoryaddress": "1001",
+        "memorysize": "1",
+        "wswap": "OFF",
+        "showErrCode": 0,
+        "showErrText": 0,
+        "x": 380,
+        "y": 200,
+        "wires": [
+            [
+                "4a1cb6c0d96f1fdf"
+            ]
+        ]
+    },
+    {
+        "id": "6d6db0b7fe8bec6f",
+        "type": "CLICK Read",
+        "z": "03a0706ad6285197",
+        "name": "XV1 Data Command",
+        "memorytype": "DS",
+        "memoryaddress": "1002",
+        "memorysize": "1",
+        "wswap": "OFF",
+        "showErrCode": 0,
+        "showErrText": 0,
+        "x": 400,
+        "y": 240,
+        "wires": [
+            [
+                "cdc0b1dc7ece6394"
+            ]
+        ]
+    },
+    {
+        "id": "5b25f04c581f59cb",
+        "type": "CLICK Read",
+        "z": "03a0706ad6285197",
+        "name": "XV1 PLC Relay",
+        "memorytype": "C",
+        "memoryaddress": "1001",
+        "memorysize": "1",
+        "wswap": "OFF",
+        "showErrCode": 0,
+        "showErrText": 0,
+        "x": 380,
+        "y": 160,
+        "wires": [
+            [
+                "22672fa2244857c3"
+            ]
+        ]
+    },
+    {
+        "id": "7197eb85a5b3e979",
+        "type": "CLICK Read",
+        "z": "03a0706ad6285197",
+        "name": "XV1 Control State",
+        "memorytype": "Y",
+        "memoryaddress": "101",
+        "memorysize": "1",
+        "wswap": "OFF",
+        "showErrCode": 0,
+        "showErrText": 0,
+        "x": 390,
+        "y": 120,
+        "wires": [
+            [
+                "d46e1d2ae46b2448"
+            ]
+        ]
+    },
+    {
+        "id": "363614b152045781",
+        "type": "link in",
+        "z": "03a0706ad6285197",
+        "name": "In to XV1",
+        "links": [
+            "686b1bff6a499843"
+        ],
+        "x": 165,
+        "y": 80,
+        "wires": [
+            [
+                "2574f9f7dfa95322",
+                "7197eb85a5b3e979",
+                "5b25f04c581f59cb",
+                "402c9c7b6444a691",
+                "6d6db0b7fe8bec6f",
+                "7aab85bf51de307e",
+                "54d1eb6eda9794b1"
+            ]
+        ]
+    },
+    {
+        "id": "02ed0ebaa163d9d4",
+        "type": "CLICK Read",
+        "z": "03a0706ad6285197",
+        "name": "XV2 Coil State",
+        "memorytype": "X",
+        "memoryaddress": "002",
+        "memorysize": "1",
+        "wswap": "OFF",
+        "showErrCode": 0,
+        "showErrText": 0,
+        "x": 380,
+        "y": 420,
+        "wires": [
+            [
+                "2c657e3f3e8d6e75"
+            ]
+        ]
+    },
+    {
+        "id": "500e34a37cc79130",
+        "type": "CLICK Read",
+        "z": "03a0706ad6285197",
+        "name": "XV2 Data Read",
+        "memorytype": "DS",
+        "memoryaddress": "1003",
+        "memorysize": "1",
+        "wswap": "OFF",
+        "showErrCode": 0,
+        "showErrText": 0,
+        "x": 380,
+        "y": 540,
+        "wires": [
+            [
+                "fbf26a8744493a32"
+            ]
+        ]
+    },
+    {
+        "id": "d772da782cb8aec9",
+        "type": "CLICK Read",
+        "z": "03a0706ad6285197",
+        "name": "XV2 Data Command",
+        "memorytype": "DS",
+        "memoryaddress": "1004",
+        "memorysize": "1",
+        "wswap": "OFF",
+        "showErrCode": 0,
+        "showErrText": 0,
+        "x": 400,
+        "y": 580,
+        "wires": [
+            [
+                "d83885649fc10482"
+            ]
+        ]
+    },
+    {
+        "id": "e60f1e2519c5fa0f",
+        "type": "CLICK Read",
+        "z": "03a0706ad6285197",
+        "name": "XV2 PLC Relay",
+        "memorytype": "C",
+        "memoryaddress": "1002",
+        "memorysize": "1",
+        "wswap": "OFF",
+        "showErrCode": 0,
+        "showErrText": 0,
+        "x": 380,
+        "y": 500,
+        "wires": [
+            [
+                "f6b7a0457e66344f"
+            ]
+        ]
+    },
+    {
+        "id": "4c9752e5dc71d8b6",
+        "type": "CLICK Read",
+        "z": "03a0706ad6285197",
+        "name": "XV2 Control State",
+        "memorytype": "Y",
+        "memoryaddress": "102",
+        "memorysize": "1",
+        "wswap": "OFF",
+        "showErrCode": 0,
+        "showErrText": 0,
+        "x": 390,
+        "y": 460,
+        "wires": [
+            [
+                "0bc62a7284d0cc52"
+            ]
+        ]
+    },
+    {
+        "id": "adde36e38a62a4e8",
+        "type": "CLICK Read",
+        "z": "03a0706ad6285197",
+        "name": "XV3 Coil State",
+        "memorytype": "X",
+        "memoryaddress": "003",
+        "memorysize": "1",
+        "wswap": "OFF",
+        "showErrCode": 0,
+        "showErrText": 0,
+        "x": 380,
+        "y": 760,
+        "wires": [
+            [
+                "907e7a5478fa43ef"
+            ]
+        ]
+    },
+    {
+        "id": "4d997798e699bc39",
+        "type": "CLICK Read",
+        "z": "03a0706ad6285197",
+        "name": "XV3 Data Read",
+        "memorytype": "DS",
+        "memoryaddress": "1005",
+        "memorysize": "1",
+        "wswap": "OFF",
+        "showErrCode": 0,
+        "showErrText": 0,
+        "x": 380,
+        "y": 880,
+        "wires": [
+            [
+                "1bfa37570af22172"
+            ]
+        ]
+    },
+    {
+        "id": "dc33e6c87acd3f08",
+        "type": "CLICK Read",
+        "z": "03a0706ad6285197",
+        "name": "XV3 Data Command",
+        "memorytype": "DS",
+        "memoryaddress": "1006",
+        "memorysize": "1",
+        "wswap": "OFF",
+        "showErrCode": 0,
+        "showErrText": 0,
+        "x": 400,
+        "y": 920,
+        "wires": [
+            [
+                "eb915557ac32e099"
+            ]
+        ]
+    },
+    {
+        "id": "d5fb9e9116c6f1cb",
+        "type": "CLICK Read",
+        "z": "03a0706ad6285197",
+        "name": "XV3 PLC Relay",
+        "memorytype": "C",
+        "memoryaddress": "1003",
+        "memorysize": "1",
+        "wswap": "OFF",
+        "showErrCode": 0,
+        "showErrText": 0,
+        "x": 380,
+        "y": 840,
+        "wires": [
+            [
+                "6ab2499a171c3419"
+            ]
+        ]
+    },
+    {
+        "id": "305655fa09c3f1f2",
+        "type": "CLICK Read",
+        "z": "03a0706ad6285197",
+        "name": "XV3 Control State",
+        "memorytype": "Y",
+        "memoryaddress": "103",
+        "memorysize": "1",
+        "wswap": "OFF",
+        "showErrCode": 0,
+        "showErrText": 0,
+        "x": 390,
+        "y": 800,
+        "wires": [
+            [
+                "29336160d836ad40"
+            ]
+        ]
+    },
+    {
+        "id": "904c72f51c528b50",
+        "type": "comment",
+        "z": "03a0706ad6285197",
+        "name": "XV1",
+        "info": "",
+        "x": 350,
+        "y": 40,
+        "wires": []
+    },
+    {
+        "id": "dd214fc3c1fd0317",
+        "type": "comment",
+        "z": "03a0706ad6285197",
+        "name": "XV2",
+        "info": "",
+        "x": 350,
+        "y": 380,
+        "wires": []
+    },
+    {
+        "id": "2b56659dd903b52b",
+        "type": "comment",
+        "z": "03a0706ad6285197",
+        "name": "XV3",
+        "info": "",
+        "x": 350,
+        "y": 720,
+        "wires": []
+    },
+    {
+        "id": "1eeda89c87dbffa2",
+        "type": "link in",
+        "z": "03a0706ad6285197",
+        "name": "In to XV2",
+        "links": [
+            "686b1bff6a499843"
+        ],
+        "x": 165,
+        "y": 420,
+        "wires": [
+            [
+                "02ed0ebaa163d9d4",
+                "4c9752e5dc71d8b6",
+                "e60f1e2519c5fa0f",
+                "500e34a37cc79130",
+                "d772da782cb8aec9",
+                "80fb40d49814a8d8",
+                "acc034f1e8614ba8"
+            ]
+        ]
+    },
+    {
+        "id": "6610054de5969b24",
+        "type": "link in",
+        "z": "03a0706ad6285197",
+        "name": "In to XV3",
+        "links": [
+            "686b1bff6a499843"
+        ],
+        "x": 165,
+        "y": 760,
+        "wires": [
+            [
+                "adde36e38a62a4e8",
+                "305655fa09c3f1f2",
+                "d5fb9e9116c6f1cb",
+                "4d997798e699bc39",
+                "dc33e6c87acd3f08",
+                "37bd222dfd6aeeb2",
+                "03738f5d5c406496"
+            ]
+        ]
+    },
+    {
+        "id": "bbe3e7ac1c90cd2b",
+        "type": "function",
+        "z": "03a0706ad6285197",
+        "name": "Store XV1 Coil State",
+        "func": "// Define which XV1 key this node is responsible for\nconst XV1key = \"X001\"; // Change to X001, Y001, C1001, DS1001, DS1002, DS1101, DS1102\n\n// Extract the value from the incoming message\nconst value = msg.payload.data[0];\n\n// Store the value in the flow context\nflow.set(XV1key, value);\n\n// Retrieve all current XV1 values from context\nconst X001 = flow.get(\"X001\");\nconst Y001 = flow.get(\"Y001\");\nconst C1001 = flow.get(\"C1001\");\nconst DS1001 = flow.get(\"DS1001\");\nconst DS1002 = flow.get(\"DS1002\");\nconst DS1101 = flow.get(\"DS1101\");\nconst DS1102 = flow.get(\"DS1102\");\n\n// Check if all values are available\nif (X001 !== undefined && Y001 !== undefined && C1001 !== undefined && DS1001 !== undefined && DS1002 !== undefined && DS1101 !== undefined && DS1102 !== undefined) {\n    // Create a new combined message\n    return {\n        payload: {\n            X001: X001,\n            Y001: Y001,\n            C1001: C1001,\n            DS1001: DS1001,\n            DS1002: DS1002,\n            DS1101: DS1101,\n            DS1102: DS1102\n        }\n    };\n}\n\n// If not all values are present yet, return nothing\nreturn null;\n",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 640,
+        "y": 80,
+        "wires": [
+            [
+                "b54d7731c9837040"
+            ]
+        ]
+    },
+    {
+        "id": "b54d7731c9837040",
+        "type": "function",
+        "z": "03a0706ad6285197",
+        "name": "Combine XV1",
+        "func": "// Get all XV1 values from context\nlet X001 = flow.get(\"X001\");\nlet Y001 = flow.get(\"Y001\");\nlet C1001 = flow.get(\"C1001\");\nlet DS1001 = flow.get(\"DS1001\");\nlet DS1002 = flow.get(\"DS1002\");\nlet DS1101 = flow.get(\"DS1101\");\nlet DS1102 = flow.get(\"DS1102\");\n\n// Only continue if all are present\nif (X001 !== undefined && Y001 !== undefined && C1001 !== undefined && DS1001 !== undefined && DS1002 !== undefined && DS1101 !== undefined && DS1102 !== undefined) {\n    // Optionally clear them after sending\n    flow.set(\"X001\", undefined);\n    flow.set(\"Y001\", undefined);\n    flow.set(\"C1001\", undefined);\n    flow.set(\"DS1001\", undefined);\n    flow.set(\"DS1002\", undefined);\n    flow.set(\"DS1101\", undefined);\n    flow.set(\"DS1102\", undefined);\n\n    return {\n        payload: {\n            X001,\n            Y001,\n            C1001,\n            DS1001,\n            DS1002,\n            DS1101,\n            DS1102\n        }\n    };\n}\n\n// If not all values are ready, do nothing\nreturn null;\n",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 980,
+        "y": 80,
+        "wires": [
+            [
+                "7315319dcd0eccb3"
+            ]
+        ]
+    },
+    {
+        "id": "7315319dcd0eccb3",
+        "type": "link out",
+        "z": "03a0706ad6285197",
+        "name": "XV1 out to MQTT",
+        "mode": "link",
+        "links": [
+            "69a89328e3a49ad1"
+        ],
+        "x": 1145,
+        "y": 80,
+        "wires": []
+    },
+    {
+        "id": "caa1f7f0b2809d1d",
+        "type": "link out",
+        "z": "03a0706ad6285197",
+        "name": "XV2 out to MQTT",
+        "mode": "link",
+        "links": [
+            "ca20d5a9892d6434"
+        ],
+        "x": 1145,
+        "y": 420,
+        "wires": []
+    },
+    {
+        "id": "0449f16ea5bf4dcb",
+        "type": "link out",
+        "z": "03a0706ad6285197",
+        "name": "XV3 out to MQTT",
+        "mode": "link",
+        "links": [
+            "8d0cd18a32391f2c"
+        ],
+        "x": 1145,
+        "y": 760,
+        "wires": []
+    },
+    {
+        "id": "d46e1d2ae46b2448",
+        "type": "function",
+        "z": "03a0706ad6285197",
+        "name": "Store XV1 Control State",
+        "func": "// Define which XV1 key this node is responsible for\nconst XV1key = \"Y001\"; // Change to X001, Y001, C1001, DS1001, DS1002, DS1101, DS1102\n\n// Extract the value from the incoming message\nconst value = msg.payload.data[0];\n\n// Store the value in the flow context\nflow.set(XV1key, value);\n\n// Retrieve all current XV1 values from context\nconst X001 = flow.get(\"X001\");\nconst Y001 = flow.get(\"Y001\");\nconst C1001 = flow.get(\"C1001\");\nconst DS1001 = flow.get(\"DS1001\");\nconst DS1002 = flow.get(\"DS1002\");\nconst DS1101 = flow.get(\"DS1101\");\nconst DS1102 = flow.get(\"DS1102\");\n\n// Check if all values are available\nif (X001 !== undefined && Y001 !== undefined && C1001 !== undefined && DS1001 !== undefined && DS1002 !== undefined && DS1101 !== undefined && DS1102 !== undefined) {\n    // Create a new combined message\n    return {\n        payload: {\n            X001: X001,\n            Y001: Y001,\n            C1001: C1001,\n            DS1001: DS1001,\n            DS1002: DS1002,\n            DS1101: DS1101,\n            DS1102: DS1102\n        }\n    };\n}\n\n// If not all values are present yet, return nothing\nreturn null;\n",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 650,
+        "y": 120,
+        "wires": [
+            [
+                "b54d7731c9837040"
+            ]
+        ]
+    },
+    {
+        "id": "22672fa2244857c3",
+        "type": "function",
+        "z": "03a0706ad6285197",
+        "name": "Store XV1 PLC Relay",
+        "func": "// Define which XV1 key this node is responsible for\nconst XV1key = \"C1001\"; // Change to X001, Y001, C1001, DS1001, DS1002, DS1101, DS1102\n\n// Extract the value from the incoming message\nconst value = msg.payload.data[0];\n\n// Store the value in the flow context\nflow.set(XV1key, value);\n\n// Retrieve all current XV1 values from context\nconst X001 = flow.get(\"X001\");\nconst Y001 = flow.get(\"Y001\");\nconst C1001 = flow.get(\"C1001\");\nconst DS1001 = flow.get(\"DS1001\");\nconst DS1002 = flow.get(\"DS1002\");\nconst DS1101 = flow.get(\"DS1101\");\nconst DS1102 = flow.get(\"DS1102\");\n\n// Check if all values are available\nif (X001 !== undefined && Y001 !== undefined && C1001 !== undefined && DS1001 !== undefined && DS1002 !== undefined && DS1101 !== undefined && DS1102 !== undefined) {\n    // Create a new combined message\n    return {\n        payload: {\n            X001: X001,\n            Y001: Y001,\n            C1001: C1001,\n            DS1001: DS1001,\n            DS1002: DS1002,\n            DS1101: DS1101,\n            DS1102: DS1102\n        }\n    };\n}\n\n// If not all values are present yet, return nothing\nreturn null;\n",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 640,
+        "y": 160,
+        "wires": [
+            [
+                "b54d7731c9837040"
+            ]
+        ]
+    },
+    {
+        "id": "4a1cb6c0d96f1fdf",
+        "type": "function",
+        "z": "03a0706ad6285197",
+        "name": "Store XV1 Data Read",
+        "func": "// Define which XV1 key this node is responsible for\nconst XV1key = \"DS1001\"; // Change to X001, Y001, C1001, DS1001, DS1002, DS1101, DS1102\n\n// Extract the value from the incoming message\nconst value = msg.payload.data[0];\n\n// Store the value in the flow context\nflow.set(XV1key, value);\n\n// Retrieve all current XV1 values from context\nconst X001 = flow.get(\"X001\");\nconst Y001 = flow.get(\"Y001\");\nconst C1001 = flow.get(\"C1001\");\nconst DS1001 = flow.get(\"DS1001\");\nconst DS1002 = flow.get(\"DS1002\");\nconst DS1101 = flow.get(\"DS1101\");\nconst DS1102 = flow.get(\"DS1102\");\n\n// Check if all values are available\nif (X001 !== undefined && Y001 !== undefined && C1001 !== undefined && DS1001 !== undefined && DS1002 !== undefined && DS1101 !== undefined && DS1102 !== undefined) {\n    // Create a new combined message\n    return {\n        payload: {\n            X001: X001,\n            Y001: Y001,\n            C1001: C1001,\n            DS1001: DS1001,\n            DS1002: DS1002,\n            DS1101: DS1101,\n            DS1102: DS1102\n        }\n    };\n}\n\n// If not all values are present yet, return nothing\nreturn null;\n",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 640,
+        "y": 200,
+        "wires": [
+            [
+                "b54d7731c9837040"
+            ]
+        ]
+    },
+    {
+        "id": "cdc0b1dc7ece6394",
+        "type": "function",
+        "z": "03a0706ad6285197",
+        "name": "Store XV1 Data Command",
+        "func": "// Define which XV1 key this node is responsible for\nconst XV1key = \"DS1002\"; // Change to X001, Y001, C1001, DS1001, DS1002, DS1101, DS1102\n\n// Extract the value from the incoming message\nconst value = msg.payload.data[0];\n\n// Store the value in the flow context\nflow.set(XV1key, value);\n\n// Retrieve all current XV1 values from context\nconst X001 = flow.get(\"X001\");\nconst Y001 = flow.get(\"Y001\");\nconst C1001 = flow.get(\"C1001\");\nconst DS1001 = flow.get(\"DS1001\");\nconst DS1002 = flow.get(\"DS1002\");\nconst DS1101 = flow.get(\"DS1101\");\nconst DS1102 = flow.get(\"DS1102\");\n\n// Check if all values are available\nif (X001 !== undefined && Y001 !== undefined && C1001 !== undefined && DS1001 !== undefined && DS1002 !== undefined && DS1101 !== undefined && DS1102 !== undefined) {\n    // Create a new combined message\n    return {\n        payload: {\n            X001: X001,\n            Y001: Y001,\n            C1001: C1001,\n            DS1001: DS1001,\n            DS1002: DS1002,\n            DS1101: DS1101,\n            DS1102: DS1102\n        }\n    };\n}\n\n// If not all values are present yet, return nothing\nreturn null;\n",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 660,
+        "y": 240,
+        "wires": [
+            [
+                "b54d7731c9837040"
+            ]
+        ]
+    },
+    {
+        "id": "2c657e3f3e8d6e75",
+        "type": "function",
+        "z": "03a0706ad6285197",
+        "name": "Store XV2 Coil State",
+        "func": "// Define which XV2 key this node is responsible for\nconst XV2key = \"X002\"; // Change to X002, Y002, C1002, DS1003, DS1004, DS1103, DS1104\n\n// Extract the value from the incoming message\nconst value = msg.payload.data[0];\n\n// Store the value in the flow context\nflow.set(XV2key, value);\n\n// Retrieve all current XV2 values from context\nconst X002 = flow.get(\"X002\");\nconst Y002 = flow.get(\"Y002\");\nconst C1002 = flow.get(\"C1002\");\nconst DS1003 = flow.get(\"DS1003\");\nconst DS1004 = flow.get(\"DS1004\");\nconst DS1103 = flow.get(\"DS1103\");\nconst DS1104 = flow.get(\"DS1104\");\n\n\n// Check if all values are available\nif (X002 !== undefined && Y002 !== undefined && C1002 !== undefined && DS1003 !== undefined && DS1004 !== undefined && DS1103 !== undefined && DS1104 !== undefined) {\n    // Create a new combined message\n    return {\n        payload: {\n            X002: X002,\n            Y002: Y002,\n            C1002: C1002,\n            DS1003: DS1003,\n            DS1004: DS1004,\n            DS1103: DS1103,\n            DS1104: DS1104\n        }\n    };\n}\n\n// If not all values are present yet, return nothing\nreturn null;\n",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 640,
+        "y": 420,
+        "wires": [
+            [
+                "cc58c05674529b17"
+            ]
+        ]
+    },
+    {
+        "id": "cc58c05674529b17",
+        "type": "function",
+        "z": "03a0706ad6285197",
+        "name": "Combine XV2",
+        "func": "// Get all XV2 values from context\nlet X002 = flow.get(\"X002\");\nlet Y002 = flow.get(\"Y002\");\nlet C1002 = flow.get(\"C1002\");\nlet DS1003 = flow.get(\"DS1003\");\nlet DS1004 = flow.get(\"DS1004\");\nlet DS1103 = flow.get(\"DS1103\");\nlet DS1104 = flow.get(\"DS1104\");\n\n\n// Only continue if all are present\nif (X002 !== undefined && Y002 !== undefined && C1002 !== undefined && DS1003 !== undefined && DS1004 !== undefined && DS1103 !== undefined && DS1104 !== undefined) {\n    // Optionally clear them after sending\n    flow.set(\"X002\", undefined);\n    flow.set(\"Y002\", undefined);\n    flow.set(\"C1002\", undefined);\n    flow.set(\"DS1003\", undefined);\n    flow.set(\"DS1004\", undefined);\n    flow.set(\"DS1103\", undefined);\n    flow.set(\"DS1104\", undefined);\n\n    return {\n        payload: {\n            X002,\n            Y002,\n            C1002,\n            DS1003,\n            DS1004,\n            DS1103,\n            DS1104\n        }\n    };\n}\n\n// If not all values are ready, do nothing\nreturn null;\n",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 980,
+        "y": 420,
+        "wires": [
+            [
+                "caa1f7f0b2809d1d"
+            ]
+        ]
+    },
+    {
+        "id": "0bc62a7284d0cc52",
+        "type": "function",
+        "z": "03a0706ad6285197",
+        "name": "Store XV2 Control State",
+        "func": "// Define which XV2 key this node is responsible for\nconst XV2key = \"Y002\"; // Change to X002, Y002, C1002, DS1003, DS1004, DS1103, DS1104\n\n// Extract the value from the incoming message\nconst value = msg.payload.data[0];\n\n// Store the value in the flow context\nflow.set(XV2key, value);\n\n// Retrieve all current XV2 values from context\nconst X002 = flow.get(\"X002\");\nconst Y002 = flow.get(\"Y002\");\nconst C1002 = flow.get(\"C1002\");\nconst DS1003 = flow.get(\"DS1003\");\nconst DS1004 = flow.get(\"DS1004\");\nconst DS1103 = flow.get(\"DS1103\");\nconst DS1104 = flow.get(\"DS1104\");\n\n\n// Check if all values are available\nif (X002 !== undefined && Y002 !== undefined && C1002 !== undefined && DS1003 !== undefined && DS1004 !== undefined && DS1103 !== undefined && DS1104 !== undefined) {\n    // Create a new combined message\n    return {\n        payload: {\n            X002: X002,\n            Y002: Y002,\n            C1002: C1002,\n            DS1003: DS1003,\n            DS1004: DS1004,\n            DS1103: DS1103,\n            DS1104: DS1104\n        }\n    };\n}\n\n// If not all values are present yet, return nothing\nreturn null;\n",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 650,
+        "y": 460,
+        "wires": [
+            [
+                "cc58c05674529b17"
+            ]
+        ]
+    },
+    {
+        "id": "f6b7a0457e66344f",
+        "type": "function",
+        "z": "03a0706ad6285197",
+        "name": "Store XV2 PLC Relay",
+        "func": "// Define which XV2 key this node is responsible for\nconst XV2key = \"C1002\"; // Change to X002, Y002, C1002, DS1003, DS1004, DS1103, DS1104\n\n// Extract the value from the incoming message\nconst value = msg.payload.data[0];\n\n// Store the value in the flow context\nflow.set(XV2key, value);\n\n// Retrieve all current XV2 values from context\nconst X002 = flow.get(\"X002\");\nconst Y002 = flow.get(\"Y002\");\nconst C1002 = flow.get(\"C1002\");\nconst DS1003 = flow.get(\"DS1003\");\nconst DS1004 = flow.get(\"DS1004\");\nconst DS1103 = flow.get(\"DS1103\");\nconst DS1104 = flow.get(\"DS1104\");\n\n\n// Check if all values are available\nif (X002 !== undefined && Y002 !== undefined && C1002 !== undefined && DS1003 !== undefined && DS1004 !== undefined && DS1103 !== undefined && DS1104 !== undefined) {\n    // Create a new combined message\n    return {\n        payload: {\n            X002: X002,\n            Y002: Y002,\n            C1002: C1002,\n            DS1003: DS1003,\n            DS1004: DS1004,\n            DS1103: DS1103,\n            DS1104: DS1104\n        }\n    };\n}\n\n// If not all values are present yet, return nothing\nreturn null;\n",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 640,
+        "y": 500,
+        "wires": [
+            [
+                "cc58c05674529b17"
+            ]
+        ]
+    },
+    {
+        "id": "fbf26a8744493a32",
+        "type": "function",
+        "z": "03a0706ad6285197",
+        "name": "Store XV2 Data Read",
+        "func": "// Define which XV2 key this node is responsible for\nconst XV2key = \"DS1003\"; // Change to X002, Y002, C1002, DS1003, DS1004, DS1103, DS1104\n\n// Extract the value from the incoming message\nconst value = msg.payload.data[0];\n\n// Store the value in the flow context\nflow.set(XV2key, value);\n\n// Retrieve all current XV2 values from context\nconst X002 = flow.get(\"X002\");\nconst Y002 = flow.get(\"Y002\");\nconst C1002 = flow.get(\"C1002\");\nconst DS1003 = flow.get(\"DS1003\");\nconst DS1004 = flow.get(\"DS1004\");\nconst DS1103 = flow.get(\"DS1103\");\nconst DS1104 = flow.get(\"DS1104\");\n\n\n// Check if all values are available\nif (X002 !== undefined && Y002 !== undefined && C1002 !== undefined && DS1003 !== undefined && DS1004 !== undefined && DS1103 !== undefined && DS1104 !== undefined) {\n    // Create a new combined message\n    return {\n        payload: {\n            X002: X002,\n            Y002: Y002,\n            C1002: C1002,\n            DS1003: DS1003,\n            DS1004: DS1004,\n            DS1103: DS1103,\n            DS1104: DS1104\n        }\n    };\n}\n\n// If not all values are present yet, return nothing\nreturn null;\n",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 640,
+        "y": 540,
+        "wires": [
+            [
+                "cc58c05674529b17"
+            ]
+        ]
+    },
+    {
+        "id": "d83885649fc10482",
+        "type": "function",
+        "z": "03a0706ad6285197",
+        "name": "Store XV2 Data Command",
+        "func": "// Define which XV2 key this node is responsible for\nconst XV2key = \"DS1004\"; // Change to X002, Y002, C1002, DS1003, DS1004, DS1103, DS1104\n\n// Extract the value from the incoming message\nconst value = msg.payload.data[0];\n\n// Store the value in the flow context\nflow.set(XV2key, value);\n\n// Retrieve all current XV2 values from context\nconst X002 = flow.get(\"X002\");\nconst Y002 = flow.get(\"Y002\");\nconst C1002 = flow.get(\"C1002\");\nconst DS1003 = flow.get(\"DS1003\");\nconst DS1004 = flow.get(\"DS1004\");\nconst DS1103 = flow.get(\"DS1103\");\nconst DS1104 = flow.get(\"DS1104\");\n\n\n// Check if all values are available\nif (X002 !== undefined && Y002 !== undefined && C1002 !== undefined && DS1003 !== undefined && DS1004 !== undefined && DS1103 !== undefined && DS1104 !== undefined) {\n    // Create a new combined message\n    return {\n        payload: {\n            X002: X002,\n            Y002: Y002,\n            C1002: C1002,\n            DS1003: DS1003,\n            DS1004: DS1004,\n            DS1103: DS1103,\n            DS1104: DS1104\n        }\n    };\n}\n\n// If not all values are present yet, return nothing\nreturn null;\n",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 660,
+        "y": 580,
+        "wires": [
+            [
+                "cc58c05674529b17"
+            ]
+        ]
+    },
+    {
+        "id": "907e7a5478fa43ef",
+        "type": "function",
+        "z": "03a0706ad6285197",
+        "name": "Store XV3 Coil State",
+        "func": "// Define which XV3 key this node is responsible for\nconst XV3key = \"X003\"; // Change to X003, Y003, C1003, DS1005, DS1006, DS1105, DS1106\n\n// Extract the value from the incoming message\nconst value = msg.payload.data[0];\n\n// Store the value in the flow context\nflow.set(XV3key, value);\n\n// Retrieve all current XV3 values from context\nconst X003 = flow.get(\"X003\");\nconst Y003 = flow.get(\"Y003\");\nconst C1003 = flow.get(\"C1003\");\nconst DS1005 = flow.get(\"DS1005\");\nconst DS1006 = flow.get(\"DS1006\");\nconst DS1105 = flow.get(\"DS1105\");\nconst DS1106 = flow.get(\"DS1106\");\n\n\n// Check if all values are available\nif (X003 !== undefined && Y003 !== undefined && C1003 !== undefined && DS1005 !== undefined && DS1006 !== undefined && DS1105 !== undefined && DS1106 !== undefined) {\n    // Create a new combined message\n    return {\n        payload: {\n            X003: X003,\n            Y003: Y003,\n            C1003: C1003,\n            DS1005: DS1005,\n            DS1006: DS1006,\n            DS1105: DS1105,\n            DS1106: DS1106\n        }\n    };\n}\n\n// If not all values are present yet, return nothing\nreturn null;\n",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 640,
+        "y": 760,
+        "wires": [
+            [
+                "cac824cf9194881d"
+            ]
+        ]
+    },
+    {
+        "id": "cac824cf9194881d",
+        "type": "function",
+        "z": "03a0706ad6285197",
+        "name": "Combine XV3",
+        "func": "// Get all XV3 values from context\nlet X003 = flow.get(\"X003\");\nlet Y003 = flow.get(\"Y003\");\nlet C1003 = flow.get(\"C1003\");\nlet DS1005 = flow.get(\"DS1005\");\nlet DS1006 = flow.get(\"DS1006\");\nlet DS1105 = flow.get(\"DS1105\");\nlet DS1106 = flow.get(\"DS1106\");\n\n\n// Only continue if all are present\nif (X003 !== undefined && Y003 !== undefined && C1003 !== undefined && DS1005 !== undefined && DS1006 !== undefined && DS1105 !== undefined && DS1106 !== undefined) {\n    // Optionally clear them after sending\n    flow.set(\"X003\", undefined);\n    flow.set(\"Y003\", undefined);\n    flow.set(\"C1003\", undefined);\n    flow.set(\"DS1005\", undefined);\n    flow.set(\"DS1006\", undefined);\n    flow.set(\"DS1105\", undefined);\n    flow.set(\"DS1106\", undefined);\n\n    return {\n        payload: {\n            X003,\n            Y003,\n            C1003,\n            DS1005,\n            DS1006,\n            DS1105,\n            DS1106\n        }\n    };\n}\n\n// If not all values are ready, do nothing\nreturn null;\n",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 980,
+        "y": 760,
+        "wires": [
+            [
+                "0449f16ea5bf4dcb"
+            ]
+        ]
+    },
+    {
+        "id": "29336160d836ad40",
+        "type": "function",
+        "z": "03a0706ad6285197",
+        "name": "Store XV3 Control State",
+        "func": "// Define which XV3 key this node is responsible for\nconst XV3key = \"Y003\"; // Change to X003, Y003, C1003, DS1005, DS1006, DS1105, DS1106\n\n// Extract the value from the incoming message\nconst value = msg.payload.data[0];\n\n// Store the value in the flow context\nflow.set(XV3key, value);\n\n// Retrieve all current XV3 values from context\nconst X003 = flow.get(\"X003\");\nconst Y003 = flow.get(\"Y003\");\nconst C1003 = flow.get(\"C1003\");\nconst DS1005 = flow.get(\"DS1005\");\nconst DS1006 = flow.get(\"DS1006\");\nconst DS1105 = flow.get(\"DS1105\");\nconst DS1106 = flow.get(\"DS1106\");\n\n\n// Check if all values are available\nif (X003 !== undefined && Y003 !== undefined && C1003 !== undefined && DS1005 !== undefined && DS1006 !== undefined && DS1105 !== undefined && DS1106 !== undefined) {\n    // Create a new combined message\n    return {\n        payload: {\n            X003: X003,\n            Y003: Y003,\n            C1003: C1003,\n            DS1005: DS1005,\n            DS1006: DS1006,\n            DS1105: DS1105,\n            DS1106: DS1106\n        }\n    };\n}\n\n// If not all values are present yet, return nothing\nreturn null;\n",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 650,
+        "y": 800,
+        "wires": [
+            [
+                "cac824cf9194881d"
+            ]
+        ]
+    },
+    {
+        "id": "6ab2499a171c3419",
+        "type": "function",
+        "z": "03a0706ad6285197",
+        "name": "Store XV3 PLC Relay",
+        "func": "// Define which XV3 key this node is responsible for\nconst XV3key = \"C1003\"; // Change to X003, Y003, C1003, DS1005, DS1006, DS1105, DS1106\n\n// Extract the value from the incoming message\nconst value = msg.payload.data[0];\n\n// Store the value in the flow context\nflow.set(XV3key, value);\n\n// Retrieve all current XV3 values from context\nconst X003 = flow.get(\"X003\");\nconst Y003 = flow.get(\"Y003\");\nconst C1003 = flow.get(\"C1003\");\nconst DS1005 = flow.get(\"DS1005\");\nconst DS1006 = flow.get(\"DS1006\");\nconst DS1105 = flow.get(\"DS1105\");\nconst DS1106 = flow.get(\"DS1106\");\n\n\n// Check if all values are available\nif (X003 !== undefined && Y003 !== undefined && C1003 !== undefined && DS1005 !== undefined && DS1006 !== undefined && DS1105 !== undefined && DS1106 !== undefined) {\n    // Create a new combined message\n    return {\n        payload: {\n            X003: X003,\n            Y003: Y003,\n            C1003: C1003,\n            DS1005: DS1005,\n            DS1006: DS1006,\n            DS1105: DS1105,\n            DS1106: DS1106\n        }\n    };\n}\n\n// If not all values are present yet, return nothing\nreturn null;\n",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 640,
+        "y": 840,
+        "wires": [
+            [
+                "cac824cf9194881d"
+            ]
+        ]
+    },
+    {
+        "id": "1bfa37570af22172",
+        "type": "function",
+        "z": "03a0706ad6285197",
+        "name": "Store XV3 Data Read",
+        "func": "// Define which XV3 key this node is responsible for\nconst XV3key = \"DS1005\"; // Change to X003, Y003, C1003, DS1005, DS1006, DS1105, DS1106\n\n// Extract the value from the incoming message\nconst value = msg.payload.data[0];\n\n// Store the value in the flow context\nflow.set(XV3key, value);\n\n// Retrieve all current XV3 values from context\nconst X003 = flow.get(\"X003\");\nconst Y003 = flow.get(\"Y003\");\nconst C1003 = flow.get(\"C1003\");\nconst DS1005 = flow.get(\"DS1005\");\nconst DS1006 = flow.get(\"DS1006\");\nconst DS1105 = flow.get(\"DS1105\");\nconst DS1106 = flow.get(\"DS1106\");\n\n\n// Check if all values are available\nif (X003 !== undefined && Y003 !== undefined && C1003 !== undefined && DS1005 !== undefined && DS1006 !== undefined && DS1105 !== undefined && DS1106 !== undefined) {\n    // Create a new combined message\n    return {\n        payload: {\n            X003: X003,\n            Y003: Y003,\n            C1003: C1003,\n            DS1005: DS1005,\n            DS1006: DS1006,\n            DS1105: DS1105,\n            DS1106: DS1106\n        }\n    };\n}\n\n// If not all values are present yet, return nothing\nreturn null;\n",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 640,
+        "y": 880,
+        "wires": [
+            [
+                "cac824cf9194881d"
+            ]
+        ]
+    },
+    {
+        "id": "eb915557ac32e099",
+        "type": "function",
+        "z": "03a0706ad6285197",
+        "name": "Store XV3 Data Command",
+        "func": "// Define which XV3 key this node is responsible for\nconst XV3key = \"DS1006\"; // Change to X003, Y003, C1003, DS1005, DS1006, DS1105, DS1106\n\n// Extract the value from the incoming message\nconst value = msg.payload.data[0];\n\n// Store the value in the flow context\nflow.set(XV3key, value);\n\n// Retrieve all current XV3 values from context\nconst X003 = flow.get(\"X003\");\nconst Y003 = flow.get(\"Y003\");\nconst C1003 = flow.get(\"C1003\");\nconst DS1005 = flow.get(\"DS1005\");\nconst DS1006 = flow.get(\"DS1006\");\nconst DS1105 = flow.get(\"DS1105\");\nconst DS1106 = flow.get(\"DS1106\");\n\n\n// Check if all values are available\nif (X003 !== undefined && Y003 !== undefined && C1003 !== undefined && DS1005 !== undefined && DS1006 !== undefined && DS1105 !== undefined && DS1106 !== undefined) {\n    // Create a new combined message\n    return {\n        payload: {\n            X003: X003,\n            Y003: Y003,\n            C1003: C1003,\n            DS1005: DS1005,\n            DS1006: DS1006,\n            DS1105: DS1105,\n            DS1106: DS1106\n        }\n    };\n}\n\n// If not all values are present yet, return nothing\nreturn null;\n",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 660,
+        "y": 920,
+        "wires": [
+            [
+                "cac824cf9194881d"
+            ]
+        ]
+    },
+    {
+        "id": "7aab85bf51de307e",
+        "type": "CLICK Read",
+        "z": "03a0706ad6285197",
+        "name": "XV1 Auto Close Setting",
+        "memorytype": "DS",
+        "memoryaddress": "1101",
+        "memorysize": "1",
+        "wswap": "OFF",
+        "showErrCode": 0,
+        "showErrText": 0,
+        "x": 410,
+        "y": 280,
+        "wires": [
+            [
+                "28a8484418db699b"
+            ]
+        ]
+    },
+    {
+        "id": "54d1eb6eda9794b1",
+        "type": "CLICK Read",
+        "z": "03a0706ad6285197",
+        "name": "XV1 Auto Open Setting",
+        "memorytype": "DS",
+        "memoryaddress": "1102",
+        "memorysize": "1",
+        "wswap": "OFF",
+        "showErrCode": 0,
+        "showErrText": 0,
+        "x": 410,
+        "y": 320,
+        "wires": [
+            [
+                "b7a443f1479c6aae"
+            ]
+        ]
+    },
+    {
+        "id": "28a8484418db699b",
+        "type": "function",
+        "z": "03a0706ad6285197",
+        "name": "Store XV1 Auto Close Setting",
+        "func": "// Define which XV1 key this node is responsible for\nconst XV1key = \"DS1101\"; // Change to X001, Y001, C1001, DS1001, DS1002, DS1101, DS1102\n\n// Extract the value from the incoming message\nconst value = msg.payload.data[0];\n\n// Store the value in the flow context\nflow.set(XV1key, value);\n\n// Retrieve all current XV1 values from context\nconst X001 = flow.get(\"X001\");\nconst Y001 = flow.get(\"Y001\");\nconst C1001 = flow.get(\"C1001\");\nconst DS1001 = flow.get(\"DS1001\");\nconst DS1002 = flow.get(\"DS1002\");\nconst DS1101 = flow.get(\"DS1101\");\nconst DS1102 = flow.get(\"DS1102\");\n\n// Check if all values are available\nif (X001 !== undefined && Y001 !== undefined && C1001 !== undefined && DS1001 !== undefined && DS1002 !== undefined && DS1101 !== undefined && DS1102 !== undefined) {\n    // Create a new combined message\n    return {\n        payload: {\n            X001: X001,\n            Y001: Y001,\n            C1001: C1001,\n            DS1001: DS1001,\n            DS1002: DS1002,\n            DS1101: DS1101,\n            DS1102: DS1102\n        }\n    };\n}\n\n// If not all values are present yet, return nothing\nreturn null;\n",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 660,
+        "y": 280,
+        "wires": [
+            [
+                "b54d7731c9837040"
+            ]
+        ]
+    },
+    {
+        "id": "b7a443f1479c6aae",
+        "type": "function",
+        "z": "03a0706ad6285197",
+        "name": "Store XV1 Auto Open Setting",
+        "func": "// Define which XV1 key this node is responsible for\nconst XV1key = \"DS1102\"; // Change to X001, Y001, C1001, DS1001, DS1002, DS1101, DS1102\n\n// Extract the value from the incoming message\nconst value = msg.payload.data[0];\n\n// Store the value in the flow context\nflow.set(XV1key, value);\n\n// Retrieve all current XV1 values from context\nconst X001 = flow.get(\"X001\");\nconst Y001 = flow.get(\"Y001\");\nconst C1001 = flow.get(\"C1001\");\nconst DS1001 = flow.get(\"DS1001\");\nconst DS1002 = flow.get(\"DS1002\");\nconst DS1101 = flow.get(\"DS1101\");\nconst DS1102 = flow.get(\"DS1102\");\n\n// Check if all values are available\nif (X001 !== undefined && Y001 !== undefined && C1001 !== undefined && DS1001 !== undefined && DS1002 !== undefined && DS1101 !== undefined && DS1102 !== undefined) {\n    // Create a new combined message\n    return {\n        payload: {\n            X001: X001,\n            Y001: Y001,\n            C1001: C1001,\n            DS1001: DS1001,\n            DS1002: DS1002,\n            DS1101: DS1101,\n            DS1102: DS1102\n        }\n    };\n}\n\n// If not all values are present yet, return nothing\nreturn null;\n",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 660,
+        "y": 320,
+        "wires": [
+            [
+                "b54d7731c9837040"
+            ]
+        ]
+    },
+    {
+        "id": "80fb40d49814a8d8",
+        "type": "CLICK Read",
+        "z": "03a0706ad6285197",
+        "name": "XV2 Auto Close Setting",
+        "memorytype": "DS",
+        "memoryaddress": "1103",
+        "memorysize": "1",
+        "wswap": "OFF",
+        "showErrCode": 0,
+        "showErrText": 0,
+        "x": 410,
+        "y": 620,
+        "wires": [
+            [
+                "330b948cebe0fce0"
+            ]
+        ]
+    },
+    {
+        "id": "330b948cebe0fce0",
+        "type": "function",
+        "z": "03a0706ad6285197",
+        "name": "Store XV2 Auto Close Setting",
+        "func": "// Define which XV2 key this node is responsible for\nconst XV2key = \"DS1103\"; // Change to X002, Y002, C1002, DS1003, DS1004, DS1103, DS1104\n\n// Extract the value from the incoming message\nconst value = msg.payload.data[0];\n\n// Store the value in the flow context\nflow.set(XV2key, value);\n\n// Retrieve all current XV2 values from context\nconst X002 = flow.get(\"X002\");\nconst Y002 = flow.get(\"Y002\");\nconst C1002 = flow.get(\"C1002\");\nconst DS1003 = flow.get(\"DS1003\");\nconst DS1004 = flow.get(\"DS1004\");\nconst DS1103 = flow.get(\"DS1103\");\nconst DS1104 = flow.get(\"DS1104\");\n\n\n// Check if all values are available\nif (X002 !== undefined && Y002 !== undefined && C1002 !== undefined && DS1003 !== undefined && DS1004 !== undefined && DS1103 !== undefined && DS1104 !== undefined) {\n    // Create a new combined message\n    return {\n        payload: {\n            X002: X002,\n            Y002: Y002,\n            C1002: C1002,\n            DS1003: DS1003,\n            DS1004: DS1004,\n            DS1103: DS1103,\n            DS1104: DS1104\n        }\n    };\n}\n\n// If not all values are present yet, return nothing\nreturn null;\n",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 660,
+        "y": 620,
+        "wires": [
+            [
+                "cc58c05674529b17"
+            ]
+        ]
+    },
+    {
+        "id": "acc034f1e8614ba8",
+        "type": "CLICK Read",
+        "z": "03a0706ad6285197",
+        "name": "XV2 Auto Open Setting",
+        "memorytype": "DS",
+        "memoryaddress": "1104",
+        "memorysize": "1",
+        "wswap": "OFF",
+        "showErrCode": 0,
+        "showErrText": 0,
+        "x": 410,
+        "y": 660,
+        "wires": [
+            [
+                "348ba0ff533b6ae5"
+            ]
+        ]
+    },
+    {
+        "id": "348ba0ff533b6ae5",
+        "type": "function",
+        "z": "03a0706ad6285197",
+        "name": "Store XV2 Data Command",
+        "func": "// Define which XV2 key this node is responsible for\nconst XV2key = \"DS1104\"; // Change to X002, Y002, C1002, DS1003, DS1004, DS1103, DS1104\n\n// Extract the value from the incoming message\nconst value = msg.payload.data[0];\n\n// Store the value in the flow context\nflow.set(XV2key, value);\n\n// Retrieve all current XV2 values from context\nconst X002 = flow.get(\"X002\");\nconst Y002 = flow.get(\"Y002\");\nconst C1002 = flow.get(\"C1002\");\nconst DS1003 = flow.get(\"DS1003\");\nconst DS1004 = flow.get(\"DS1004\");\nconst DS1103 = flow.get(\"DS1103\");\nconst DS1104 = flow.get(\"DS1104\");\n\n\n// Check if all values are available\nif (X002 !== undefined && Y002 !== undefined && C1002 !== undefined && DS1003 !== undefined && DS1004 !== undefined && DS1103 !== undefined && DS1104 !== undefined) {\n    // Create a new combined message\n    return {\n        payload: {\n            X002: X002,\n            Y002: Y002,\n            C1002: C1002,\n            DS1003: DS1003,\n            DS1004: DS1004,\n            DS1103: DS1103,\n            DS1104: DS1104\n        }\n    };\n}\n\n// If not all values are present yet, return nothing\nreturn null;\n",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 660,
+        "y": 660,
+        "wires": [
+            [
+                "cc58c05674529b17"
+            ]
+        ]
+    },
+    {
+        "id": "37bd222dfd6aeeb2",
+        "type": "CLICK Read",
+        "z": "03a0706ad6285197",
+        "name": "XV3 Auto Close Setting",
+        "memorytype": "DS",
+        "memoryaddress": "1105",
+        "memorysize": "1",
+        "wswap": "OFF",
+        "showErrCode": 0,
+        "showErrText": 0,
+        "x": 410,
+        "y": 960,
+        "wires": [
+            [
+                "c906444cb365560f"
+            ]
+        ]
+    },
+    {
+        "id": "c906444cb365560f",
+        "type": "function",
+        "z": "03a0706ad6285197",
+        "name": "Store XV3 Auto Close Setting",
+        "func": "// Define which XV3 key this node is responsible for\nconst XV3key = \"DS1105\"; // Change to X003, Y003, C1003, DS1005, DS1006, DS1105, DS1106\n\n// Extract the value from the incoming message\nconst value = msg.payload.data[0];\n\n// Store the value in the flow context\nflow.set(XV3key, value);\n\n// Retrieve all current XV3 values from context\nconst X003 = flow.get(\"X003\");\nconst Y003 = flow.get(\"Y003\");\nconst C1003 = flow.get(\"C1003\");\nconst DS1005 = flow.get(\"DS1005\");\nconst DS1006 = flow.get(\"DS1006\");\nconst DS1105 = flow.get(\"DS1105\");\nconst DS1106 = flow.get(\"DS1106\");\n\n\n// Check if all values are available\nif (X003 !== undefined && Y003 !== undefined && C1003 !== undefined && DS1005 !== undefined && DS1006 !== undefined && DS1105 !== undefined && DS1106 !== undefined) {\n    // Create a new combined message\n    return {\n        payload: {\n            X003: X003,\n            Y003: Y003,\n            C1003: C1003,\n            DS1005: DS1005,\n            DS1006: DS1006,\n            DS1105: DS1105,\n            DS1106: DS1106\n        }\n    };\n}\n\n// If not all values are present yet, return nothing\nreturn null;\n",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 660,
+        "y": 960,
+        "wires": [
+            [
+                "cac824cf9194881d"
+            ]
+        ]
+    },
+    {
+        "id": "03738f5d5c406496",
+        "type": "CLICK Read",
+        "z": "03a0706ad6285197",
+        "name": "XV3 Auto Open Setting",
+        "memorytype": "DS",
+        "memoryaddress": "1106",
+        "memorysize": "1",
+        "wswap": "OFF",
+        "showErrCode": 0,
+        "showErrText": 0,
+        "x": 410,
+        "y": 1000,
+        "wires": [
+            [
+                "2cbf0c5945845a4e"
+            ]
+        ]
+    },
+    {
+        "id": "2cbf0c5945845a4e",
+        "type": "function",
+        "z": "03a0706ad6285197",
+        "name": "Store XV3 Auto Open Setting",
+        "func": "// Define which XV3 key this node is responsible for\nconst XV3key = \"DS1106\"; // Change to X003, Y003, C1003, DS1005, DS1006, DS1105, DS1106\n\n// Extract the value from the incoming message\nconst value = msg.payload.data[0];\n\n// Store the value in the flow context\nflow.set(XV3key, value);\n\n// Retrieve all current XV3 values from context\nconst X003 = flow.get(\"X003\");\nconst Y003 = flow.get(\"Y003\");\nconst C1003 = flow.get(\"C1003\");\nconst DS1005 = flow.get(\"DS1005\");\nconst DS1006 = flow.get(\"DS1006\");\nconst DS1105 = flow.get(\"DS1105\");\nconst DS1106 = flow.get(\"DS1106\");\n\n\n// Check if all values are available\nif (X003 !== undefined && Y003 !== undefined && C1003 !== undefined && DS1005 !== undefined && DS1006 !== undefined && DS1105 !== undefined && DS1106 !== undefined) {\n    // Create a new combined message\n    return {\n        payload: {\n            X003: X003,\n            Y003: Y003,\n            C1003: C1003,\n            DS1005: DS1005,\n            DS1006: DS1006,\n            DS1105: DS1105,\n            DS1106: DS1106\n        }\n    };\n}\n\n// If not all values are present yet, return nothing\nreturn null;\n",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 660,
+        "y": 1000,
+        "wires": [
+            [
+                "cac824cf9194881d"
+            ]
+        ]
+    },
+    {
+        "id": "304b96adc314050c",
+        "type": "function",
+        "z": "17f7f3624d243018",
+        "name": "Combine PID1",
+        "func": "// Get all PID1 values from context\nlet PID1_SP = flow.get(\"PID1_SP\");\nlet PID1_Kp = flow.get(\"PID1_Kp\");\nlet PID1_Ki = flow.get(\"PID1_Ki\");\nlet PID1_Kd = flow.get(\"PID1_Kd\");\nlet PID1_PV = flow.get(\"PID1_PV\");\nlet PID1_rawPV = flow.get(\"PID1_rawPV\");\nlet PID1_Bias = flow.get(\"PID1_Bias\");\nlet PID1_Output = flow.get(\"PID1_Output\");\n\n// Only continue if all are present\nif (PID1_SP !== undefined && PID1_Kp !== undefined && PID1_Ki !== undefined && PID1_Kd !== undefined && PID1_PV !== undefined && PID1_rawPV !== undefined && PID1_Bias !== undefined && PID1_Output !== undefined) {\n    // Optionally clear them after sending\n    flow.set(\"PID1_SP\", undefined);\n    flow.set(\"PID1_Kp\", undefined);\n    flow.set(\"PID1_Ki\", undefined);\n    flow.set(\"PID1_Kd\", undefined);\n    flow.set(\"PID1_PV\", undefined);\n    flow.set(\"PID1_rawPV\", undefined);\n    flow.set(\"PID1_Bias\", undefined);\n    flow.set(\"PID1_Output\", undefined);\n \n    return {\n        payload: {\n            PID1_SP: PID1_SP,\n            PID1_Kp: PID1_Kp,\n            PID1_Ki: PID1_Ki,\n            PID1_Kd: PID1_Kd,\n            PID1_PV: PID1_PV,\n            PID1_rawPV: PID1_rawPV,\n            PID1_Bias: PID1_Bias,\n            PID1_Output: PID1_Output\n        }\n    };\n}\n\n// If not all values are ready, do nothing\nreturn null;\n",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 940,
+        "y": 80,
+        "wires": [
+            [
+                "3a48f51b239b58f7"
+            ]
+        ]
+    },
+    {
+        "id": "7c8815fb2cab450b",
+        "type": "link in",
+        "z": "17f7f3624d243018",
+        "name": "In to PID1",
+        "links": [
+            "686b1bff6a499843"
+        ],
+        "x": 175,
+        "y": 80,
+        "wires": [
+            [
+                "67795f894657a727",
+                "73503962de82adb1",
+                "bb43c43c12651ce4",
+                "dd34e442f408a91d",
+                "c783faa76761274a",
+                "44409312c275d028",
+                "c4730ca16b7959a9",
+                "27bf92cb58bd56cb"
+            ]
+        ]
+    },
+    {
+        "id": "3a48f51b239b58f7",
+        "type": "link out",
+        "z": "17f7f3624d243018",
+        "name": "PID1 out to MQTT",
+        "mode": "link",
+        "links": [
+            "345677ab995357fc"
+        ],
+        "x": 1145,
+        "y": 80,
+        "wires": []
+    },
+    {
+        "id": "67795f894657a727",
+        "type": "CLICK Read",
+        "z": "17f7f3624d243018",
+        "name": "PID1 SP",
+        "memorytype": "DF",
+        "memoryaddress": "100",
+        "memorysize": "1",
+        "wswap": "OFF",
+        "showErrCode": 0,
+        "showErrText": 0,
+        "x": 340,
+        "y": 80,
+        "wires": [
+            [
+                "56d140c631bddc9e"
+            ]
+        ]
+    },
+    {
+        "id": "dd34e442f408a91d",
+        "type": "CLICK Read",
+        "z": "17f7f3624d243018",
+        "name": "PID1 Kd",
+        "memorytype": "DF",
+        "memoryaddress": "107",
+        "memorysize": "1",
+        "wswap": "OFF",
+        "showErrCode": 0,
+        "showErrText": 0,
+        "x": 340,
+        "y": 200,
+        "wires": [
+            [
+                "cefdf86e16562308"
+            ]
+        ]
+    },
+    {
+        "id": "c783faa76761274a",
+        "type": "CLICK Read",
+        "z": "17f7f3624d243018",
+        "name": "PID1 PV",
+        "memorytype": "DF",
+        "memoryaddress": "112",
+        "memorysize": "1",
+        "wswap": "OFF",
+        "showErrCode": 0,
+        "showErrText": 0,
+        "x": 340,
+        "y": 240,
+        "wires": [
+            [
+                "8f0bcfef31d6681e"
+            ]
+        ]
+    },
+    {
+        "id": "bb43c43c12651ce4",
+        "type": "CLICK Read",
+        "z": "17f7f3624d243018",
+        "name": "PID1 Ki",
+        "memorytype": "DF",
+        "memoryaddress": "106",
+        "memorysize": "1",
+        "wswap": "OFF",
+        "showErrCode": 0,
+        "showErrText": 0,
+        "x": 340,
+        "y": 160,
+        "wires": [
+            [
+                "9abb318ea12dd403"
+            ]
+        ]
+    },
+    {
+        "id": "73503962de82adb1",
+        "type": "CLICK Read",
+        "z": "17f7f3624d243018",
+        "name": "PID1 Kp",
+        "memorytype": "DF",
+        "memoryaddress": "105",
+        "memorysize": "1",
+        "wswap": "OFF",
+        "showErrCode": 0,
+        "showErrText": 0,
+        "x": 340,
+        "y": 120,
+        "wires": [
+            [
+                "29404bdbbfb50829"
+            ]
+        ]
+    },
+    {
+        "id": "b38de93dca4c73d9",
+        "type": "comment",
+        "z": "17f7f3624d243018",
+        "name": "PID1",
+        "info": "",
+        "x": 330,
+        "y": 40,
+        "wires": []
+    },
+    {
+        "id": "56d140c631bddc9e",
+        "type": "function",
+        "z": "17f7f3624d243018",
+        "name": "Store PID1 SP",
+        "func": "// Define which PID1 key this node is responsible for\nconst PID1key = \"PID1_SP\"; // Change to PID1_SP, PID1_Kp, PID1_Ki, PID1_Kd, PID1_PV, PID1_rawPV, PID1_Bias, PID1_Output\n\n// Extract the value from the incoming message\nconst value = msg.payload.data[0];\n\n// Store the value in the flow context\nflow.set(PID1key, value);\n\n// Retrieve all current PID1 values from context\nconst PID1_SP = flow.get(\"PID1_SP\");\nconst PID1_Kp = flow.get(\"PID1_Kp\");\nconst PID1_Ki = flow.get(\"PID1_Ki\");\nconst PID1_Kd = flow.get(\"PID1_Kd\");\nconst PID1_PV = flow.get(\"PID1_PV\");\nconst PID1_rawPV = flow.get(\"PID1_rawPV\");\nconst PID1_Bias = flow.get(\"PID1_Bias\");\nconst PID1_Output = flow.get(\"PID1_Output\");\n\n// Check if all values are available\nif (PID1_SP !== undefined && PID1_Kp !== undefined && PID1_Ki !== undefined && PID1_Kd !== undefined && PID1_PV !== undefined && PID1_rawPV !== undefined && PID1_Bias !== undefined && PID1_Output !== undefined) {\n    // Create a new combined message\n    return {\n        payload: {\n            PID1_SP: PID1_SP,\n            PID1_Kp: PID1_Kp,\n            PID1_Ki: PID1_Ki,\n            PID1_Kd: PID1_Kd,\n            PID1_PV: PID1_PV,\n            PID1_rawPV: PID1_rawPV,\n            PID1_Bias: PID1_Bias,\n            PID1_Output: PID1_Output\n        }\n    };\n}\n\n// If not all values are present yet, return nothing\nreturn null;\n",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 600,
+        "y": 80,
+        "wires": [
+            [
+                "304b96adc314050c"
+            ]
+        ]
+    },
+    {
+        "id": "29404bdbbfb50829",
+        "type": "function",
+        "z": "17f7f3624d243018",
+        "name": "Store PID1 Kp",
+        "func": "// Define which PID1 key this node is responsible for\nconst PID1key = \"PID1_Kp\"; // Change to PID1_SP, PID1_Kp, PID1_Ki, PID1_Kd, PID1_PV, PID1_rawPV, PID1_Bias, PID1_Output\n\n// Extract the value from the incoming message\nconst value = msg.payload.data[0];\n\n// Store the value in the flow context\nflow.set(PID1key, value);\n\n// Retrieve all current PID1 values from context\nconst PID1_SP = flow.get(\"PID1_SP\");\nconst PID1_Kp = flow.get(\"PID1_Kp\");\nconst PID1_Ki = flow.get(\"PID1_Ki\");\nconst PID1_Kd = flow.get(\"PID1_Kd\");\nconst PID1_PV = flow.get(\"PID1_PV\");\nconst PID1_rawPV = flow.get(\"PID1_rawPV\");\nconst PID1_Bias = flow.get(\"PID1_Bias\");\nconst PID1_Output = flow.get(\"PID1_Output\");\n\n// Check if all values are available\nif (PID1_SP !== undefined && PID1_Kp !== undefined && PID1_Ki !== undefined && PID1_Kd !== undefined && PID1_PV !== undefined && PID1_rawPV !== undefined && PID1_Bias !== undefined && PID1_Output !== undefined) {\n    // Create a new combined message\n    return {\n        payload: {\n            PID1_SP: PID1_SP,\n            PID1_Kp: PID1_Kp,\n            PID1_Ki: PID1_Ki,\n            PID1_Kd: PID1_Kd,\n            PID1_PV: PID1_PV,\n            PID1_rawPV: PID1_rawPV,\n            PID1_Bias: PID1_Bias,\n            PID1_Output: PID1_Output\n        }\n    };\n}\n\n// If not all values are present yet, return nothing\nreturn null;\n",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 600,
+        "y": 120,
+        "wires": [
+            [
+                "304b96adc314050c"
+            ]
+        ]
+    },
+    {
+        "id": "9abb318ea12dd403",
+        "type": "function",
+        "z": "17f7f3624d243018",
+        "name": "Store PID1 Ki",
+        "func": "// Define which PID1 key this node is responsible for\nconst PID1key = \"PID1_Ki\"; // Change to PID1_SP, PID1_Kp, PID1_Ki, PID1_Kd, PID1_PV, PID1_rawPV, PID1_Bias, PID1_Output\n\n// Extract the value from the incoming message\nconst value = msg.payload.data[0];\n\n// Store the value in the flow context\nflow.set(PID1key, value);\n\n// Retrieve all current PID1 values from context\nconst PID1_SP = flow.get(\"PID1_SP\");\nconst PID1_Kp = flow.get(\"PID1_Kp\");\nconst PID1_Ki = flow.get(\"PID1_Ki\");\nconst PID1_Kd = flow.get(\"PID1_Kd\");\nconst PID1_PV = flow.get(\"PID1_PV\");\nconst PID1_rawPV = flow.get(\"PID1_rawPV\");\nconst PID1_Bias = flow.get(\"PID1_Bias\");\nconst PID1_Output = flow.get(\"PID1_Output\");\n\n// Check if all values are available\nif (PID1_SP !== undefined && PID1_Kp !== undefined && PID1_Ki !== undefined && PID1_Kd !== undefined && PID1_PV !== undefined && PID1_rawPV !== undefined && PID1_Bias !== undefined && PID1_Output !== undefined) {\n    // Create a new combined message\n    return {\n        payload: {\n            PID1_SP: PID1_SP,\n            PID1_Kp: PID1_Kp,\n            PID1_Ki: PID1_Ki,\n            PID1_Kd: PID1_Kd,\n            PID1_PV: PID1_PV,\n            PID1_rawPV: PID1_rawPV,\n            PID1_Bias: PID1_Bias,\n            PID1_Output: PID1_Output\n        }\n    };\n}\n\n// If not all values are present yet, return nothing\nreturn null;\n",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 600,
+        "y": 160,
+        "wires": [
+            [
+                "304b96adc314050c"
+            ]
+        ]
+    },
+    {
+        "id": "cefdf86e16562308",
+        "type": "function",
+        "z": "17f7f3624d243018",
+        "name": "Store PID1 Kd",
+        "func": "// Define which PID1 key this node is responsible for\nconst PID1key = \"PID1_Kd\"; // Change to PID1_SP, PID1_Kp, PID1_Ki, PID1_Kd, PID1_PV, PID1_rawPV, PID1_Bias, PID1_Output\n\n// Extract the value from the incoming message\nconst value = msg.payload.data[0];\n\n// Store the value in the flow context\nflow.set(PID1key, value);\n\n// Retrieve all current PID1 values from context\nconst PID1_SP = flow.get(\"PID1_SP\");\nconst PID1_Kp = flow.get(\"PID1_Kp\");\nconst PID1_Ki = flow.get(\"PID1_Ki\");\nconst PID1_Kd = flow.get(\"PID1_Kd\");\nconst PID1_PV = flow.get(\"PID1_PV\");\nconst PID1_rawPV = flow.get(\"PID1_rawPV\");\nconst PID1_Bias = flow.get(\"PID1_Bias\");\nconst PID1_Output = flow.get(\"PID1_Output\");\n\n// Check if all values are available\nif (PID1_SP !== undefined && PID1_Kp !== undefined && PID1_Ki !== undefined && PID1_Kd !== undefined && PID1_PV !== undefined && PID1_rawPV !== undefined && PID1_Bias !== undefined && PID1_Output !== undefined) {\n    // Create a new combined message\n    return {\n        payload: {\n            PID1_SP: PID1_SP,\n            PID1_Kp: PID1_Kp,\n            PID1_Ki: PID1_Ki,\n            PID1_Kd: PID1_Kd,\n            PID1_PV: PID1_PV,\n            PID1_rawPV: PID1_rawPV,\n            PID1_Bias: PID1_Bias,\n            PID1_Output: PID1_Output\n        }\n    };\n}\n\n// If not all values are present yet, return nothing\nreturn null;\n",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 600,
+        "y": 200,
+        "wires": [
+            [
+                "304b96adc314050c"
+            ]
+        ]
+    },
+    {
+        "id": "8f0bcfef31d6681e",
+        "type": "function",
+        "z": "17f7f3624d243018",
+        "name": "Store PID1 PV",
+        "func": "// Define which PID1 key this node is responsible for\nconst PID1key = \"PID1_PV\"; // Change to PID1_SP, PID1_Kp, PID1_Ki, PID1_Kd, PID1_PV, PID1_rawPV, PID1_Bias, PID1_Output\n\n// Extract the value from the incoming message\nconst value = msg.payload.data[0];\n\n// Store the value in the flow context\nflow.set(PID1key, value);\n\n// Retrieve all current PID1 values from context\nconst PID1_SP = flow.get(\"PID1_SP\");\nconst PID1_Kp = flow.get(\"PID1_Kp\");\nconst PID1_Ki = flow.get(\"PID1_Ki\");\nconst PID1_Kd = flow.get(\"PID1_Kd\");\nconst PID1_PV = flow.get(\"PID1_PV\");\nconst PID1_rawPV = flow.get(\"PID1_rawPV\");\nconst PID1_Bias = flow.get(\"PID1_Bias\");\nconst PID1_Output = flow.get(\"PID1_Output\");\n\n// Check if all values are available\nif (PID1_SP !== undefined && PID1_Kp !== undefined && PID1_Ki !== undefined && PID1_Kd !== undefined && PID1_PV !== undefined && PID1_rawPV !== undefined && PID1_Bias !== undefined && PID1_Output !== undefined) {\n    // Create a new combined message\n    return {\n        payload: {\n            PID1_SP: PID1_SP,\n            PID1_Kp: PID1_Kp,\n            PID1_Ki: PID1_Ki,\n            PID1_Kd: PID1_Kd,\n            PID1_PV: PID1_PV,\n            PID1_rawPV: PID1_rawPV,\n            PID1_Bias: PID1_Bias,\n            PID1_Output: PID1_Output\n        }\n    };\n}\n\n// If not all values are present yet, return nothing\nreturn null;\n",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 600,
+        "y": 240,
+        "wires": [
+            [
+                "304b96adc314050c"
+            ]
+        ]
+    },
+    {
+        "id": "44409312c275d028",
+        "type": "CLICK Read",
+        "z": "17f7f3624d243018",
+        "name": "PID1 rawPV",
+        "memorytype": "DF",
+        "memoryaddress": "111",
+        "memorysize": "1",
+        "wswap": "OFF",
+        "showErrCode": 0,
+        "showErrText": 0,
+        "x": 350,
+        "y": 280,
+        "wires": [
+            [
+                "811d308794054bd9"
+            ]
+        ]
+    },
+    {
+        "id": "c4730ca16b7959a9",
+        "type": "CLICK Read",
+        "z": "17f7f3624d243018",
+        "name": "PID1 Bias",
+        "memorytype": "DF",
+        "memoryaddress": "104",
+        "memorysize": "1",
+        "wswap": "OFF",
+        "showErrCode": 0,
+        "showErrText": 0,
+        "x": 340,
+        "y": 320,
+        "wires": [
+            [
+                "28184e440f94bbd2"
+            ]
+        ]
+    },
+    {
+        "id": "811d308794054bd9",
+        "type": "function",
+        "z": "17f7f3624d243018",
+        "name": "Store PID1 rawPV",
+        "func": "// Define which PID1 key this node is responsible for\nconst PID1key = \"PID1_rawPV\"; // Change to PID1_SP, PID1_Kp, PID1_Ki, PID1_Kd, PID1_PV, PID1_rawPV, PID1_Bias, PID1_Output\n\n// Extract the value from the incoming message\nconst value = msg.payload.data[0];\n\n// Store the value in the flow context\nflow.set(PID1key, value);\n\n// Retrieve all current PID1 values from context\nconst PID1_SP = flow.get(\"PID1_SP\");\nconst PID1_Kp = flow.get(\"PID1_Kp\");\nconst PID1_Ki = flow.get(\"PID1_Ki\");\nconst PID1_Kd = flow.get(\"PID1_Kd\");\nconst PID1_PV = flow.get(\"PID1_PV\");\nconst PID1_rawPV = flow.get(\"PID1_rawPV\");\nconst PID1_Bias = flow.get(\"PID1_Bias\");\nconst PID1_Output = flow.get(\"PID1_Output\");\n\n// Check if all values are available\nif (PID1_SP !== undefined && PID1_Kp !== undefined && PID1_Ki !== undefined && PID1_Kd !== undefined && PID1_PV !== undefined && PID1_rawPV !== undefined && PID1_Bias !== undefined && PID1_Output !== undefined) {\n    // Create a new combined message\n    return {\n        payload: {\n            PID1_SP: PID1_SP,\n            PID1_Kp: PID1_Kp,\n            PID1_Ki: PID1_Ki,\n            PID1_Kd: PID1_Kd,\n            PID1_PV: PID1_PV,\n            PID1_rawPV: PID1_rawPV,\n            PID1_Bias: PID1_Bias,\n            PID1_Output: PID1_Output\n        }\n    };\n}\n\n// If not all values are present yet, return nothing\nreturn null;\n",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 610,
+        "y": 280,
+        "wires": [
+            [
+                "304b96adc314050c"
+            ]
+        ]
+    },
+    {
+        "id": "28184e440f94bbd2",
+        "type": "function",
+        "z": "17f7f3624d243018",
+        "name": "Store PID1 Bias",
+        "func": "// Define which PID1 key this node is responsible for\nconst PID1key = \"PID1_Bias\"; // Change to PID1_SP, PID1_Kp, PID1_Ki, PID1_Kd, PID1_PV, PID1_rawPV, PID1_Bias, PID1_Output\n\n// Extract the value from the incoming message\nconst value = msg.payload.data[0];\n\n// Store the value in the flow context\nflow.set(PID1key, value);\n\n// Retrieve all current PID1 values from context\nconst PID1_SP = flow.get(\"PID1_SP\");\nconst PID1_Kp = flow.get(\"PID1_Kp\");\nconst PID1_Ki = flow.get(\"PID1_Ki\");\nconst PID1_Kd = flow.get(\"PID1_Kd\");\nconst PID1_PV = flow.get(\"PID1_PV\");\nconst PID1_rawPV = flow.get(\"PID1_rawPV\");\nconst PID1_Bias = flow.get(\"PID1_Bias\");\nconst PID1_Output = flow.get(\"PID1_Output\");\n\n// Check if all values are available\nif (PID1_SP !== undefined && PID1_Kp !== undefined && PID1_Ki !== undefined && PID1_Kd !== undefined && PID1_PV !== undefined && PID1_rawPV !== undefined && PID1_Bias !== undefined && PID1_Output !== undefined) {\n    // Create a new combined message\n    return {\n        payload: {\n            PID1_SP: PID1_SP,\n            PID1_Kp: PID1_Kp,\n            PID1_Ki: PID1_Ki,\n            PID1_Kd: PID1_Kd,\n            PID1_PV: PID1_PV,\n            PID1_rawPV: PID1_rawPV,\n            PID1_Bias: PID1_Bias,\n            PID1_Output: PID1_Output\n        }\n    };\n}\n\n// If not all values are present yet, return nothing\nreturn null;\n",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 600,
+        "y": 320,
+        "wires": [
+            [
+                "304b96adc314050c"
+            ]
+        ]
+    },
+    {
+        "id": "be9ff283d71c1421",
+        "type": "function",
+        "z": "17f7f3624d243018",
+        "name": "Store PID1 Output",
+        "func": "// Define which PID1 key this node is responsible for\nconst PID1key = \"PID1_Output\"; // Change to PID1_SP, PID1_Kp, PID1_Ki, PID1_Kd, PID1_PV, PID1_rawPV, PID1_Bias, PID1_Output\n\n// Extract the value from the incoming message\nconst value = msg.payload.data[0];\n\n// Store the value in the flow context\nflow.set(PID1key, value);\n\n// Retrieve all current PID1 values from context\nconst PID1_SP = flow.get(\"PID1_SP\");\nconst PID1_Kp = flow.get(\"PID1_Kp\");\nconst PID1_Ki = flow.get(\"PID1_Ki\");\nconst PID1_Kd = flow.get(\"PID1_Kd\");\nconst PID1_PV = flow.get(\"PID1_PV\");\nconst PID1_rawPV = flow.get(\"PID1_rawPV\");\nconst PID1_Bias = flow.get(\"PID1_Bias\");\nconst PID1_Output = flow.get(\"PID1_Output\");\n\n// Check if all values are available\nif (PID1_SP !== undefined && PID1_Kp !== undefined && PID1_Ki !== undefined && PID1_Kd !== undefined && PID1_PV !== undefined && PID1_rawPV !== undefined && PID1_Bias !== undefined && PID1_Output !== undefined) {\n    // Create a new combined message\n    return {\n        payload: {\n            PID1_SP: PID1_SP,\n            PID1_Kp: PID1_Kp,\n            PID1_Ki: PID1_Ki,\n            PID1_Kd: PID1_Kd,\n            PID1_PV: PID1_PV,\n            PID1_rawPV: PID1_rawPV,\n            PID1_Bias: PID1_Bias,\n            PID1_Output: PID1_Output\n        }\n    };\n}\n\n// If not all values are present yet, return nothing\nreturn null;\n",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 610,
+        "y": 360,
+        "wires": [
+            [
+                "304b96adc314050c"
+            ]
+        ]
+    },
+    {
+        "id": "27bf92cb58bd56cb",
+        "type": "CLICK Read",
+        "z": "17f7f3624d243018",
+        "name": "PID1 Output",
+        "memorytype": "DF",
+        "memoryaddress": "108",
+        "memorysize": "1",
+        "wswap": "OFF",
+        "showErrCode": 0,
+        "showErrText": 0,
+        "x": 350,
+        "y": 360,
+        "wires": [
+            [
+                "be9ff283d71c1421"
+            ]
+        ]
+    },
+    {
+        "id": "8d9556a8afdcc782",
+        "type": "function",
+        "z": "17f7f3624d243018",
+        "name": "Combine PID2",
+        "func": "// Get all PID2 values from context\nlet PID2_SP = flow.get(\"PID2_SP\");\nlet PID2_Kp = flow.get(\"PID2_Kp\");\nlet PID2_Ki = flow.get(\"PID2_Ki\");\nlet PID2_Kd = flow.get(\"PID2_Kd\");\nlet PID2_PV = flow.get(\"PID2_PV\");\nlet PID2_rawPV = flow.get(\"PID2_rawPV\");\nlet PID2_Bias = flow.get(\"PID2_Bias\");\nlet PID2_Output = flow.get(\"PID2_Output\");\n\n// Only continue if all are present\nif (PID2_SP !== undefined && PID2_Kp !== undefined && PID2_Ki !== undefined && PID2_Kd !== undefined && PID2_PV !== undefined && PID2_rawPV !== undefined && PID2_Bias !== undefined && PID2_Output !== undefined) {\n    // Optionally clear them after sending\n    flow.set(\"PID2_SP\", undefined);\n    flow.set(\"PID2_Kp\", undefined);\n    flow.set(\"PID2_Ki\", undefined);\n    flow.set(\"PID2_Kd\", undefined);\n    flow.set(\"PID2_PV\", undefined);\n    flow.set(\"PID2_rawPV\", undefined);\n    flow.set(\"PID2_Bias\", undefined);\n    flow.set(\"PID2_Output\", undefined);\n \n    return {\n        payload: {\n            PID2_SP: PID2_SP,\n            PID2_Kp: PID2_Kp,\n            PID2_Ki: PID2_Ki,\n            PID2_Kd: PID2_Kd,\n            PID2_PV: PID2_PV,\n            PID2_rawPV: PID2_rawPV,\n            PID2_Bias: PID2_Bias,\n            PID2_Output: PID2_Output\n        }\n    };\n}\n\n// If not all values are ready, do nothing\nreturn null;\n",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 940,
+        "y": 460,
+        "wires": [
+            [
+                "7f286a0a90b7e525"
+            ]
+        ]
+    },
+    {
+        "id": "348a7ce2df90d62b",
+        "type": "link in",
+        "z": "17f7f3624d243018",
+        "name": "In to PID2",
+        "links": [
+            "686b1bff6a499843"
+        ],
+        "x": 175,
+        "y": 460,
+        "wires": [
+            [
+                "cef7906517a961c1",
+                "2547a8d581e40412",
+                "a5eb6c0402594673",
+                "626ca00ad2b98578",
+                "eee2c66f44690689",
+                "c1152db224a657d7",
+                "07946b0485145b38",
+                "19d916622c38e608"
+            ]
+        ]
+    },
+    {
+        "id": "7f286a0a90b7e525",
+        "type": "link out",
+        "z": "17f7f3624d243018",
+        "name": "PID2 out to MQTT",
+        "mode": "link",
+        "links": [
+            "7081591f061ba9fd"
+        ],
+        "x": 1145,
+        "y": 460,
+        "wires": []
+    },
+    {
+        "id": "cef7906517a961c1",
+        "type": "CLICK Read",
+        "z": "17f7f3624d243018",
+        "name": "PID2 SP",
+        "memorytype": "DF",
+        "memoryaddress": "125",
+        "memorysize": "1",
+        "wswap": "OFF",
+        "showErrCode": 0,
+        "showErrText": 0,
+        "x": 340,
+        "y": 460,
+        "wires": [
+            [
+                "592ec7b078514beb"
+            ]
+        ]
+    },
+    {
+        "id": "626ca00ad2b98578",
+        "type": "CLICK Read",
+        "z": "17f7f3624d243018",
+        "name": "PID2 Kd",
+        "memorytype": "DF",
+        "memoryaddress": "132",
+        "memorysize": "1",
+        "wswap": "OFF",
+        "showErrCode": 0,
+        "showErrText": 0,
+        "x": 340,
+        "y": 580,
+        "wires": [
+            [
+                "8f56dd9a418c0088"
+            ]
+        ]
+    },
+    {
+        "id": "eee2c66f44690689",
+        "type": "CLICK Read",
+        "z": "17f7f3624d243018",
+        "name": "PID2 PV",
+        "memorytype": "DF",
+        "memoryaddress": "137",
+        "memorysize": "1",
+        "wswap": "OFF",
+        "showErrCode": 0,
+        "showErrText": 0,
+        "x": 340,
+        "y": 620,
+        "wires": [
+            [
+                "9019726425ccda33"
+            ]
+        ]
+    },
+    {
+        "id": "a5eb6c0402594673",
+        "type": "CLICK Read",
+        "z": "17f7f3624d243018",
+        "name": "PID2 Ki",
+        "memorytype": "DF",
+        "memoryaddress": "131",
+        "memorysize": "1",
+        "wswap": "OFF",
+        "showErrCode": 0,
+        "showErrText": 0,
+        "x": 340,
+        "y": 540,
+        "wires": [
+            [
+                "6759fc6a8b592bd3"
+            ]
+        ]
+    },
+    {
+        "id": "2547a8d581e40412",
+        "type": "CLICK Read",
+        "z": "17f7f3624d243018",
+        "name": "PID2 Kp",
+        "memorytype": "DF",
+        "memoryaddress": "130",
+        "memorysize": "1",
+        "wswap": "OFF",
+        "showErrCode": 0,
+        "showErrText": 0,
+        "x": 340,
+        "y": 500,
+        "wires": [
+            [
+                "5b0145dcdab6af2d"
+            ]
+        ]
+    },
+    {
+        "id": "636a88f3c85b20fe",
+        "type": "comment",
+        "z": "17f7f3624d243018",
+        "name": "PID2",
+        "info": "",
+        "x": 330,
+        "y": 420,
+        "wires": []
+    },
+    {
+        "id": "592ec7b078514beb",
+        "type": "function",
+        "z": "17f7f3624d243018",
+        "name": "Store PID2 SP",
+        "func": "// Define which PID2 key this node is responsible for\nconst PID2key = \"PID2_SP\"; // Change to PID2_SP, PID2_Kp, PID2_Ki, PID2_Kd, PID2_PV, PID2_rawPV, PID2_Bias, PID2_Output\n\n// Extract the value from the incoming message\nconst value = msg.payload.data[0];\n\n// Store the value in the flow context\nflow.set(PID2key, value);\n\n// Retrieve all current PID2 values from context\nconst PID2_SP = flow.get(\"PID2_SP\");\nconst PID2_Kp = flow.get(\"PID2_Kp\");\nconst PID2_Ki = flow.get(\"PID2_Ki\");\nconst PID2_Kd = flow.get(\"PID2_Kd\");\nconst PID2_PV = flow.get(\"PID2_PV\");\nconst PID2_rawPV = flow.get(\"PID2_rawPV\");\nconst PID2_Bias = flow.get(\"PID2_Bias\");\nconst PID2_Output = flow.get(\"PID2_Output\");\n\n// Check if all values are available\nif (PID2_SP !== undefined && PID2_Kp !== undefined && PID2_Ki !== undefined && PID2_Kd !== undefined && PID2_PV !== undefined && PID2_rawPV !== undefined && PID2_Bias !== undefined && PID2_Output !== undefined) {\n    // Create a new combined message\n    return {\n        payload: {\n            PID2_SP: PID2_SP,\n            PID2_Kp: PID2_Kp,\n            PID2_Ki: PID2_Ki,\n            PID2_Kd: PID2_Kd,\n            PID2_PV: PID2_PV,\n            PID2_rawPV: PID2_rawPV,\n            PID2_Bias: PID2_Bias,\n            PID2_Output: PID2_Output\n        }\n    };\n}\n\n// If not all values are present yet, return nothing\nreturn null;\n",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 600,
+        "y": 460,
+        "wires": [
+            [
+                "8d9556a8afdcc782"
+            ]
+        ]
+    },
+    {
+        "id": "5b0145dcdab6af2d",
+        "type": "function",
+        "z": "17f7f3624d243018",
+        "name": "Store PID2 Kp",
+        "func": "// Define which PID2 key this node is responsible for\nconst PID2key = \"PID2_Kp\"; // Change to PID2_SP, PID2_Kp, PID2_Ki, PID2_Kd, PID2_PV, PID2_rawPV, PID2_Bias, PID2_Output\n\n// Extract the value from the incoming message\nconst value = msg.payload.data[0];\n\n// Store the value in the flow context\nflow.set(PID2key, value);\n\n// Retrieve all current PID2 values from context\nconst PID2_SP = flow.get(\"PID2_SP\");\nconst PID2_Kp = flow.get(\"PID2_Kp\");\nconst PID2_Ki = flow.get(\"PID2_Ki\");\nconst PID2_Kd = flow.get(\"PID2_Kd\");\nconst PID2_PV = flow.get(\"PID2_PV\");\nconst PID2_rawPV = flow.get(\"PID2_rawPV\");\nconst PID2_Bias = flow.get(\"PID2_Bias\");\nconst PID2_Output = flow.get(\"PID2_Output\");\n\n// Check if all values are available\nif (PID2_SP !== undefined && PID2_Kp !== undefined && PID2_Ki !== undefined && PID2_Kd !== undefined && PID2_PV !== undefined && PID2_rawPV !== undefined && PID2_Bias !== undefined && PID2_Output !== undefined) {\n    // Create a new combined message\n    return {\n        payload: {\n            PID2_SP: PID2_SP,\n            PID2_Kp: PID2_Kp,\n            PID2_Ki: PID2_Ki,\n            PID2_Kd: PID2_Kd,\n            PID2_PV: PID2_PV,\n            PID2_rawPV: PID2_rawPV,\n            PID2_Bias: PID2_Bias,\n            PID2_Output: PID2_Output\n        }\n    };\n}\n\n// If not all values are present yet, return nothing\nreturn null;\n",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 600,
+        "y": 500,
+        "wires": [
+            [
+                "8d9556a8afdcc782"
+            ]
+        ]
+    },
+    {
+        "id": "6759fc6a8b592bd3",
+        "type": "function",
+        "z": "17f7f3624d243018",
+        "name": "Store PID2 Ki",
+        "func": "// Define which PID2 key this node is responsible for\nconst PID2key = \"PID2_Ki\"; // Change to PID2_SP, PID2_Kp, PID2_Ki, PID2_Kd, PID2_PV, PID2_rawPV, PID2_Bias, PID2_Output\n\n// Extract the value from the incoming message\nconst value = msg.payload.data[0];\n\n// Store the value in the flow context\nflow.set(PID2key, value);\n\n// Retrieve all current PID2 values from context\nconst PID2_SP = flow.get(\"PID2_SP\");\nconst PID2_Kp = flow.get(\"PID2_Kp\");\nconst PID2_Ki = flow.get(\"PID2_Ki\");\nconst PID2_Kd = flow.get(\"PID2_Kd\");\nconst PID2_PV = flow.get(\"PID2_PV\");\nconst PID2_rawPV = flow.get(\"PID2_rawPV\");\nconst PID2_Bias = flow.get(\"PID2_Bias\");\nconst PID2_Output = flow.get(\"PID2_Output\");\n\n// Check if all values are available\nif (PID2_SP !== undefined && PID2_Kp !== undefined && PID2_Ki !== undefined && PID2_Kd !== undefined && PID2_PV !== undefined && PID2_rawPV !== undefined && PID2_Bias !== undefined && PID2_Output !== undefined) {\n    // Create a new combined message\n    return {\n        payload: {\n            PID2_SP: PID2_SP,\n            PID2_Kp: PID2_Kp,\n            PID2_Ki: PID2_Ki,\n            PID2_Kd: PID2_Kd,\n            PID2_PV: PID2_PV,\n            PID2_rawPV: PID2_rawPV,\n            PID2_Bias: PID2_Bias,\n            PID2_Output: PID2_Output\n        }\n    };\n}\n\n// If not all values are present yet, return nothing\nreturn null;\n",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 600,
+        "y": 540,
+        "wires": [
+            [
+                "8d9556a8afdcc782"
+            ]
+        ]
+    },
+    {
+        "id": "8f56dd9a418c0088",
+        "type": "function",
+        "z": "17f7f3624d243018",
+        "name": "Store PID2 Kd",
+        "func": "// Define which PID2 key this node is responsible for\nconst PID2key = \"PID2_Kd\"; // Change to PID2_SP, PID2_Kp, PID2_Ki, PID2_Kd, PID2_PV, PID2_rawPV, PID2_Bias, PID2_Output\n\n// Extract the value from the incoming message\nconst value = msg.payload.data[0];\n\n// Store the value in the flow context\nflow.set(PID2key, value);\n\n// Retrieve all current PID2 values from context\nconst PID2_SP = flow.get(\"PID2_SP\");\nconst PID2_Kp = flow.get(\"PID2_Kp\");\nconst PID2_Ki = flow.get(\"PID2_Ki\");\nconst PID2_Kd = flow.get(\"PID2_Kd\");\nconst PID2_PV = flow.get(\"PID2_PV\");\nconst PID2_rawPV = flow.get(\"PID2_rawPV\");\nconst PID2_Bias = flow.get(\"PID2_Bias\");\nconst PID2_Output = flow.get(\"PID2_Output\");\n\n// Check if all values are available\nif (PID2_SP !== undefined && PID2_Kp !== undefined && PID2_Ki !== undefined && PID2_Kd !== undefined && PID2_PV !== undefined && PID2_rawPV !== undefined && PID2_Bias !== undefined && PID2_Output !== undefined) {\n    // Create a new combined message\n    return {\n        payload: {\n            PID2_SP: PID2_SP,\n            PID2_Kp: PID2_Kp,\n            PID2_Ki: PID2_Ki,\n            PID2_Kd: PID2_Kd,\n            PID2_PV: PID2_PV,\n            PID2_rawPV: PID2_rawPV,\n            PID2_Bias: PID2_Bias,\n            PID2_Output: PID2_Output\n        }\n    };\n}\n\n// If not all values are present yet, return nothing\nreturn null;\n",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 600,
+        "y": 580,
+        "wires": [
+            [
+                "8d9556a8afdcc782"
+            ]
+        ]
+    },
+    {
+        "id": "9019726425ccda33",
+        "type": "function",
+        "z": "17f7f3624d243018",
+        "name": "Store PID2 PV",
+        "func": "// Define which PID2 key this node is responsible for\nconst PID2key = \"PID2_PV\"; // Change to PID2_SP, PID2_Kp, PID2_Ki, PID2_Kd, PID2_PV, PID2_rawPV, PID2_Bias, PID2_Output\n\n// Extract the value from the incoming message\nconst value = msg.payload.data[0];\n\n// Store the value in the flow context\nflow.set(PID2key, value);\n\n// Retrieve all current PID2 values from context\nconst PID2_SP = flow.get(\"PID2_SP\");\nconst PID2_Kp = flow.get(\"PID2_Kp\");\nconst PID2_Ki = flow.get(\"PID2_Ki\");\nconst PID2_Kd = flow.get(\"PID2_Kd\");\nconst PID2_PV = flow.get(\"PID2_PV\");\nconst PID2_rawPV = flow.get(\"PID2_rawPV\");\nconst PID2_Bias = flow.get(\"PID2_Bias\");\nconst PID2_Output = flow.get(\"PID2_Output\");\n\n// Check if all values are available\nif (PID2_SP !== undefined && PID2_Kp !== undefined && PID2_Ki !== undefined && PID2_Kd !== undefined && PID2_PV !== undefined && PID2_rawPV !== undefined && PID2_Bias !== undefined && PID2_Output !== undefined) {\n    // Create a new combined message\n    return {\n        payload: {\n            PID2_SP: PID2_SP,\n            PID2_Kp: PID2_Kp,\n            PID2_Ki: PID2_Ki,\n            PID2_Kd: PID2_Kd,\n            PID2_PV: PID2_PV,\n            PID2_rawPV: PID2_rawPV,\n            PID2_Bias: PID2_Bias,\n            PID2_Output: PID2_Output\n        }\n    };\n}\n\n// If not all values are present yet, return nothing\nreturn null;\n",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 600,
+        "y": 620,
+        "wires": [
+            [
+                "8d9556a8afdcc782"
+            ]
+        ]
+    },
+    {
+        "id": "c1152db224a657d7",
+        "type": "CLICK Read",
+        "z": "17f7f3624d243018",
+        "name": "PID2 rawPV",
+        "memorytype": "DF",
+        "memoryaddress": "136",
+        "memorysize": "1",
+        "wswap": "OFF",
+        "showErrCode": 0,
+        "showErrText": 0,
+        "x": 350,
+        "y": 660,
+        "wires": [
+            [
+                "eabc415152fb6fed"
+            ]
+        ]
+    },
+    {
+        "id": "07946b0485145b38",
+        "type": "CLICK Read",
+        "z": "17f7f3624d243018",
+        "name": "PID2 Bias",
+        "memorytype": "DF",
+        "memoryaddress": "129",
+        "memorysize": "1",
+        "wswap": "OFF",
+        "showErrCode": 0,
+        "showErrText": 0,
+        "x": 340,
+        "y": 700,
+        "wires": [
+            [
+                "6071240597f660b2"
+            ]
+        ]
+    },
+    {
+        "id": "eabc415152fb6fed",
+        "type": "function",
+        "z": "17f7f3624d243018",
+        "name": "Store PID2 rawPV",
+        "func": "// Define which PID2 key this node is responsible for\nconst PID2key = \"PID2_rawPV\"; // Change to PID2_SP, PID2_Kp, PID2_Ki, PID2_Kd, PID2_PV, PID2_rawPV, PID2_Bias, PID2_Output\n\n// Extract the value from the incoming message\nconst value = msg.payload.data[0];\n\n// Store the value in the flow context\nflow.set(PID2key, value);\n\n// Retrieve all current PID2 values from context\nconst PID2_SP = flow.get(\"PID2_SP\");\nconst PID2_Kp = flow.get(\"PID2_Kp\");\nconst PID2_Ki = flow.get(\"PID2_Ki\");\nconst PID2_Kd = flow.get(\"PID2_Kd\");\nconst PID2_PV = flow.get(\"PID2_PV\");\nconst PID2_rawPV = flow.get(\"PID2_rawPV\");\nconst PID2_Bias = flow.get(\"PID2_Bias\");\nconst PID2_Output = flow.get(\"PID2_Output\");\n\n// Check if all values are available\nif (PID2_SP !== undefined && PID2_Kp !== undefined && PID2_Ki !== undefined && PID2_Kd !== undefined && PID2_PV !== undefined && PID2_rawPV !== undefined && PID2_Bias !== undefined && PID2_Output !== undefined) {\n    // Create a new combined message\n    return {\n        payload: {\n            PID2_SP: PID2_SP,\n            PID2_Kp: PID2_Kp,\n            PID2_Ki: PID2_Ki,\n            PID2_Kd: PID2_Kd,\n            PID2_PV: PID2_PV,\n            PID2_rawPV: PID2_rawPV,\n            PID2_Bias: PID2_Bias,\n            PID2_Output: PID2_Output\n        }\n    };\n}\n\n// If not all values are present yet, return nothing\nreturn null;\n",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 610,
+        "y": 660,
+        "wires": [
+            [
+                "8d9556a8afdcc782"
+            ]
+        ]
+    },
+    {
+        "id": "6071240597f660b2",
+        "type": "function",
+        "z": "17f7f3624d243018",
+        "name": "Store PID2 Bias",
+        "func": "// Define which PID2 key this node is responsible for\nconst PID2key = \"PID2_Bias\"; // Change to PID2_SP, PID2_Kp, PID2_Ki, PID2_Kd, PID2_PV, PID2_rawPV, PID2_Bias, PID2_Output\n\n// Extract the value from the incoming message\nconst value = msg.payload.data[0];\n\n// Store the value in the flow context\nflow.set(PID2key, value);\n\n// Retrieve all current PID2 values from context\nconst PID2_SP = flow.get(\"PID2_SP\");\nconst PID2_Kp = flow.get(\"PID2_Kp\");\nconst PID2_Ki = flow.get(\"PID2_Ki\");\nconst PID2_Kd = flow.get(\"PID2_Kd\");\nconst PID2_PV = flow.get(\"PID2_PV\");\nconst PID2_rawPV = flow.get(\"PID2_rawPV\");\nconst PID2_Bias = flow.get(\"PID2_Bias\");\nconst PID2_Output = flow.get(\"PID2_Output\");\n\n// Check if all values are available\nif (PID2_SP !== undefined && PID2_Kp !== undefined && PID2_Ki !== undefined && PID2_Kd !== undefined && PID2_PV !== undefined && PID2_rawPV !== undefined && PID2_Bias !== undefined && PID2_Output !== undefined) {\n    // Create a new combined message\n    return {\n        payload: {\n            PID2_SP: PID2_SP,\n            PID2_Kp: PID2_Kp,\n            PID2_Ki: PID2_Ki,\n            PID2_Kd: PID2_Kd,\n            PID2_PV: PID2_PV,\n            PID2_rawPV: PID2_rawPV,\n            PID2_Bias: PID2_Bias,\n            PID2_Output: PID2_Output\n        }\n    };\n}\n\n// If not all values are present yet, return nothing\nreturn null;\n",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 600,
+        "y": 700,
+        "wires": [
+            [
+                "8d9556a8afdcc782"
+            ]
+        ]
+    },
+    {
+        "id": "94ae618aeb19b625",
+        "type": "function",
+        "z": "17f7f3624d243018",
+        "name": "Store PID2 Output",
+        "func": "// Define which PID2 key this node is responsible for\nconst PID2key = \"PID2_Output\"; // Change to PID2_SP, PID2_Kp, PID2_Ki, PID2_Kd, PID2_PV, PID2_rawPV, PID2_Bias, PID2_Output\n\n// Extract the value from the incoming message\nconst value = msg.payload.data[0];\n\n// Store the value in the flow context\nflow.set(PID2key, value);\n\n// Retrieve all current PID2 values from context\nconst PID2_SP = flow.get(\"PID2_SP\");\nconst PID2_Kp = flow.get(\"PID2_Kp\");\nconst PID2_Ki = flow.get(\"PID2_Ki\");\nconst PID2_Kd = flow.get(\"PID2_Kd\");\nconst PID2_PV = flow.get(\"PID2_PV\");\nconst PID2_rawPV = flow.get(\"PID2_rawPV\");\nconst PID2_Bias = flow.get(\"PID2_Bias\");\nconst PID2_Output = flow.get(\"PID2_Output\");\n\n// Check if all values are available\nif (PID2_SP !== undefined && PID2_Kp !== undefined && PID2_Ki !== undefined && PID2_Kd !== undefined && PID2_PV !== undefined && PID2_rawPV !== undefined && PID2_Bias !== undefined && PID2_Output !== undefined) {\n    // Create a new combined message\n    return {\n        payload: {\n            PID2_SP: PID2_SP,\n            PID2_Kp: PID2_Kp,\n            PID2_Ki: PID2_Ki,\n            PID2_Kd: PID2_Kd,\n            PID2_PV: PID2_PV,\n            PID2_rawPV: PID2_rawPV,\n            PID2_Bias: PID2_Bias,\n            PID2_Output: PID2_Output\n        }\n    };\n}\n\n// If not all values are present yet, return nothing\nreturn null;\n",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 610,
+        "y": 740,
+        "wires": [
+            [
+                "8d9556a8afdcc782"
+            ]
+        ]
+    },
+    {
+        "id": "19d916622c38e608",
+        "type": "CLICK Read",
+        "z": "17f7f3624d243018",
+        "name": "PID2 Output",
+        "memorytype": "DF",
+        "memoryaddress": "133",
+        "memorysize": "1",
+        "wswap": "OFF",
+        "showErrCode": 0,
+        "showErrText": 0,
+        "x": 350,
+        "y": 740,
+        "wires": [
+            [
+                "94ae618aeb19b625"
+            ]
+        ]
+    },
+    {
+        "id": "d79e43094327efbc",
+        "type": "function",
+        "z": "17f7f3624d243018",
+        "name": "Combine PID3",
+        "func": "// Get all PID3 values from context\nlet PID3_SP = flow.get(\"PID3_SP\");\nlet PID3_Kp = flow.get(\"PID3_Kp\");\nlet PID3_Ki = flow.get(\"PID3_Ki\");\nlet PID3_Kd = flow.get(\"PID3_Kd\");\nlet PID3_PV = flow.get(\"PID3_PV\");\nlet PID3_rawPV = flow.get(\"PID3_rawPV\");\nlet PID3_Bias = flow.get(\"PID3_Bias\");\nlet PID3_Output = flow.get(\"PID3_Output\");\n\n// Only continue if all are present\nif (PID3_SP !== undefined && PID3_Kp !== undefined && PID3_Ki !== undefined && PID3_Kd !== undefined && PID3_PV !== undefined && PID3_rawPV !== undefined && PID3_Bias !== undefined && PID3_Output !== undefined) {\n    // Optionally clear them after sending\n    flow.set(\"PID3_SP\", undefined);\n    flow.set(\"PID3_Kp\", undefined);\n    flow.set(\"PID3_Ki\", undefined);\n    flow.set(\"PID3_Kd\", undefined);\n    flow.set(\"PID3_PV\", undefined);\n    flow.set(\"PID3_rawPV\", undefined);\n    flow.set(\"PID3_Bias\", undefined);\n    flow.set(\"PID3_Output\", undefined);\n \n    return {\n        payload: {\n            PID3_SP: PID3_SP,\n            PID3_Kp: PID3_Kp,\n            PID3_Ki: PID3_Ki,\n            PID3_Kd: PID3_Kd,\n            PID3_PV: PID3_PV,\n            PID3_rawPV: PID3_rawPV,\n            PID3_Bias: PID3_Bias,\n            PID3_Output: PID3_Output\n        }\n    };\n}\n\n// If not all values are ready, do nothing\nreturn null;\n",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 940,
+        "y": 840,
+        "wires": [
+            [
+                "8537bea2bc694a72"
+            ]
+        ]
+    },
+    {
+        "id": "16268fe6ad553f5f",
+        "type": "link in",
+        "z": "17f7f3624d243018",
+        "name": "In to PID3",
+        "links": [
+            "686b1bff6a499843"
+        ],
+        "x": 175,
+        "y": 840,
+        "wires": [
+            [
+                "8b666c3aa073d46a",
+                "b0866634318fedc0",
+                "ad933294a7e60bd0",
+                "23856b137d4789f8",
+                "473a9df434ced638",
+                "55ebb4e55889f0c5",
+                "cbbf45152d4225da",
+                "fa7934e8a6d7a360"
+            ]
+        ]
+    },
+    {
+        "id": "8537bea2bc694a72",
+        "type": "link out",
+        "z": "17f7f3624d243018",
+        "name": "PID3 out to MQTT",
+        "mode": "link",
+        "links": [
+            "ddb55d0a90b09d53"
+        ],
+        "x": 1145,
+        "y": 840,
+        "wires": []
+    },
+    {
+        "id": "8b666c3aa073d46a",
+        "type": "CLICK Read",
+        "z": "17f7f3624d243018",
+        "name": "PID3 SP",
+        "memorytype": "DF",
+        "memoryaddress": "150",
+        "memorysize": "1",
+        "wswap": "OFF",
+        "showErrCode": 0,
+        "showErrText": 0,
+        "x": 340,
+        "y": 840,
+        "wires": [
+            [
+                "a1142ca3401f68ce"
+            ]
+        ]
+    },
+    {
+        "id": "23856b137d4789f8",
+        "type": "CLICK Read",
+        "z": "17f7f3624d243018",
+        "name": "PID3 Kd",
+        "memorytype": "DF",
+        "memoryaddress": "157",
+        "memorysize": "1",
+        "wswap": "OFF",
+        "showErrCode": 0,
+        "showErrText": 0,
+        "x": 340,
+        "y": 960,
+        "wires": [
+            [
+                "df97d3c66b6beffd"
+            ]
+        ]
+    },
+    {
+        "id": "473a9df434ced638",
+        "type": "CLICK Read",
+        "z": "17f7f3624d243018",
+        "name": "PID3 PV",
+        "memorytype": "DF",
+        "memoryaddress": "162",
+        "memorysize": "1",
+        "wswap": "OFF",
+        "showErrCode": 0,
+        "showErrText": 0,
+        "x": 340,
+        "y": 1000,
+        "wires": [
+            [
+                "819a74f47ba27ffe"
+            ]
+        ]
+    },
+    {
+        "id": "ad933294a7e60bd0",
+        "type": "CLICK Read",
+        "z": "17f7f3624d243018",
+        "name": "PID3 Ki",
+        "memorytype": "DF",
+        "memoryaddress": "156",
+        "memorysize": "1",
+        "wswap": "OFF",
+        "showErrCode": 0,
+        "showErrText": 0,
+        "x": 340,
+        "y": 920,
+        "wires": [
+            [
+                "de6aae9c63edc9da"
+            ]
+        ]
+    },
+    {
+        "id": "b0866634318fedc0",
+        "type": "CLICK Read",
+        "z": "17f7f3624d243018",
+        "name": "PID3 Kp",
+        "memorytype": "DF",
+        "memoryaddress": "155",
+        "memorysize": "1",
+        "wswap": "OFF",
+        "showErrCode": 0,
+        "showErrText": 0,
+        "x": 340,
+        "y": 880,
+        "wires": [
+            [
+                "d78062aff47ba614"
+            ]
+        ]
+    },
+    {
+        "id": "f3e8fb59ae109ed0",
+        "type": "comment",
+        "z": "17f7f3624d243018",
+        "name": "PID3",
+        "info": "",
+        "x": 330,
+        "y": 800,
+        "wires": []
+    },
+    {
+        "id": "a1142ca3401f68ce",
+        "type": "function",
+        "z": "17f7f3624d243018",
+        "name": "Store PID3 SP",
+        "func": "// Define which PID3 key this node is responsible for\nconst PID3key = \"PID3_SP\"; // Change to PID3_SP, PID3_Kp, PID3_Ki, PID3_Kd, PID3_PV, PID3_rawPV, PID3_Bias, PID3_Output\n\n// Extract the value from the incoming message\nconst value = msg.payload.data[0];\n\n// Store the value in the flow context\nflow.set(PID3key, value);\n\n// Retrieve all current PID3 values from context\nconst PID3_SP = flow.get(\"PID3_SP\");\nconst PID3_Kp = flow.get(\"PID3_Kp\");\nconst PID3_Ki = flow.get(\"PID3_Ki\");\nconst PID3_Kd = flow.get(\"PID3_Kd\");\nconst PID3_PV = flow.get(\"PID3_PV\");\nconst PID3_rawPV = flow.get(\"PID3_rawPV\");\nconst PID3_Bias = flow.get(\"PID3_Bias\");\nconst PID3_Output = flow.get(\"PID3_Output\");\n\n// Check if all values are available\nif (PID3_SP !== undefined && PID3_Kp !== undefined && PID3_Ki !== undefined && PID3_Kd !== undefined && PID3_PV !== undefined && PID3_rawPV !== undefined && PID3_Bias !== undefined && PID3_Output !== undefined) {\n    // Create a new combined message\n    return {\n        payload: {\n            PID3_SP: PID3_SP,\n            PID3_Kp: PID3_Kp,\n            PID3_Ki: PID3_Ki,\n            PID3_Kd: PID3_Kd,\n            PID3_PV: PID3_PV,\n            PID3_rawPV: PID3_rawPV,\n            PID3_Bias: PID3_Bias,\n            PID3_Output: PID3_Output\n        }\n    };\n}\n\n// If not all values are present yet, return nothing\nreturn null;\n",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 600,
+        "y": 840,
+        "wires": [
+            [
+                "d79e43094327efbc"
+            ]
+        ]
+    },
+    {
+        "id": "d78062aff47ba614",
+        "type": "function",
+        "z": "17f7f3624d243018",
+        "name": "Store PID3 Kp",
+        "func": "// Define which PID3 key this node is responsible for\nconst PID3key = \"PID3_Kp\"; // Change to PID3_SP, PID3_Kp, PID3_Ki, PID3_Kd, PID3_PV, PID3_rawPV, PID3_Bias, PID3_Output\n\n// Extract the value from the incoming message\nconst value = msg.payload.data[0];\n\n// Store the value in the flow context\nflow.set(PID3key, value);\n\n// Retrieve all current PID3 values from context\nconst PID3_SP = flow.get(\"PID3_SP\");\nconst PID3_Kp = flow.get(\"PID3_Kp\");\nconst PID3_Ki = flow.get(\"PID3_Ki\");\nconst PID3_Kd = flow.get(\"PID3_Kd\");\nconst PID3_PV = flow.get(\"PID3_PV\");\nconst PID3_rawPV = flow.get(\"PID3_rawPV\");\nconst PID3_Bias = flow.get(\"PID3_Bias\");\nconst PID3_Output = flow.get(\"PID3_Output\");\n\n// Check if all values are available\nif (PID3_SP !== undefined && PID3_Kp !== undefined && PID3_Ki !== undefined && PID3_Kd !== undefined && PID3_PV !== undefined && PID3_rawPV !== undefined && PID3_Bias !== undefined && PID3_Output !== undefined) {\n    // Create a new combined message\n    return {\n        payload: {\n            PID3_SP: PID3_SP,\n            PID3_Kp: PID3_Kp,\n            PID3_Ki: PID3_Ki,\n            PID3_Kd: PID3_Kd,\n            PID3_PV: PID3_PV,\n            PID3_rawPV: PID3_rawPV,\n            PID3_Bias: PID3_Bias,\n            PID3_Output: PID3_Output\n        }\n    };\n}\n\n// If not all values are present yet, return nothing\nreturn null;\n",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 600,
+        "y": 880,
+        "wires": [
+            [
+                "d79e43094327efbc"
+            ]
+        ]
+    },
+    {
+        "id": "de6aae9c63edc9da",
+        "type": "function",
+        "z": "17f7f3624d243018",
+        "name": "Store PID3 Ki",
+        "func": "// Define which PID3 key this node is responsible for\nconst PID3key = \"PID3_Ki\"; // Change to PID3_SP, PID3_Kp, PID3_Ki, PID3_Kd, PID3_PV, PID3_rawPV, PID3_Bias, PID3_Output\n\n// Extract the value from the incoming message\nconst value = msg.payload.data[0];\n\n// Store the value in the flow context\nflow.set(PID3key, value);\n\n// Retrieve all current PID3 values from context\nconst PID3_SP = flow.get(\"PID3_SP\");\nconst PID3_Kp = flow.get(\"PID3_Kp\");\nconst PID3_Ki = flow.get(\"PID3_Ki\");\nconst PID3_Kd = flow.get(\"PID3_Kd\");\nconst PID3_PV = flow.get(\"PID3_PV\");\nconst PID3_rawPV = flow.get(\"PID3_rawPV\");\nconst PID3_Bias = flow.get(\"PID3_Bias\");\nconst PID3_Output = flow.get(\"PID3_Output\");\n\n// Check if all values are available\nif (PID3_SP !== undefined && PID3_Kp !== undefined && PID3_Ki !== undefined && PID3_Kd !== undefined && PID3_PV !== undefined && PID3_rawPV !== undefined && PID3_Bias !== undefined && PID3_Output !== undefined) {\n    // Create a new combined message\n    return {\n        payload: {\n            PID3_SP: PID3_SP,\n            PID3_Kp: PID3_Kp,\n            PID3_Ki: PID3_Ki,\n            PID3_Kd: PID3_Kd,\n            PID3_PV: PID3_PV,\n            PID3_rawPV: PID3_rawPV,\n            PID3_Bias: PID3_Bias,\n            PID3_Output: PID3_Output\n        }\n    };\n}\n\n// If not all values are present yet, return nothing\nreturn null;\n",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 600,
+        "y": 920,
+        "wires": [
+            [
+                "d79e43094327efbc"
+            ]
+        ]
+    },
+    {
+        "id": "df97d3c66b6beffd",
+        "type": "function",
+        "z": "17f7f3624d243018",
+        "name": "Store PID3 Kd",
+        "func": "// Define which PID3 key this node is responsible for\nconst PID3key = \"PID3_Kd\"; // Change to PID3_SP, PID3_Kp, PID3_Ki, PID3_Kd, PID3_PV, PID3_rawPV, PID3_Bias, PID3_Output\n\n// Extract the value from the incoming message\nconst value = msg.payload.data[0];\n\n// Store the value in the flow context\nflow.set(PID3key, value);\n\n// Retrieve all current PID3 values from context\nconst PID3_SP = flow.get(\"PID3_SP\");\nconst PID3_Kp = flow.get(\"PID3_Kp\");\nconst PID3_Ki = flow.get(\"PID3_Ki\");\nconst PID3_Kd = flow.get(\"PID3_Kd\");\nconst PID3_PV = flow.get(\"PID3_PV\");\nconst PID3_rawPV = flow.get(\"PID3_rawPV\");\nconst PID3_Bias = flow.get(\"PID3_Bias\");\nconst PID3_Output = flow.get(\"PID3_Output\");\n\n// Check if all values are available\nif (PID3_SP !== undefined && PID3_Kp !== undefined && PID3_Ki !== undefined && PID3_Kd !== undefined && PID3_PV !== undefined && PID3_rawPV !== undefined && PID3_Bias !== undefined && PID3_Output !== undefined) {\n    // Create a new combined message\n    return {\n        payload: {\n            PID3_SP: PID3_SP,\n            PID3_Kp: PID3_Kp,\n            PID3_Ki: PID3_Ki,\n            PID3_Kd: PID3_Kd,\n            PID3_PV: PID3_PV,\n            PID3_rawPV: PID3_rawPV,\n            PID3_Bias: PID3_Bias,\n            PID3_Output: PID3_Output\n        }\n    };\n}\n\n// If not all values are present yet, return nothing\nreturn null;\n",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 600,
+        "y": 960,
+        "wires": [
+            [
+                "d79e43094327efbc"
+            ]
+        ]
+    },
+    {
+        "id": "819a74f47ba27ffe",
+        "type": "function",
+        "z": "17f7f3624d243018",
+        "name": "Store PID3 PV",
+        "func": "// Define which PID3 key this node is responsible for\nconst PID3key = \"PID3_PV\"; // Change to PID3_SP, PID3_Kp, PID3_Ki, PID3_Kd, PID3_PV, PID3_rawPV, PID3_Bias, PID3_Output\n\n// Extract the value from the incoming message\nconst value = msg.payload.data[0];\n\n// Store the value in the flow context\nflow.set(PID3key, value);\n\n// Retrieve all current PID3 values from context\nconst PID3_SP = flow.get(\"PID3_SP\");\nconst PID3_Kp = flow.get(\"PID3_Kp\");\nconst PID3_Ki = flow.get(\"PID3_Ki\");\nconst PID3_Kd = flow.get(\"PID3_Kd\");\nconst PID3_PV = flow.get(\"PID3_PV\");\nconst PID3_rawPV = flow.get(\"PID3_rawPV\");\nconst PID3_Bias = flow.get(\"PID3_Bias\");\nconst PID3_Output = flow.get(\"PID3_Output\");\n\n// Check if all values are available\nif (PID3_SP !== undefined && PID3_Kp !== undefined && PID3_Ki !== undefined && PID3_Kd !== undefined && PID3_PV !== undefined && PID3_rawPV !== undefined && PID3_Bias !== undefined && PID3_Output !== undefined) {\n    // Create a new combined message\n    return {\n        payload: {\n            PID3_SP: PID3_SP,\n            PID3_Kp: PID3_Kp,\n            PID3_Ki: PID3_Ki,\n            PID3_Kd: PID3_Kd,\n            PID3_PV: PID3_PV,\n            PID3_rawPV: PID3_rawPV,\n            PID3_Bias: PID3_Bias,\n            PID3_Output: PID3_Output\n        }\n    };\n}\n\n// If not all values are present yet, return nothing\nreturn null;\n",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 600,
+        "y": 1000,
+        "wires": [
+            [
+                "d79e43094327efbc"
+            ]
+        ]
+    },
+    {
+        "id": "55ebb4e55889f0c5",
+        "type": "CLICK Read",
+        "z": "17f7f3624d243018",
+        "name": "PID3 rawPV",
+        "memorytype": "DF",
+        "memoryaddress": "161",
+        "memorysize": "1",
+        "wswap": "OFF",
+        "showErrCode": 0,
+        "showErrText": 0,
+        "x": 350,
+        "y": 1040,
+        "wires": [
+            [
+                "f11f8bb42f780117"
+            ]
+        ]
+    },
+    {
+        "id": "cbbf45152d4225da",
+        "type": "CLICK Read",
+        "z": "17f7f3624d243018",
+        "name": "PID3 Bias",
+        "memorytype": "DF",
+        "memoryaddress": "154",
+        "memorysize": "1",
+        "wswap": "OFF",
+        "showErrCode": 0,
+        "showErrText": 0,
+        "x": 340,
+        "y": 1080,
+        "wires": [
+            [
+                "0bb0048b49f0ea52"
+            ]
+        ]
+    },
+    {
+        "id": "f11f8bb42f780117",
+        "type": "function",
+        "z": "17f7f3624d243018",
+        "name": "Store PID3 rawPV",
+        "func": "// Define which PID3 key this node is responsible for\nconst PID3key = \"PID3_rawPV\"; // Change to PID3_SP, PID3_Kp, PID3_Ki, PID3_Kd, PID3_PV, PID3_rawPV, PID3_Bias, PID3_Output\n\n// Extract the value from the incoming message\nconst value = msg.payload.data[0];\n\n// Store the value in the flow context\nflow.set(PID3key, value);\n\n// Retrieve all current PID3 values from context\nconst PID3_SP = flow.get(\"PID3_SP\");\nconst PID3_Kp = flow.get(\"PID3_Kp\");\nconst PID3_Ki = flow.get(\"PID3_Ki\");\nconst PID3_Kd = flow.get(\"PID3_Kd\");\nconst PID3_PV = flow.get(\"PID3_PV\");\nconst PID3_rawPV = flow.get(\"PID3_rawPV\");\nconst PID3_Bias = flow.get(\"PID3_Bias\");\nconst PID3_Output = flow.get(\"PID3_Output\");\n\n// Check if all values are available\nif (PID3_SP !== undefined && PID3_Kp !== undefined && PID3_Ki !== undefined && PID3_Kd !== undefined && PID3_PV !== undefined && PID3_rawPV !== undefined && PID3_Bias !== undefined && PID3_Output !== undefined) {\n    // Create a new combined message\n    return {\n        payload: {\n            PID3_SP: PID3_SP,\n            PID3_Kp: PID3_Kp,\n            PID3_Ki: PID3_Ki,\n            PID3_Kd: PID3_Kd,\n            PID3_PV: PID3_PV,\n            PID3_rawPV: PID3_rawPV,\n            PID3_Bias: PID3_Bias,\n            PID3_Output: PID3_Output\n        }\n    };\n}\n\n// If not all values are present yet, return nothing\nreturn null;\n",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 610,
+        "y": 1040,
+        "wires": [
+            [
+                "d79e43094327efbc"
+            ]
+        ]
+    },
+    {
+        "id": "0bb0048b49f0ea52",
+        "type": "function",
+        "z": "17f7f3624d243018",
+        "name": "Store PID3 Bias",
+        "func": "// Define which PID3 key this node is responsible for\nconst PID3key = \"PID3_Bias\"; // Change to PID3_SP, PID3_Kp, PID3_Ki, PID3_Kd, PID3_PV, PID3_rawPV, PID3_Bias, PID3_Output\n\n// Extract the value from the incoming message\nconst value = msg.payload.data[0];\n\n// Store the value in the flow context\nflow.set(PID3key, value);\n\n// Retrieve all current PID3 values from context\nconst PID3_SP = flow.get(\"PID3_SP\");\nconst PID3_Kp = flow.get(\"PID3_Kp\");\nconst PID3_Ki = flow.get(\"PID3_Ki\");\nconst PID3_Kd = flow.get(\"PID3_Kd\");\nconst PID3_PV = flow.get(\"PID3_PV\");\nconst PID3_rawPV = flow.get(\"PID3_rawPV\");\nconst PID3_Bias = flow.get(\"PID3_Bias\");\nconst PID3_Output = flow.get(\"PID3_Output\");\n\n// Check if all values are available\nif (PID3_SP !== undefined && PID3_Kp !== undefined && PID3_Ki !== undefined && PID3_Kd !== undefined && PID3_PV !== undefined && PID3_rawPV !== undefined && PID3_Bias !== undefined && PID3_Output !== undefined) {\n    // Create a new combined message\n    return {\n        payload: {\n            PID3_SP: PID3_SP,\n            PID3_Kp: PID3_Kp,\n            PID3_Ki: PID3_Ki,\n            PID3_Kd: PID3_Kd,\n            PID3_PV: PID3_PV,\n            PID3_rawPV: PID3_rawPV,\n            PID3_Bias: PID3_Bias,\n            PID3_Output: PID3_Output\n        }\n    };\n}\n\n// If not all values are present yet, return nothing\nreturn null;\n",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 600,
+        "y": 1080,
+        "wires": [
+            [
+                "d79e43094327efbc"
+            ]
+        ]
+    },
+    {
+        "id": "4fb126481a993a12",
+        "type": "function",
+        "z": "17f7f3624d243018",
+        "name": "Store PID3 Output",
+        "func": "// Define which PID3 key this node is responsible for\nconst PID3key = \"PID3_Output\"; // Change to PID3_SP, PID3_Kp, PID3_Ki, PID3_Kd, PID3_PV, PID3_rawPV, PID3_Bias, PID3_Output\n\n// Extract the value from the incoming message\nconst value = msg.payload.data[0];\n\n// Store the value in the flow context\nflow.set(PID3key, value);\n\n// Retrieve all current PID3 values from context\nconst PID3_SP = flow.get(\"PID3_SP\");\nconst PID3_Kp = flow.get(\"PID3_Kp\");\nconst PID3_Ki = flow.get(\"PID3_Ki\");\nconst PID3_Kd = flow.get(\"PID3_Kd\");\nconst PID3_PV = flow.get(\"PID3_PV\");\nconst PID3_rawPV = flow.get(\"PID3_rawPV\");\nconst PID3_Bias = flow.get(\"PID3_Bias\");\nconst PID3_Output = flow.get(\"PID3_Output\");\n\n// Check if all values are available\nif (PID3_SP !== undefined && PID3_Kp !== undefined && PID3_Ki !== undefined && PID3_Kd !== undefined && PID3_PV !== undefined && PID3_rawPV !== undefined && PID3_Bias !== undefined && PID3_Output !== undefined) {\n    // Create a new combined message\n    return {\n        payload: {\n            PID3_SP: PID3_SP,\n            PID3_Kp: PID3_Kp,\n            PID3_Ki: PID3_Ki,\n            PID3_Kd: PID3_Kd,\n            PID3_PV: PID3_PV,\n            PID3_rawPV: PID3_rawPV,\n            PID3_Bias: PID3_Bias,\n            PID3_Output: PID3_Output\n        }\n    };\n}\n\n// If not all values are present yet, return nothing\nreturn null;\n",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 610,
+        "y": 1120,
+        "wires": [
+            [
+                "d79e43094327efbc"
+            ]
+        ]
+    },
+    {
+        "id": "fa7934e8a6d7a360",
+        "type": "CLICK Read",
+        "z": "17f7f3624d243018",
+        "name": "PID3 Output",
+        "memorytype": "DF",
+        "memoryaddress": "158",
+        "memorysize": "1",
+        "wswap": "OFF",
+        "showErrCode": 0,
+        "showErrText": 0,
+        "x": 350,
+        "y": 1120,
+        "wires": [
+            [
+                "4fb126481a993a12"
+            ]
+        ]
+    },
+    {
+        "id": "42a2374f0b1543dd",
+        "type": "inject",
+        "z": "0ff59ca3c89b9370",
+        "name": "",
+        "props": [
+            {
+                "p": "payload"
+            },
+            {
+                "p": "topic",
+                "vt": "str"
+            }
+        ],
+        "repeat": "",
+        "crontab": "",
+        "once": false,
+        "onceDelay": 0.1,
+        "topic": "",
+        "payload": "true",
+        "payloadType": "bool",
+        "x": 150,
+        "y": 80,
+        "wires": [
+            [
+                "1c28fc82b46427cc"
+            ]
+        ]
+    },
+    {
+        "id": "3cb14fe4dc6fceb2",
+        "type": "inject",
+        "z": "0ff59ca3c89b9370",
+        "name": "",
+        "props": [
+            {
+                "p": "payload"
+            },
+            {
+                "p": "topic",
+                "vt": "str"
+            }
+        ],
+        "repeat": "",
+        "crontab": "",
+        "once": true,
+        "onceDelay": 0.1,
+        "topic": "",
+        "payload": "false",
+        "payloadType": "bool",
+        "x": 150,
+        "y": 120,
+        "wires": [
+            [
+                "1c28fc82b46427cc"
+            ]
+        ]
+    },
+    {
+        "id": "acccb3789cdeb69d",
+        "type": "CLICK Write",
+        "z": "0ff59ca3c89b9370",
+        "name": "",
+        "memorytype": "DS",
+        "memoryaddress": "1002",
+        "memorysize": "1",
+        "wswap": "OFF",
+        "showErrCode": 0,
+        "showErrText": 0,
+        "x": 690,
+        "y": 80,
+        "wires": [
+            [
+                "e0280e0a8fad4cbc"
+            ]
+        ]
+    },
+    {
+        "id": "e0280e0a8fad4cbc",
+        "type": "debug",
+        "z": "0ff59ca3c89b9370",
+        "name": "debug 1",
+        "active": false,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "false",
+        "statusVal": "",
+        "statusType": "auto",
+        "x": 860,
+        "y": 80,
+        "wires": []
+    },
+    {
+        "id": "1c28fc82b46427cc",
+        "type": "function",
+        "z": "0ff59ca3c89b9370",
+        "name": "Parse DS1002 for PLC XV1",
+        "func": "msg.payload = [msg.payload ? 1 : 0];\nreturn msg;\n",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 460,
+        "y": 80,
+        "wires": [
+            [
+                "acccb3789cdeb69d"
+            ]
+        ]
+    },
+    {
+        "id": "d9942010752469ab",
+        "type": "inject",
+        "z": "0ff59ca3c89b9370",
+        "name": "",
+        "props": [
+            {
+                "p": "payload"
+            },
+            {
+                "p": "topic",
+                "vt": "str"
+            }
+        ],
+        "repeat": "",
+        "crontab": "",
+        "once": true,
+        "onceDelay": 0.1,
+        "topic": "",
+        "payload": "false",
+        "payloadType": "bool",
+        "x": 150,
+        "y": 580,
+        "wires": [
+            [
+                "645255da52b82a93"
+            ]
+        ]
+    },
+    {
+        "id": "5f7e56c0b51ed5e5",
+        "type": "CLICK Write",
+        "z": "0ff59ca3c89b9370",
+        "name": "",
+        "memorytype": "DS",
+        "memoryaddress": "1004",
+        "memorysize": "1",
+        "wswap": "OFF",
+        "showErrCode": 0,
+        "showErrText": 0,
+        "x": 690,
+        "y": 540,
+        "wires": [
+            [
+                "3c08b24a2e4030f9"
+            ]
+        ]
+    },
+    {
+        "id": "3c08b24a2e4030f9",
+        "type": "debug",
+        "z": "0ff59ca3c89b9370",
+        "name": "debug 2",
+        "active": false,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "false",
+        "statusVal": "",
+        "statusType": "auto",
+        "x": 860,
+        "y": 540,
+        "wires": []
+    },
+    {
+        "id": "645255da52b82a93",
+        "type": "function",
+        "z": "0ff59ca3c89b9370",
+        "name": "Parse for PLC XV2",
+        "func": "msg.payload = [msg.payload ? 1 : 0];\nreturn msg;\n",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 430,
+        "y": 540,
+        "wires": [
+            [
+                "5f7e56c0b51ed5e5"
+            ]
+        ]
+    },
+    {
+        "id": "77421c5c35cdafdc",
+        "type": "inject",
+        "z": "0ff59ca3c89b9370",
+        "name": "",
+        "props": [
+            {
+                "p": "payload"
+            },
+            {
+                "p": "topic",
+                "vt": "str"
+            }
+        ],
+        "repeat": "",
+        "crontab": "",
+        "once": false,
+        "onceDelay": 0.1,
+        "topic": "",
+        "payload": "true",
+        "payloadType": "bool",
+        "x": 150,
+        "y": 980,
+        "wires": [
+            [
+                "2bcfa46a02b9b2b4"
+            ]
+        ]
+    },
+    {
+        "id": "3124a4fb5e9e0d3e",
+        "type": "inject",
+        "z": "0ff59ca3c89b9370",
+        "name": "",
+        "props": [
+            {
+                "p": "payload"
+            },
+            {
+                "p": "topic",
+                "vt": "str"
+            }
+        ],
+        "repeat": "",
+        "crontab": "",
+        "once": true,
+        "onceDelay": 0.1,
+        "topic": "",
+        "payload": "false",
+        "payloadType": "bool",
+        "x": 150,
+        "y": 1020,
+        "wires": [
+            [
+                "2bcfa46a02b9b2b4"
+            ]
+        ]
+    },
+    {
+        "id": "d14cfefb026a4aaf",
+        "type": "CLICK Write",
+        "z": "0ff59ca3c89b9370",
+        "name": "",
+        "memorytype": "DS",
+        "memoryaddress": "1006",
+        "memorysize": "1",
+        "wswap": "OFF",
+        "showErrCode": 0,
+        "showErrText": 0,
+        "x": 690,
+        "y": 980,
+        "wires": [
+            [
+                "842ca5d4ae3d29b9"
+            ]
+        ]
+    },
+    {
+        "id": "842ca5d4ae3d29b9",
+        "type": "debug",
+        "z": "0ff59ca3c89b9370",
+        "name": "debug 3",
+        "active": false,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "false",
+        "statusVal": "",
+        "statusType": "auto",
+        "x": 860,
+        "y": 980,
+        "wires": []
+    },
+    {
+        "id": "2bcfa46a02b9b2b4",
+        "type": "function",
+        "z": "0ff59ca3c89b9370",
+        "name": "Parse for PLC XV3",
+        "func": "msg.payload = [msg.payload ? 1 : 0];\nreturn msg;\n",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 430,
+        "y": 980,
+        "wires": [
+            [
+                "d14cfefb026a4aaf"
+            ]
+        ]
+    },
+    {
+        "id": "47a1fd35c818f7d5",
+        "type": "inject",
+        "z": "0ff59ca3c89b9370",
+        "name": "",
+        "props": [
+            {
+                "p": "payload"
+            },
+            {
+                "p": "topic",
+                "vt": "str"
+            }
+        ],
+        "repeat": "",
+        "crontab": "",
+        "once": false,
+        "onceDelay": 0.1,
+        "topic": "",
+        "payload": "false",
+        "payloadType": "bool",
+        "x": 150,
+        "y": 300,
+        "wires": [
+            [
+                "8b23d15c8fee2af6"
+            ]
+        ]
+    },
+    {
+        "id": "4f5d472fce299842",
+        "type": "CLICK Write",
+        "z": "0ff59ca3c89b9370",
+        "name": "",
+        "memorytype": "DS",
+        "memoryaddress": "1101",
+        "memorysize": "1",
+        "wswap": "OFF",
+        "showErrCode": 0,
+        "showErrText": 0,
+        "x": 690,
+        "y": 260,
+        "wires": [
+            [
+                "bc0897a6b9d8af53"
+            ]
+        ]
+    },
+    {
+        "id": "bc0897a6b9d8af53",
+        "type": "debug",
+        "z": "0ff59ca3c89b9370",
+        "name": "debug 4",
+        "active": false,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "false",
+        "statusVal": "",
+        "statusType": "auto",
+        "x": 860,
+        "y": 260,
+        "wires": []
+    },
+    {
+        "id": "8b23d15c8fee2af6",
+        "type": "function",
+        "z": "0ff59ca3c89b9370",
+        "name": "Parse DS1101 for PLC XV1",
+        "func": "msg.payload = [msg.payload ? 1 : 0];\nreturn msg;\n",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 460,
+        "y": 260,
+        "wires": [
+            [
+                "4f5d472fce299842"
+            ]
+        ]
+    },
+    {
+        "id": "211ed24680340793",
+        "type": "inject",
+        "z": "0ff59ca3c89b9370",
+        "name": "",
+        "props": [
+            {
+                "p": "payload"
+            },
+            {
+                "p": "topic",
+                "vt": "str"
+            }
+        ],
+        "repeat": "",
+        "crontab": "",
+        "once": true,
+        "onceDelay": 0.1,
+        "topic": "",
+        "payload": "false",
+        "payloadType": "bool",
+        "x": 150,
+        "y": 420,
+        "wires": [
+            [
+                "c2fc13a214f2c408"
+            ]
+        ]
+    },
+    {
+        "id": "617e4cac97558896",
+        "type": "CLICK Write",
+        "z": "0ff59ca3c89b9370",
+        "name": "",
+        "memorytype": "DS",
+        "memoryaddress": "1102",
+        "memorysize": "1",
+        "wswap": "OFF",
+        "showErrCode": 0,
+        "showErrText": 0,
+        "x": 690,
+        "y": 420,
+        "wires": [
+            [
+                "ef7575b0c1118ac0"
+            ]
+        ]
+    },
+    {
+        "id": "ef7575b0c1118ac0",
+        "type": "debug",
+        "z": "0ff59ca3c89b9370",
+        "name": "debug 5",
+        "active": false,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "false",
+        "statusVal": "",
+        "statusType": "auto",
+        "x": 860,
+        "y": 420,
+        "wires": []
+    },
+    {
+        "id": "c2fc13a214f2c408",
+        "type": "function",
+        "z": "0ff59ca3c89b9370",
+        "name": "Parse DS1102 for PLC XV1",
+        "func": "msg.payload = [msg.payload ? 1 : 0];\nreturn msg;\n",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 460,
+        "y": 420,
+        "wires": [
+            [
+                "617e4cac97558896"
+            ]
+        ]
+    },
+    {
+        "id": "bf56191f6de06409",
+        "type": "comment",
+        "z": "0ff59ca3c89b9370",
+        "name": "Open/close XV1 (Ballast bottle)",
+        "info": "",
+        "x": 230,
+        "y": 40,
+        "wires": []
+    },
+    {
+        "id": "23a04ce2e1a28cc2",
+        "type": "comment",
+        "z": "0ff59ca3c89b9370",
+        "name": "Auto close XV1 (Ballast bottle)",
+        "info": "",
+        "x": 220,
+        "y": 220,
+        "wires": []
+    },
+    {
+        "id": "d468a34bfafd94f8",
+        "type": "comment",
+        "z": "0ff59ca3c89b9370",
+        "name": "Auto open XV1 (Ballast bottle)",
+        "info": "",
+        "x": 220,
+        "y": 380,
+        "wires": []
+    },
+    {
+        "id": "f9957139eb70c861",
+        "type": "comment",
+        "z": "0ff59ca3c89b9370",
+        "name": "Open/close XV2 (Recovery bottle)",
+        "info": "",
+        "x": 240,
+        "y": 500,
+        "wires": []
+    },
+    {
+        "id": "7b05f4fe5778aeb5",
+        "type": "inject",
+        "z": "0ff59ca3c89b9370",
+        "name": "",
+        "props": [
+            {
+                "p": "payload"
+            },
+            {
+                "p": "topic",
+                "vt": "str"
+            }
+        ],
+        "repeat": "",
+        "crontab": "",
+        "once": false,
+        "onceDelay": 0.1,
+        "topic": "",
+        "payload": "false",
+        "payloadType": "bool",
+        "x": 150,
+        "y": 740,
+        "wires": [
+            [
+                "aef0b1433530e9be"
+            ]
+        ]
+    },
+    {
+        "id": "56ec52041af5bc95",
+        "type": "CLICK Write",
+        "z": "0ff59ca3c89b9370",
+        "name": "",
+        "memorytype": "DS",
+        "memoryaddress": "1103",
+        "memorysize": "1",
+        "wswap": "OFF",
+        "showErrCode": 0,
+        "showErrText": 0,
+        "x": 690,
+        "y": 700,
+        "wires": [
+            [
+                "352c01cf8e635d39"
+            ]
+        ]
+    },
+    {
+        "id": "352c01cf8e635d39",
+        "type": "debug",
+        "z": "0ff59ca3c89b9370",
+        "name": "debug 6",
+        "active": false,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "false",
+        "statusVal": "",
+        "statusType": "auto",
+        "x": 860,
+        "y": 700,
+        "wires": []
+    },
+    {
+        "id": "aef0b1433530e9be",
+        "type": "function",
+        "z": "0ff59ca3c89b9370",
+        "name": "Parse DS1103 for PLC XV2",
+        "func": "msg.payload = [msg.payload ? 1 : 0];\nreturn msg;\n",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 460,
+        "y": 700,
+        "wires": [
+            [
+                "56ec52041af5bc95"
+            ]
+        ]
+    },
+    {
+        "id": "0a78184352779d8f",
+        "type": "inject",
+        "z": "0ff59ca3c89b9370",
+        "name": "",
+        "props": [
+            {
+                "p": "payload"
+            },
+            {
+                "p": "topic",
+                "vt": "str"
+            }
+        ],
+        "repeat": "",
+        "crontab": "",
+        "once": true,
+        "onceDelay": 0.1,
+        "topic": "",
+        "payload": "false",
+        "payloadType": "bool",
+        "x": 150,
+        "y": 860,
+        "wires": [
+            [
+                "db7d65ed9d046852"
+            ]
+        ]
+    },
+    {
+        "id": "3f2b44d7f092799b",
+        "type": "CLICK Write",
+        "z": "0ff59ca3c89b9370",
+        "name": "",
+        "memorytype": "DS",
+        "memoryaddress": "1104",
+        "memorysize": "1",
+        "wswap": "OFF",
+        "showErrCode": 0,
+        "showErrText": 0,
+        "x": 690,
+        "y": 860,
+        "wires": [
+            [
+                "63d34cf765e5f183"
+            ]
+        ]
+    },
+    {
+        "id": "63d34cf765e5f183",
+        "type": "debug",
+        "z": "0ff59ca3c89b9370",
+        "name": "debug 7",
+        "active": false,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "false",
+        "statusVal": "",
+        "statusType": "auto",
+        "x": 860,
+        "y": 860,
+        "wires": []
+    },
+    {
+        "id": "db7d65ed9d046852",
+        "type": "function",
+        "z": "0ff59ca3c89b9370",
+        "name": "Parse DS1104 for PLC XV2",
+        "func": "msg.payload = [msg.payload ? 1 : 0];\nreturn msg;\n",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 460,
+        "y": 860,
+        "wires": [
+            [
+                "3f2b44d7f092799b"
+            ]
+        ]
+    },
+    {
+        "id": "0f44ee0f0b486a40",
+        "type": "comment",
+        "z": "0ff59ca3c89b9370",
+        "name": "Auto close XV2 (Recovery bottle)",
+        "info": "",
+        "x": 230,
+        "y": 660,
+        "wires": []
+    },
+    {
+        "id": "9b98dcb8b944bb02",
+        "type": "comment",
+        "z": "0ff59ca3c89b9370",
+        "name": "Auto open XV2 (Recovery bottle)",
+        "info": "",
+        "x": 230,
+        "y": 820,
+        "wires": []
+    },
+    {
+        "id": "902d99d0d6889c40",
+        "type": "inject",
+        "z": "0ff59ca3c89b9370",
+        "name": "",
+        "props": [
+            {
+                "p": "payload"
+            },
+            {
+                "p": "topic",
+                "vt": "str"
+            }
+        ],
+        "repeat": "",
+        "crontab": "",
+        "once": true,
+        "onceDelay": 0.1,
+        "topic": "",
+        "payload": "true",
+        "payloadType": "bool",
+        "x": 150,
+        "y": 1140,
+        "wires": [
+            [
+                "4f7902805968281b"
+            ]
+        ]
+    },
+    {
+        "id": "549ec4ee338e3e12",
+        "type": "inject",
+        "z": "0ff59ca3c89b9370",
+        "name": "",
+        "props": [
+            {
+                "p": "payload"
+            },
+            {
+                "p": "topic",
+                "vt": "str"
+            }
+        ],
+        "repeat": "",
+        "crontab": "",
+        "once": false,
+        "onceDelay": 0.1,
+        "topic": "",
+        "payload": "false",
+        "payloadType": "bool",
+        "x": 150,
+        "y": 1180,
+        "wires": [
+            [
+                "4f7902805968281b"
+            ]
+        ]
+    },
+    {
+        "id": "60c0d380f10ce476",
+        "type": "CLICK Write",
+        "z": "0ff59ca3c89b9370",
+        "name": "",
+        "memorytype": "DS",
+        "memoryaddress": "1105",
+        "memorysize": "1",
+        "wswap": "OFF",
+        "showErrCode": 0,
+        "showErrText": 0,
+        "x": 690,
+        "y": 1140,
+        "wires": [
+            [
+                "94009a8d966720d8"
+            ]
+        ]
+    },
+    {
+        "id": "94009a8d966720d8",
+        "type": "debug",
+        "z": "0ff59ca3c89b9370",
+        "name": "debug 8",
+        "active": false,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "false",
+        "statusVal": "",
+        "statusType": "auto",
+        "x": 860,
+        "y": 1140,
+        "wires": []
+    },
+    {
+        "id": "4f7902805968281b",
+        "type": "function",
+        "z": "0ff59ca3c89b9370",
+        "name": "Parse DS1105 for PLC XV3",
+        "func": "msg.payload = [msg.payload ? 1 : 0];\nreturn msg;\n",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 460,
+        "y": 1140,
+        "wires": [
+            [
+                "60c0d380f10ce476"
+            ]
+        ]
+    },
+    {
+        "id": "221639f8acf3f460",
+        "type": "inject",
+        "z": "0ff59ca3c89b9370",
+        "name": "",
+        "props": [
+            {
+                "p": "payload"
+            },
+            {
+                "p": "topic",
+                "vt": "str"
+            }
+        ],
+        "repeat": "",
+        "crontab": "",
+        "once": false,
+        "onceDelay": 0.1,
+        "topic": "",
+        "payload": "true",
+        "payloadType": "bool",
+        "x": 150,
+        "y": 1300,
+        "wires": [
+            [
+                "d0fa54205f1cde8e"
+            ]
+        ]
+    },
+    {
+        "id": "5fefb0b03bcff1c7",
+        "type": "inject",
+        "z": "0ff59ca3c89b9370",
+        "name": "",
+        "props": [
+            {
+                "p": "payload"
+            },
+            {
+                "p": "topic",
+                "vt": "str"
+            }
+        ],
+        "repeat": "",
+        "crontab": "",
+        "once": true,
+        "onceDelay": 0.1,
+        "topic": "",
+        "payload": "false",
+        "payloadType": "bool",
+        "x": 150,
+        "y": 1340,
+        "wires": [
+            [
+                "d0fa54205f1cde8e"
+            ]
+        ]
+    },
+    {
+        "id": "ba8dc42b7cc1b7a4",
+        "type": "CLICK Write",
+        "z": "0ff59ca3c89b9370",
+        "name": "",
+        "memorytype": "DS",
+        "memoryaddress": "1106",
+        "memorysize": "1",
+        "wswap": "OFF",
+        "showErrCode": 0,
+        "showErrText": 0,
+        "x": 690,
+        "y": 1300,
+        "wires": [
+            [
+                "ec0727ba7bb87621"
+            ]
+        ]
+    },
+    {
+        "id": "ec0727ba7bb87621",
+        "type": "debug",
+        "z": "0ff59ca3c89b9370",
+        "name": "debug 9",
+        "active": false,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "false",
+        "statusVal": "",
+        "statusType": "auto",
+        "x": 860,
+        "y": 1300,
+        "wires": []
+    },
+    {
+        "id": "d0fa54205f1cde8e",
+        "type": "function",
+        "z": "0ff59ca3c89b9370",
+        "name": "Parse DS1106 for PLC XV3",
+        "func": "msg.payload = [msg.payload ? 1 : 0];\nreturn msg;\n",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 460,
+        "y": 1300,
+        "wires": [
+            [
+                "ba8dc42b7cc1b7a4"
+            ]
+        ]
+    },
+    {
+        "id": "980d69acc97f321b",
+        "type": "comment",
+        "z": "0ff59ca3c89b9370",
+        "name": "Auto close XV3 (Cryostat)",
+        "info": "",
+        "x": 210,
+        "y": 1100,
+        "wires": []
+    },
+    {
+        "id": "d886a5caa517b811",
+        "type": "comment",
+        "z": "0ff59ca3c89b9370",
+        "name": "Auto open XV3 (Cryostat)",
+        "info": "",
+        "x": 210,
+        "y": 1260,
+        "wires": []
+    },
+    {
+        "id": "888c443c6e8fcc3a",
+        "type": "comment",
+        "z": "0ff59ca3c89b9370",
+        "name": "Open/close XV3 (Cryostat)",
+        "info": "",
+        "x": 210,
+        "y": 940,
+        "wires": []
+    },
+    {
+        "id": "1f3520592c22a187",
+        "type": "inject",
+        "z": "0ff59ca3c89b9370",
+        "name": "",
+        "props": [
+            {
+                "p": "payload"
+            },
+            {
+                "p": "topic",
+                "vt": "str"
+            }
+        ],
+        "repeat": "",
+        "crontab": "",
+        "once": false,
+        "onceDelay": 0.1,
+        "topic": "",
+        "payload": "true",
+        "payloadType": "bool",
+        "x": 150,
+        "y": 540,
+        "wires": [
+            [
+                "645255da52b82a93"
+            ]
+        ]
+    },
+    {
+        "id": "09e1ddce7be94db2",
+        "type": "inject",
+        "z": "0ff59ca3c89b9370",
+        "name": "",
+        "props": [
+            {
+                "p": "payload"
+            },
+            {
+                "p": "topic",
+                "vt": "str"
+            }
+        ],
+        "repeat": "",
+        "crontab": "",
+        "once": true,
+        "onceDelay": 0.1,
+        "topic": "",
+        "payload": "true",
+        "payloadType": "bool",
+        "x": 150,
+        "y": 700,
+        "wires": [
+            [
+                "aef0b1433530e9be"
+            ]
+        ]
+    },
+    {
+        "id": "86050263436295a8",
+        "type": "inject",
+        "z": "0ff59ca3c89b9370",
+        "name": "",
+        "props": [
+            {
+                "p": "payload"
+            },
+            {
+                "p": "topic",
+                "vt": "str"
+            }
+        ],
+        "repeat": "",
+        "crontab": "",
+        "once": true,
+        "onceDelay": 0.1,
+        "topic": "",
+        "payload": "true",
+        "payloadType": "bool",
+        "x": 150,
+        "y": 260,
+        "wires": [
+            [
+                "8b23d15c8fee2af6"
+            ]
+        ]
+    },
+    {
+        "id": "91b4e34b2876fb84",
+        "type": "mqtt in",
+        "z": "0ff59ca3c89b9370",
+        "name": "",
+        "topic": "valves/ds1001",
+        "qos": "2",
+        "datatype": "auto-detect",
+        "broker": "709a5ccf8d4c4dd2",
+        "nl": false,
+        "rap": true,
+        "rh": 0,
+        "inputs": 0,
+        "x": 170,
+        "y": 160,
+        "wires": [
+            [
+                "1c28fc82b46427cc"
+            ]
+        ]
+    },
+    {
+        "id": "a4477ed23431e1b1",
+        "type": "mqtt in",
+        "z": "0ff59ca3c89b9370",
+        "name": "",
+        "topic": "valves/ds1101",
+        "qos": "2",
+        "datatype": "auto-detect",
+        "broker": "709a5ccf8d4c4dd2",
+        "nl": false,
+        "rap": true,
+        "rh": 0,
+        "inputs": 0,
+        "x": 170,
+        "y": 340,
+        "wires": [
+            [
+                "8b23d15c8fee2af6"
+            ]
+        ]
+    },
+    {
+        "id": "b744e25d153db9d7",
+        "type": "mqtt in",
+        "z": "0ff59ca3c89b9370",
+        "name": "",
+        "topic": "valves/ds1003",
+        "qos": "2",
+        "datatype": "auto-detect",
+        "broker": "709a5ccf8d4c4dd2",
+        "nl": false,
+        "rap": true,
+        "rh": 0,
+        "inputs": 0,
+        "x": 170,
+        "y": 620,
+        "wires": [
+            [
+                "645255da52b82a93"
+            ]
+        ]
+    },
+    {
+        "id": "6ecb8a0348f1c486",
+        "type": "mqtt in",
+        "z": "0ff59ca3c89b9370",
+        "name": "",
+        "topic": "valves/ds1103",
+        "qos": "2",
+        "datatype": "auto-detect",
+        "broker": "709a5ccf8d4c4dd2",
+        "nl": false,
+        "rap": true,
+        "rh": 0,
+        "inputs": 0,
+        "x": 170,
+        "y": 780,
+        "wires": [
+            [
+                "aef0b1433530e9be"
+            ]
+        ]
+    },
+    {
+        "id": "5b29ae14e290c0b0",
+        "type": "mqtt in",
+        "z": "0ff59ca3c89b9370",
+        "name": "",
+        "topic": "valves/ds1005",
+        "qos": "2",
+        "datatype": "auto-detect",
+        "broker": "709a5ccf8d4c4dd2",
+        "nl": false,
+        "rap": true,
+        "rh": 0,
+        "inputs": 0,
+        "x": 170,
+        "y": 1060,
+        "wires": [
+            [
+                "2bcfa46a02b9b2b4"
+            ]
+        ]
+    },
+    {
+        "id": "b6e3fa7b51f7f2dc",
+        "type": "mqtt in",
+        "z": "0ff59ca3c89b9370",
+        "name": "",
+        "topic": "valves/ds1105",
+        "qos": "2",
+        "datatype": "auto-detect",
+        "broker": "709a5ccf8d4c4dd2",
+        "nl": false,
+        "rap": true,
+        "rh": 0,
+        "inputs": 0,
+        "x": 170,
+        "y": 1220,
+        "wires": [
+            [
+                "4f7902805968281b"
+            ]
+        ]
+    },
+    {
+        "id": "671c44a2db8b55f2",
+        "type": "mqtt in",
+        "z": "0ff59ca3c89b9370",
+        "name": "",
+        "topic": "valves/ds1106",
+        "qos": "2",
+        "datatype": "auto-detect",
+        "broker": "709a5ccf8d4c4dd2",
+        "nl": false,
+        "rap": true,
+        "rh": 0,
+        "inputs": 0,
+        "x": 170,
+        "y": 1380,
+        "wires": [
+            [
+                "d0fa54205f1cde8e"
+            ]
+        ]
+    },
+    {
+        "id": "2536d0622438136e",
+        "type": "link in",
+        "z": "4ecafdf989b5b0cc",
+        "name": "In to PID1 control",
+        "links": [
+            "686b1bff6a499843"
+        ],
+        "x": 225,
+        "y": 100,
+        "wires": [
+            [
+                "247d36415169d5fa",
+                "3a6d80e985485e2f",
+                "5107618916a4f784",
+                "a2efdf17b855df38"
+            ]
+        ]
+    },
+    {
+        "id": "247d36415169d5fa",
+        "type": "CLICK Read",
+        "z": "4ecafdf989b5b0cc",
+        "name": "Read RTD1",
+        "memorytype": "DF",
+        "memoryaddress": "1",
+        "memorysize": "1",
+        "wswap": "OFF",
+        "showErrCode": 0,
+        "showErrText": 0,
+        "x": 410,
+        "y": 100,
+        "wires": [
+            [
+                "2ec4f29fcefbdf75"
+            ]
+        ]
+    },
+    {
+        "id": "3a6d80e985485e2f",
+        "type": "CLICK Read",
+        "z": "4ecafdf989b5b0cc",
+        "name": "Read RTD2",
+        "memorytype": "DF",
+        "memoryaddress": "2",
+        "memorysize": "1",
+        "wswap": "OFF",
+        "showErrCode": 0,
+        "showErrText": 0,
+        "x": 410,
+        "y": 140,
+        "wires": [
+            [
+                "8127251063ec068a"
+            ]
+        ]
+    },
+    {
+        "id": "5107618916a4f784",
+        "type": "CLICK Read",
+        "z": "4ecafdf989b5b0cc",
+        "name": "Read RTD3",
+        "memorytype": "DF",
+        "memoryaddress": "3",
+        "memorysize": "1",
+        "wswap": "OFF",
+        "showErrCode": 0,
+        "showErrText": 0,
+        "x": 410,
+        "y": 180,
+        "wires": [
+            [
+                "fdcdc872e81332dc"
+            ]
+        ]
+    },
+    {
+        "id": "a2efdf17b855df38",
+        "type": "CLICK Read",
+        "z": "4ecafdf989b5b0cc",
+        "name": "Read RTD4",
+        "memorytype": "DF",
+        "memoryaddress": "4",
+        "memorysize": "1",
+        "wswap": "OFF",
+        "showErrCode": 0,
+        "showErrText": 0,
+        "x": 410,
+        "y": 220,
+        "wires": [
+            [
+                "326016f39b26a0ca"
+            ]
+        ]
+    },
+    {
+        "id": "2ec4f29fcefbdf75",
+        "type": "function",
+        "z": "4ecafdf989b5b0cc",
+        "name": "Parse RTD1",
+        "func": "msg.payload = msg.payload.data;\nreturn msg;",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 650,
+        "y": 100,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "8127251063ec068a",
+        "type": "function",
+        "z": "4ecafdf989b5b0cc",
+        "name": "Parse RTD2",
+        "func": "msg.payload = msg.payload.data;\nreturn msg;",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 650,
+        "y": 140,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "fdcdc872e81332dc",
+        "type": "function",
+        "z": "4ecafdf989b5b0cc",
+        "name": "Parse RTD3",
+        "func": "msg.payload = msg.payload.data;\nreturn msg;",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 650,
+        "y": 180,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "326016f39b26a0ca",
+        "type": "function",
+        "z": "4ecafdf989b5b0cc",
+        "name": "Parse RTD4",
+        "func": "msg.payload = msg.payload.data;\nreturn msg;",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 650,
+        "y": 220,
+        "wires": [
+            [
+                "8f4de1c5941b2e70"
+            ]
+        ]
+    },
+    {
+        "id": "25e31d025486c3db",
+        "type": "comment",
+        "z": "4ecafdf989b5b0cc",
+        "name": "HTR1",
+        "info": "",
+        "x": 390,
+        "y": 60,
+        "wires": []
+    },
+    {
+        "id": "6c1367913928a277",
+        "type": "link in",
+        "z": "4ecafdf989b5b0cc",
+        "name": "In to PID2 control",
+        "links": [
+            "686b1bff6a499843"
+        ],
+        "x": 225,
+        "y": 320,
+        "wires": [
+            [
+                "3006fdaba9cb90a3",
+                "df771c91851a21af",
+                "f3471022c96b7d24",
+                "162b24fc995c80f4"
+            ]
+        ]
+    },
+    {
+        "id": "3006fdaba9cb90a3",
+        "type": "CLICK Read",
+        "z": "4ecafdf989b5b0cc",
+        "name": "Read RTD1",
+        "memorytype": "DF",
+        "memoryaddress": "1",
+        "memorysize": "1",
+        "wswap": "OFF",
+        "showErrCode": 0,
+        "showErrText": 0,
+        "x": 410,
+        "y": 320,
+        "wires": [
+            [
+                "58cfacdb847cb5ca"
+            ]
+        ]
+    },
+    {
+        "id": "df771c91851a21af",
+        "type": "CLICK Read",
+        "z": "4ecafdf989b5b0cc",
+        "name": "Read RTD2",
+        "memorytype": "DF",
+        "memoryaddress": "2",
+        "memorysize": "1",
+        "wswap": "OFF",
+        "showErrCode": 0,
+        "showErrText": 0,
+        "x": 410,
+        "y": 360,
+        "wires": [
+            [
+                "7a322af36818cdbd"
+            ]
+        ]
+    },
+    {
+        "id": "f3471022c96b7d24",
+        "type": "CLICK Read",
+        "z": "4ecafdf989b5b0cc",
+        "name": "Read RTD3",
+        "memorytype": "DF",
+        "memoryaddress": "3",
+        "memorysize": "1",
+        "wswap": "OFF",
+        "showErrCode": 0,
+        "showErrText": 0,
+        "x": 410,
+        "y": 400,
+        "wires": [
+            [
+                "4084c2cd480ae8c2"
+            ]
+        ]
+    },
+    {
+        "id": "162b24fc995c80f4",
+        "type": "CLICK Read",
+        "z": "4ecafdf989b5b0cc",
+        "name": "Read RTD4",
+        "memorytype": "DF",
+        "memoryaddress": "4",
+        "memorysize": "1",
+        "wswap": "OFF",
+        "showErrCode": 0,
+        "showErrText": 0,
+        "x": 410,
+        "y": 440,
+        "wires": [
+            [
+                "bbf9f320628f402c"
+            ]
+        ]
+    },
+    {
+        "id": "58cfacdb847cb5ca",
+        "type": "function",
+        "z": "4ecafdf989b5b0cc",
+        "name": "Parse RTD1",
+        "func": "msg.payload = msg.payload.data;\nreturn msg;",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 650,
+        "y": 320,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "7a322af36818cdbd",
+        "type": "function",
+        "z": "4ecafdf989b5b0cc",
+        "name": "Parse RTD2",
+        "func": "msg.payload = msg.payload.data;\nreturn msg;",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 650,
+        "y": 360,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "4084c2cd480ae8c2",
+        "type": "function",
+        "z": "4ecafdf989b5b0cc",
+        "name": "Parse RTD3",
+        "func": "msg.payload = msg.payload.data;\nreturn msg;",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 650,
+        "y": 400,
+        "wires": [
+            [
+                "c3840ba470b8c783"
+            ]
+        ]
+    },
+    {
+        "id": "bbf9f320628f402c",
+        "type": "function",
+        "z": "4ecafdf989b5b0cc",
+        "name": "Parse RTD4",
+        "func": "msg.payload = msg.payload.data;\nreturn msg;",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 650,
+        "y": 440,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "8f4de1c5941b2e70",
+        "type": "CLICK Write",
+        "z": "4ecafdf989b5b0cc",
+        "name": "PV for HTR1",
+        "memorytype": "DF",
+        "memoryaddress": "111",
+        "memorysize": "1",
+        "wswap": "OFF",
+        "showErrCode": 0,
+        "showErrText": 0,
+        "x": 910,
+        "y": 260,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "8e679b61681c407b",
+        "type": "comment",
+        "z": "4ecafdf989b5b0cc",
+        "name": "HTR2",
+        "info": "",
+        "x": 390,
+        "y": 280,
+        "wires": []
+    },
+    {
+        "id": "c6596a0a3b4ffdfe",
+        "type": "link in",
+        "z": "4ecafdf989b5b0cc",
+        "name": "In to PID3 control",
+        "links": [
+            "686b1bff6a499843"
+        ],
+        "x": 225,
+        "y": 540,
+        "wires": [
+            [
+                "86c913a0f94c0681",
+                "bc09add5a1f179a3",
+                "82427b18743334d0",
+                "478baf5960da1a22"
+            ]
+        ]
+    },
+    {
+        "id": "86c913a0f94c0681",
+        "type": "CLICK Read",
+        "z": "4ecafdf989b5b0cc",
+        "name": "Read RTD1",
+        "memorytype": "DF",
+        "memoryaddress": "1",
+        "memorysize": "1",
+        "wswap": "OFF",
+        "showErrCode": 0,
+        "showErrText": 0,
+        "x": 410,
+        "y": 540,
+        "wires": [
+            [
+                "a5bf8c3c8b5515e4"
+            ]
+        ]
+    },
+    {
+        "id": "bc09add5a1f179a3",
+        "type": "CLICK Read",
+        "z": "4ecafdf989b5b0cc",
+        "name": "Read RTD2",
+        "memorytype": "DF",
+        "memoryaddress": "2",
+        "memorysize": "1",
+        "wswap": "OFF",
+        "showErrCode": 0,
+        "showErrText": 0,
+        "x": 410,
+        "y": 580,
+        "wires": [
+            [
+                "f1d7c0d65e4eef69"
+            ]
+        ]
+    },
+    {
+        "id": "82427b18743334d0",
+        "type": "CLICK Read",
+        "z": "4ecafdf989b5b0cc",
+        "name": "Read RTD3",
+        "memorytype": "DF",
+        "memoryaddress": "3",
+        "memorysize": "1",
+        "wswap": "OFF",
+        "showErrCode": 0,
+        "showErrText": 0,
+        "x": 410,
+        "y": 620,
+        "wires": [
+            [
+                "a06a29180712297f"
+            ]
+        ]
+    },
+    {
+        "id": "478baf5960da1a22",
+        "type": "CLICK Read",
+        "z": "4ecafdf989b5b0cc",
+        "name": "Read RTD4",
+        "memorytype": "DF",
+        "memoryaddress": "4",
+        "memorysize": "1",
+        "wswap": "OFF",
+        "showErrCode": 0,
+        "showErrText": 0,
+        "x": 410,
+        "y": 660,
+        "wires": [
+            [
+                "5d46569efce5e04c"
+            ]
+        ]
+    },
+    {
+        "id": "a5bf8c3c8b5515e4",
+        "type": "function",
+        "z": "4ecafdf989b5b0cc",
+        "name": "Parse RTD1",
+        "func": "msg.payload = msg.payload.data;\nreturn msg;",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 650,
+        "y": 540,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "f1d7c0d65e4eef69",
+        "type": "function",
+        "z": "4ecafdf989b5b0cc",
+        "name": "Parse RTD2",
+        "func": "msg.payload = msg.payload.data;\nreturn msg;",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 650,
+        "y": 580,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "a06a29180712297f",
+        "type": "function",
+        "z": "4ecafdf989b5b0cc",
+        "name": "Parse RTD3",
+        "func": "msg.payload = msg.payload.data;\nreturn msg;",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 650,
+        "y": 620,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "5d46569efce5e04c",
+        "type": "function",
+        "z": "4ecafdf989b5b0cc",
+        "name": "Parse RTD4",
+        "func": "msg.payload = msg.payload.data;\nreturn msg;",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 650,
+        "y": 660,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "a3930a7cda7f42d2",
+        "type": "comment",
+        "z": "4ecafdf989b5b0cc",
+        "name": "HTR3",
+        "info": "",
+        "x": 390,
+        "y": 500,
+        "wires": []
+    },
+    {
+        "id": "774a403ce79b5170",
+        "type": "CLICK Write",
+        "z": "4ecafdf989b5b0cc",
+        "name": "SP for HTR1",
+        "memorytype": "DF",
+        "memoryaddress": "100",
+        "memorysize": "1",
+        "wswap": "OFF",
+        "showErrCode": 0,
+        "showErrText": 0,
+        "x": 930,
+        "y": 200,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "c3840ba470b8c783",
+        "type": "CLICK Write",
+        "z": "4ecafdf989b5b0cc",
+        "name": "PV for HTR2",
+        "memorytype": "DF",
+        "memoryaddress": "136",
+        "memorysize": "1",
+        "wswap": "OFF",
+        "showErrCode": 0,
+        "showErrText": 0,
+        "x": 850,
+        "y": 380,
+        "wires": [
+            [
+                "1c481ae55da4d519"
+            ]
+        ]
+    },
+    {
+        "id": "1c481ae55da4d519",
+        "type": "debug",
+        "z": "4ecafdf989b5b0cc",
+        "name": "debug 17",
+        "active": false,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "payload",
+        "targetType": "msg",
+        "statusVal": "",
+        "statusType": "auto",
+        "x": 1040,
+        "y": 380,
+        "wires": []
+    },
+    {
+        "id": "7b69425c92e9064e",
+        "type": "inject",
+        "z": "4ecafdf989b5b0cc",
+        "name": "",
+        "props": [
+            {
+                "p": "payload"
+            },
+            {
+                "p": "topic",
+                "vt": "str"
+            }
+        ],
+        "repeat": "",
+        "crontab": "",
+        "once": true,
+        "onceDelay": 0.1,
+        "topic": "",
+        "payload": "",
+        "payloadType": "date",
+        "x": 410,
+        "y": 760,
+        "wires": [
+            [
+                "76daaddfa29bbfb1"
+            ]
+        ]
+    },
+    {
+        "id": "76daaddfa29bbfb1",
+        "type": "CLICK Read",
+        "z": "4ecafdf989b5b0cc",
+        "name": "Read RTD2",
+        "memorytype": "DF",
+        "memoryaddress": "3",
+        "memorysize": "1",
+        "wswap": "OFF",
+        "showErrCode": 0,
+        "showErrText": 0,
+        "x": 650,
+        "y": 760,
+        "wires": [
+            [
+                "4d027e1fd4a05ce1"
+            ]
+        ]
+    },
+    {
+        "id": "4d027e1fd4a05ce1",
+        "type": "function",
+        "z": "4ecafdf989b5b0cc",
+        "name": "SP for refill using temperature",
+        "func": "msg.payload = [msg.payload.data[0] - 105.0];\nreturn msg;",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 970,
+        "y": 760,
+        "wires": [
+            [
+                "515d79048a8a8092"
+            ]
+        ]
+    },
+    {
+        "id": "515d79048a8a8092",
+        "type": "CLICK Write",
+        "z": "4ecafdf989b5b0cc",
+        "name": "PV for REFILL",
+        "memorytype": "DF",
+        "memoryaddress": "5",
+        "memorysize": "1",
+        "wswap": "OFF",
+        "showErrCode": 0,
+        "showErrText": 0,
+        "x": 1280,
+        "y": 760,
+        "wires": [
+            [
+                "d48abbe792634aa7"
+            ]
+        ]
+    },
+    {
+        "id": "d48abbe792634aa7",
+        "type": "debug",
+        "z": "4ecafdf989b5b0cc",
+        "name": "debug 18",
+        "active": true,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "false",
+        "statusVal": "",
+        "statusType": "auto",
+        "x": 1540,
+        "y": 760,
+        "wires": []
+    },
+    {
+        "id": "486b1abd1403f02a",
+        "type": "CLICK Write",
+        "z": "4ecafdf989b5b0cc",
+        "name": "SP for HTR2",
+        "memorytype": "DF",
+        "memoryaddress": "125",
+        "memorysize": "1",
+        "wswap": "OFF",
+        "showErrCode": 0,
+        "showErrText": 0,
+        "x": 1030,
+        "y": 440,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "fb75ed7bc51c9508",
+        "type": "CLICK Read",
+        "z": "da2bbf304d342fbe",
+        "name": "Read RTD3",
+        "memorytype": "DF",
+        "memoryaddress": "3",
+        "memorysize": "1",
+        "wswap": "OFF",
+        "showErrCode": 0,
+        "showErrText": 0,
+        "x": 430,
+        "y": 240,
+        "wires": [
+            [
+                "1c944909d75e65d2"
+            ]
+        ]
+    },
+    {
+        "id": "bdd5407db1c68c75",
+        "type": "inject",
+        "z": "da2bbf304d342fbe",
+        "name": "",
+        "props": [
+            {
+                "p": "payload"
+            },
+            {
+                "p": "topic",
+                "vt": "str"
+            }
+        ],
+        "repeat": "1",
+        "crontab": "",
+        "once": true,
+        "onceDelay": 0.1,
+        "topic": "",
+        "payload": "",
+        "payloadType": "date",
+        "x": 210,
+        "y": 240,
+        "wires": [
+            [
+                "fb75ed7bc51c9508",
+                "5fd604fbd7b0997e",
+                "5566e3feebbfcbe3"
+            ]
+        ]
+    },
+    {
+        "id": "1c944909d75e65d2",
+        "type": "function",
+        "z": "da2bbf304d342fbe",
+        "name": "Store RTD3_K",
+        "func": "const C2K = 273.15;\n\nconst rtd3_C = Number(msg.payload.data[0]);\nif (!Number.isFinite(rtd3_C)) {\n  node.warn(\"RTD3 value not numeric: \" + JSON.stringify(msg.payload));\n  return null;\n}\n\nflow.set(\"RTD3_K\", rtd3_C + C2K);\nreturn null;\n",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 660,
+        "y": 240,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "5fd604fbd7b0997e",
+        "type": "CLICK Read",
+        "z": "da2bbf304d342fbe",
+        "name": "Read RTD4",
+        "memorytype": "DF",
+        "memoryaddress": "4",
+        "memorysize": "1",
+        "wswap": "OFF",
+        "showErrCode": 0,
+        "showErrText": 0,
+        "x": 430,
+        "y": 320,
+        "wires": [
+            [
+                "76726c52d2a606e8"
+            ]
+        ]
+    },
+    {
+        "id": "76726c52d2a606e8",
+        "type": "function",
+        "z": "da2bbf304d342fbe",
+        "name": "Store RTD4_K",
+        "func": "const C2K = 273.15;\n\nconst rtd4_C = Number(msg.payload.data[0]);\nif (!Number.isFinite(rtd4_C)) {\n  node.warn(\"RTD4 value not numeric: \" + JSON.stringify(msg.payload));\n  return null;\n}\n\nflow.set(\"RTD4_K\", rtd4_C + C2K);\nreturn null;\n",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 660,
+        "y": 320,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "32e92ce845617e96",
+        "type": "CLICK Write",
+        "z": "da2bbf304d342fbe",
+        "name": "SP for HTR1",
+        "memorytype": "DF",
+        "memoryaddress": "100",
+        "memorysize": "1",
+        "wswap": "OFF",
+        "showErrCode": 0,
+        "showErrText": 0,
+        "x": 1010,
+        "y": 440,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "bbdaf819160d74e8",
+        "type": "CLICK Write",
+        "z": "da2bbf304d342fbe",
+        "name": "SP for HTR2",
+        "memorytype": "DF",
+        "memoryaddress": "125",
+        "memorysize": "1",
+        "wswap": "OFF",
+        "showErrCode": 0,
+        "showErrText": 0,
+        "x": 750,
+        "y": 700,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "3212766eb1fe810d",
+        "type": "inject",
+        "z": "da2bbf304d342fbe",
+        "name": "Ramp tick",
+        "props": [
+            {
+                "p": "payload"
+            },
+            {
+                "p": "topic",
+                "vt": "str"
+            }
+        ],
+        "repeat": "1",
+        "crontab": "",
+        "once": true,
+        "onceDelay": 0.1,
+        "topic": "",
+        "payload": "",
+        "payloadType": "date",
+        "x": 210,
+        "y": 460,
+        "wires": [
+            [
+                "7024b3ec76a42101"
+            ]
+        ]
+    },
+    {
+        "id": "7024b3ec76a42101",
+        "type": "function",
+        "z": "da2bbf304d342fbe",
+        "name": "Ramp HTRs and Stop logic",
+        "func": "// ===== SETTINGS =====\nconst TARGET_K = 180;\nconst RATE_K_PER_S = 0.0067; //0.4K/min\n// ====================\n\n// Read and coerce to numbers\nconst rtd3_K = Number(flow.get(\"RTD3_K\"));\nconst rtd4_K = Number(flow.get(\"RTD4_K\"));\n\n// If either isn't a real number, stop and show why\nif (!Number.isFinite(rtd3_K) || !Number.isFinite(rtd4_K)) {\n  node.warn(`Bad RTD values: RTD3_K=${flow.get(\"RTD3_K\")} RTD4_K=${flow.get(\"RTD4_K\")}`);\n  return [null, null];\n}\n\n// Stop condition\nif (rtd3_K <= TARGET_K && rtd4_K <= TARGET_K) return [null, null];\n\n// Start time\nlet t0 = Number(context.get(\"t0\"));\nif (!Number.isFinite(t0)) {\n  t0 = Date.now();\n  context.set(\"t0\", t0);\n}\n\n// Elapsed seconds\nconst t_s = (Date.now() - t0) / 1000;\n\n// Start temperature (store as number once)\nlet T0 = Number(context.get(\"T0\"));\nif (!Number.isFinite(T0)) {\n  T0 = Math.max(rtd3_K, rtd4_K);\n  context.set(\"T0\", T0);\n}\n\n// Ramp in Kelvin\nlet Tset_K = T0 - RATE_K_PER_S * t_s;\nif (Tset_K < TARGET_K) Tset_K = TARGET_K;\n\n// Convert to Celsius\nlet Tset_C = Tset_K - 273.15;\n\n// Round (optional)\nTset_C = Math.round(Tset_C * 100) / 100;\n\nmsg.payload = [Tset_C];\nreturn msg;\n\n",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 480,
+        "y": 460,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "3ed55ee2483f4842",
+        "type": "debug",
+        "z": "da2bbf304d342fbe",
+        "name": "debug 24",
+        "active": false,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "false",
+        "statusVal": "",
+        "statusType": "auto",
+        "x": 860,
+        "y": 160,
+        "wires": []
+    },
+    {
+        "id": "b2164006804c2fc9",
+        "type": "inject",
+        "z": "da2bbf304d342fbe",
+        "name": "2 hour ramp down",
+        "props": [
+            {
+                "p": "payload"
+            },
+            {
+                "p": "topic",
+                "vt": "str"
+            }
+        ],
+        "repeat": "7200",
+        "crontab": "",
+        "once": true,
+        "onceDelay": 0.1,
+        "topic": "",
+        "payload": "",
+        "payloadType": "date",
+        "x": 250,
+        "y": 660,
+        "wires": [
+            [
+                "dc48622f58755f1a"
+            ]
+        ]
+    },
+    {
+        "id": "dc48622f58755f1a",
+        "type": "function",
+        "z": "da2bbf304d342fbe",
+        "name": "Drop HTR by 1K",
+        "func": "// ===== SETTINGS =====\nconst TARGET_K = 181;   // stop when RTD1_K <= this\nconst STEP_K = 1.0;     // drop 1 K per inject\n// ====================\n\n// Read RTD1_K from flow context\nconst rtd1_K_raw = flow.get(\"RTD1_K\");\nconst rtd1_K = Number(rtd1_K_raw);\n\nif (!Number.isFinite(rtd1_K)) {\n  node.warn(\"Bad RTD1_K: \" + JSON.stringify(rtd1_K_raw));\n  return null;\n}\n\n// Stop condition (cooling case)\nif (rtd1_K <= TARGET_K) {\n  return null;  // stop sending updates\n}\n\n// New setpoint = 1 K lower\nlet Tset_K = rtd1_K - STEP_K;\n\n// Don't go below target\nif (Tset_K < TARGET_K) Tset_K = TARGET_K;\n\n// Convert to Celsius for heater write\nlet Tset_C = Tset_K - 273.15;\n\n// Optional rounding\nTset_C = Math.round(Tset_C * 100) / 100;\n\n// MATCH your required array format\nmsg.payload = [Tset_C];\n\nreturn msg;",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 460,
+        "y": 660,
+        "wires": [
+            [
+                "5418c23f2d290528"
+            ]
+        ]
+    },
+    {
+        "id": "5566e3feebbfcbe3",
+        "type": "CLICK Read",
+        "z": "da2bbf304d342fbe",
+        "name": "Read RTD1",
+        "memorytype": "DF",
+        "memoryaddress": "1",
+        "memorysize": "1",
+        "wswap": "OFF",
+        "showErrCode": 0,
+        "showErrText": 0,
+        "x": 430,
+        "y": 180,
+        "wires": [
+            [
+                "b8e41f51c47d47a6"
+            ]
+        ]
+    },
+    {
+        "id": "b8e41f51c47d47a6",
+        "type": "function",
+        "z": "da2bbf304d342fbe",
+        "name": "Store RTD1_K",
+        "func": "const C2K = 273.15;\n\nconst rtd1_C = Number(msg.payload.data[0]);\nif (!Number.isFinite(rtd1_C)) {\n  node.warn(\"RTD1 value not numeric: \" + JSON.stringify(msg.payload));\n  return null;\n}\n\nflow.set(\"RTD1_K\", rtd1_C + C2K);\nreturn null;\n",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 660,
+        "y": 180,
+        "wires": [
+            [
+                "3ed55ee2483f4842"
+            ]
+        ]
+    },
+    {
+        "id": "5418c23f2d290528",
+        "type": "debug",
+        "z": "da2bbf304d342fbe",
+        "name": "debug 25",
+        "active": true,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "false",
+        "statusVal": "",
+        "statusType": "auto",
+        "x": 700,
+        "y": 580,
+        "wires": []
+    },
+    {
+        "id": "be16947aed1489ed",
+        "type": "CLICK Write",
+        "z": "da2bbf304d342fbe",
+        "name": "SP for HTR2",
+        "memorytype": "DF",
+        "memoryaddress": "125",
+        "memorysize": "1",
+        "wswap": "OFF",
+        "showErrCode": 0,
+        "showErrText": 0,
+        "x": 750,
+        "y": 840,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "82bc3d41e9561705",
+        "type": "inject",
+        "z": "da2bbf304d342fbe",
+        "name": "2 hour ramp up",
+        "props": [
+            {
+                "p": "payload"
+            },
+            {
+                "p": "topic",
+                "vt": "str"
+            }
+        ],
+        "repeat": "7200",
+        "crontab": "",
+        "once": true,
+        "onceDelay": 0.1,
+        "topic": "",
+        "payload": "",
+        "payloadType": "date",
+        "x": 240,
+        "y": 840,
+        "wires": [
+            [
+                "c7d022c9c0d50985"
+            ]
+        ]
+    },
+    {
+        "id": "c7d022c9c0d50985",
+        "type": "function",
+        "z": "da2bbf304d342fbe",
+        "name": "Increase HTR by 1K",
+        "func": "// ===== SETTINGS =====\nconst TARGET_K = 190;   // stop when RTD1_K >= this\nconst STEP_K = 1.0;     // up 1 K per inject\n// ====================\n\n// Read RTD1_K from flow context\nconst rtd1_K_raw = flow.get(\"RTD1_K\");\nconst rtd1_K = Number(rtd1_K_raw);\n\nif (!Number.isFinite(rtd1_K)) {\n  node.warn(\"Bad RTD1_K: \" + JSON.stringify(rtd1_K_raw));\n  return null;\n}\n\n// Stop condition (heating case)\nif (rtd1_K >= TARGET_K) {\n  return null;  // stop sending updates\n}\n\n// New setpoint = 1 K higher\nlet Tset_K = rtd1_K + STEP_K;\n\n// Don't go above target\nif (Tset_K > TARGET_K) Tset_K = TARGET_K;\n\n// Convert to Celsius for heater write\nlet Tset_C = Tset_K - 273.15;\n\n// Optional rounding\nTset_C = Math.round(Tset_C * 100) / 100;\n\n// MATCH your required array format\nmsg.payload = [Tset_C];\n\nreturn msg;",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 480,
+        "y": 840,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "04b436b336cb71dd",
+        "type": "debug",
+        "z": "da2bbf304d342fbe",
+        "name": "debug 26",
+        "active": true,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "false",
+        "statusVal": "",
+        "statusType": "auto",
+        "x": 700,
+        "y": 760,
+        "wires": []
+    },
+    {
+        "id": "1a639136f842049a",
+        "type": "CLICK Write",
+        "z": "da2bbf304d342fbe",
+        "name": "SP for HTR1",
+        "memorytype": "DF",
+        "memoryaddress": "100",
+        "memorysize": "1",
+        "wswap": "OFF",
+        "showErrCode": 0,
+        "showErrText": 0,
+        "x": 770,
+        "y": 640,
+        "wires": [
+            []
+        ]
+    }
+]
