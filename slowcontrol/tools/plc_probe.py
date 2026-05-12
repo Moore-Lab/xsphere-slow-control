@@ -107,9 +107,15 @@ def probe(host: str, port: int, unit: int, timeout: float) -> int:
         v = _read_coil(client, addr, unit)
         print(f"  {label:22s} coil#{addr:<6d} = {v if v is not None else 'err'}")
 
-    print("== RTD inputs (DF1..DF4) — labels per plc.py.REG_RTD ==")
+    print("== RTD inputs (DF1..DF3) — labels per plc.py.REG_RTD ==")
     for key, addr in P.REG_RTD.items():
         show_float(key, addr)
+
+    print("\n== LabJack temperatures mirrored into the PLC (written by the service, °C) ==")
+    for ch, addr in getattr(P, "REG_LABJACK_RTD_WRITE", {}).items():
+        show_float(f"labjack rtd {ch} (abs)", addr)
+    for ch, addr in getattr(P, "REG_LABJACK_TC_WRITE", {}).items():
+        show_float(f"labjack tc {ch} (gradient)", addr)
 
     print("\n== Liquid level (DF) ==")
     show_float("cryostat raw",      P.REG_LEVEL_RAW["cryostat"])

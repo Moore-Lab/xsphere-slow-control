@@ -141,6 +141,14 @@ LEVEL_SOURCE_TOPICS = {
     "primary_xe": "xsphere/sensors/level/primary_xe",
 }
 
+# --- LabJack T7 temperatures mirrored into PLC DF registers (written by us) ---
+# The LabJack publishes its RTD/TC values over MQTT; we forward them into these
+# DF registers (°C, 32-bit float) so the CLICK ladder / display can use them.
+#   RTD (absolute °C):   DF210 = rtd1 nozzle, DF211 = rtd2 top cube, DF212 = rtd3 bottom cube
+#   TC (gradient ΔT °C): DF213 = tc1, DF214 = tc2, DF215 = tc3, DF216 = tc4
+REG_LABJACK_RTD_WRITE = {1: _df(210), 2: _df(211), 3: _df(212)}
+REG_LABJACK_TC_WRITE  = {1: _df(213), 2: _df(214), 3: _df(215), 4: _df(216)}
+
 # --- PID registers (DF, read setpoint/PV/output; write setpoint/gains) ---
 #
 #  Each PID block occupies 25 float registers starting at its DF_Memory_Start.
@@ -231,6 +239,10 @@ class PlcDriver(SensorDriver):
         self._client: Optional[ModbusTcpClient] = None
         # Cache latest level values received from ESP32 MQTT topics
         self._level_raw: Dict[str, float] = {}
+        # Cache latest LabJack temperatures received over MQTT (°C), keyed by
+        # channel number — RTD absolute, TC gradient (ΔT) — to mirror into the PLC
+        self._labjack_rtd_c: Dict[int, float] = {}
+        self._labjack_tc_delta_c: Dict[int, float] = {}
 
     @property
     def poll_interval(self) -> float:
@@ -255,6 +267,13 @@ class PlcDriver(SensorDriver):
         # Subscribe to level sensor topics so we can forward to PLC
         for vessel, topic in LEVEL_SOURCE_TOPICS.items():
             self._mqtt.subscribe(topic, self._on_level_message)
+
+        # Subscribe to LabJack temperature topics so we can mirror them into
+        # PLC DF registers (RTD absolute °C → DF210-212; TC gradient °C → DF213-216).
+        self._mqtt.subscribe("xsphere/sensors/temperature/labjack/rtd/+",
+                             self._on_labjack_rtd)
+        self._mqtt.subscribe("xsphere/sensors/temperature/labjack/tc/+",
+                             self._on_labjack_tc)
 
         # Subscribe to command topics
         from slowcontrol.core.mqtt import command_topic
@@ -297,6 +316,7 @@ class PlcDriver(SensorDriver):
             self._publish_pid_status()
             self._publish_valve_status()
             self._write_level_to_plc()
+            self._write_labjack_to_plc()
         except ModbusException as exc:
             log.warning("[plc] Modbus error during poll: %s", exc)
         except Exception:
@@ -389,6 +409,18 @@ class PlcDriver(SensorDriver):
             if val is not None:
                 self._write_float(addr, val)
 
+    def _write_labjack_to_plc(self) -> None:
+        """Mirror the latest LabJack temperatures into PLC DF registers (°C):
+        RTD absolute → DF210-212, TC gradient (ΔT) → DF213-216."""
+        for ch, addr in REG_LABJACK_RTD_WRITE.items():
+            val = self._labjack_rtd_c.get(ch)
+            if val is not None:
+                self._write_float(addr, val)
+        for ch, addr in REG_LABJACK_TC_WRITE.items():
+            val = self._labjack_tc_delta_c.get(ch)
+            if val is not None:
+                self._write_float(addr, val)
+
     # ------------------------------------------------------------------
     # Publish: PID status
     # ------------------------------------------------------------------
@@ -457,6 +489,30 @@ class PlcDriver(SensorDriver):
         if raw is not None:
             try:
                 self._level_raw[vessel] = float(raw)
+            except (TypeError, ValueError):
+                pass
+
+    def _on_labjack_rtd(self, topic: str, payload: dict) -> None:
+        """Cache a LabJack RTD absolute temperature (°C) to mirror into the PLC.
+        Topic: xsphere/sensors/temperature/labjack/rtd/<n>  payload {"value_c": ...}"""
+        if not isinstance(payload, dict):
+            return
+        val = payload.get("value_c")
+        if val is not None:
+            try:
+                self._labjack_rtd_c[int(topic.rsplit("/", 1)[-1])] = float(val)
+            except (TypeError, ValueError):
+                pass
+
+    def _on_labjack_tc(self, topic: str, payload: dict) -> None:
+        """Cache a LabJack thermocouple gradient (ΔT, °C) to mirror into the PLC.
+        Topic: xsphere/sensors/temperature/labjack/tc/<n>  payload {"delta_c": ...}"""
+        if not isinstance(payload, dict):
+            return
+        val = payload.get("delta_c")
+        if val is not None:
+            try:
+                self._labjack_tc_delta_c[int(topic.rsplit("/", 1)[-1])] = float(val)
             except (TypeError, ValueError):
                 pass
 
