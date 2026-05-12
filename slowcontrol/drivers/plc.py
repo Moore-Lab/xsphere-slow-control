@@ -96,12 +96,12 @@ def _ds(n: int) -> int:
     return DS_BASE + (n - 1)
 
 
-# --- RTD inputs (read-only, DF, from C0-04RTD module) ---
+# --- RTD inputs (read-only, DF, from the CLICK RTD module) ---
+# Three RTDs are wired to the CLICK (DF1/DF2/DF3); DF4 is no longer used.
 REG_RTD = {
     "rtd_cube_top":    _df(1),   # DF1  Xe cube top RTD (Pt100, °C)
     "rtd_cube_bottom": _df(2),   # DF2  Xe cube bottom RTD (Pt100, °C)
     "rtd_cube_nozzle": _df(3),   # DF3  Xe cube nozzle RTD (Pt100, °C)
-    "rtd_ln_base":     _df(4),   # DF4  LN2 vessel base RTD (Pt1000, °C)
 }
 
 # MQTT sub-topics for RTD channels (matches topic schema)
@@ -109,7 +109,6 @@ RTD_MQTT_PATH = {
     "rtd_cube_top":    ("plc", "rtd", "1"),
     "rtd_cube_bottom": ("plc", "rtd", "2"),
     "rtd_cube_nozzle": ("plc", "rtd", "3"),
-    "rtd_ln_base":     ("plc", "rtd", "4"),
 }
 
 # --- Level sensor inputs (read-only, DF, from C2-08D2-6V analog module) ---
