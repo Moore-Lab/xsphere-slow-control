@@ -1,0 +1,3011 @@
+[
+  {
+    "id": "xsphere_control_flow",
+    "type": "tab",
+    "label": "xsphere Control",
+    "disabled": false,
+    "info": "Operator control dashboard \u2014 see the 'Control' tab in the Node-RED dashboard UI."
+  },
+  {
+    "id": "xsphere_mqtt_broker",
+    "type": "mqtt-broker",
+    "name": "mosquitto",
+    "broker": "mosquitto",
+    "port": "1883",
+    "clientid": "",
+    "autoConnect": true,
+    "usetls": false,
+    "protocolVersion": "4",
+    "keepalive": "60",
+    "cleansession": true
+  },
+  {
+    "id": "xsphere_ui_tab_control",
+    "type": "ui_tab",
+    "name": "Control",
+    "icon": "dashboard",
+    "order": 1,
+    "disabled": false,
+    "hidden": false
+  },
+  {
+    "id": "xsc_g_sys",
+    "type": "ui_group",
+    "name": "System status",
+    "tab": "xsphere_ui_tab_control",
+    "order": 1,
+    "disp": true,
+    "width": "6",
+    "collapse": false
+  },
+  {
+    "id": "xsc_in_001",
+    "type": "mqtt in",
+    "z": "xsphere_control_flow",
+    "name": "xsphere/status/interlocks",
+    "topic": "xsphere/status/interlocks",
+    "qos": "1",
+    "datatype": "auto-detect",
+    "broker": "xsphere_mqtt_broker",
+    "x": 140,
+    "y": 124,
+    "wires": [
+      [
+        "xsc_fn_002"
+      ]
+    ]
+  },
+  {
+    "id": "xsc_fn_002",
+    "type": "function",
+    "z": "xsphere_control_flow",
+    "name": "Interlocks",
+    "func": "\nvar p = msg.payload || {};\nmsg.payload = (p.ok ? \"OK\" : \"ALERT\") + (p.rules_active && p.rules_active.length ? \" \u2014 \" + p.rules_active.join(\", \") : \"\");\nreturn msg;",
+    "outputs": 1,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 540,
+    "y": 124,
+    "wires": [
+      [
+        "xsc_txt_003"
+      ]
+    ]
+  },
+  {
+    "id": "xsc_txt_003",
+    "type": "ui_text",
+    "z": "xsphere_control_flow",
+    "group": "xsc_g_sys",
+    "order": 1,
+    "width": "0",
+    "height": "0",
+    "name": "Interlocks",
+    "label": "Interlocks",
+    "format": "{{msg.payload}}",
+    "layout": "row-spread",
+    "className": "",
+    "x": 740,
+    "y": 124,
+    "wires": []
+  },
+  {
+    "id": "xsc_in_004",
+    "type": "mqtt in",
+    "z": "xsphere_control_flow",
+    "name": "xsphere/status/service/heartbeat",
+    "topic": "xsphere/status/service/heartbeat",
+    "qos": "1",
+    "datatype": "auto-detect",
+    "broker": "xsphere_mqtt_broker",
+    "x": 140,
+    "y": 188,
+    "wires": [
+      [
+        "xsc_fn_005"
+      ]
+    ]
+  },
+  {
+    "id": "xsc_fn_005",
+    "type": "function",
+    "z": "xsphere_control_flow",
+    "name": "Slow-control uptime",
+    "func": "\nvar s = (msg.payload && msg.payload.uptime_s) || 0;\nvar h = Math.floor(s/3600), m = Math.floor((s%3600)/60);\nmsg.payload = h + \"h \" + m + \"m  (alive)\";\nreturn msg;",
+    "outputs": 1,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 540,
+    "y": 188,
+    "wires": [
+      [
+        "xsc_txt_006"
+      ]
+    ]
+  },
+  {
+    "id": "xsc_txt_006",
+    "type": "ui_text",
+    "z": "xsphere_control_flow",
+    "group": "xsc_g_sys",
+    "order": 2,
+    "width": "0",
+    "height": "0",
+    "name": "Slow-control uptime",
+    "label": "Slow-control uptime",
+    "format": "{{msg.payload}}",
+    "layout": "row-spread",
+    "className": "",
+    "x": 740,
+    "y": 188,
+    "wires": []
+  },
+  {
+    "id": "xsc_in_007",
+    "type": "mqtt in",
+    "z": "xsphere_control_flow",
+    "name": "xsphere/status/labjack_t7",
+    "topic": "xsphere/status/labjack_t7",
+    "qos": "1",
+    "datatype": "auto-detect",
+    "broker": "xsphere_mqtt_broker",
+    "x": 140,
+    "y": 252,
+    "wires": [
+      [
+        "xsc_fn_008"
+      ]
+    ]
+  },
+  {
+    "id": "xsc_fn_008",
+    "type": "function",
+    "z": "xsphere_control_flow",
+    "name": "LabJack T7",
+    "func": "\nvar p = msg.payload || {};\nmsg.payload = p.connected ? (\"connected, serial \" + p.serial) : (\"DISCONNECTED\" + (p.error ? \" \u2014 \" + p.error : \"\"));\nreturn msg;",
+    "outputs": 1,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 540,
+    "y": 252,
+    "wires": [
+      [
+        "xsc_txt_009"
+      ]
+    ]
+  },
+  {
+    "id": "xsc_txt_009",
+    "type": "ui_text",
+    "z": "xsphere_control_flow",
+    "group": "xsc_g_sys",
+    "order": 3,
+    "width": "0",
+    "height": "0",
+    "name": "LabJack T7",
+    "label": "LabJack T7",
+    "format": "{{msg.payload}}",
+    "layout": "row-spread",
+    "className": "",
+    "x": 740,
+    "y": 252,
+    "wires": []
+  },
+  {
+    "id": "xsc_in_010",
+    "type": "mqtt in",
+    "z": "xsphere_control_flow",
+    "name": "xsphere/status/gradient",
+    "topic": "xsphere/status/gradient",
+    "qos": "1",
+    "datatype": "auto-detect",
+    "broker": "xsphere_mqtt_broker",
+    "x": 140,
+    "y": 316,
+    "wires": [
+      [
+        "xsc_fn_011"
+      ]
+    ]
+  },
+  {
+    "id": "xsc_fn_011",
+    "type": "function",
+    "z": "xsphere_control_flow",
+    "name": "Gradient mode / setpoints (K)",
+    "func": "\nvar p = msg.payload || {}, sp = p.setpoints_k || {};\nmsg.payload = (p.mode || \"?\") + \"  base=\" + (p.base_k) + \"  dv=\" + (p.delta_v_k) + \"  dl=\" + (p.delta_l_k) +\n  \"  | top=\" + sp.top + \" bot=\" + sp.bottom + \" noz=\" + sp.nozzle;\nreturn msg;",
+    "outputs": 1,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 540,
+    "y": 316,
+    "wires": [
+      [
+        "xsc_txt_012"
+      ]
+    ]
+  },
+  {
+    "id": "xsc_txt_012",
+    "type": "ui_text",
+    "z": "xsphere_control_flow",
+    "group": "xsc_g_sys",
+    "order": 4,
+    "width": "0",
+    "height": "0",
+    "name": "Gradient mode / setpoints (K)",
+    "label": "Gradient mode / setpoints (K)",
+    "format": "{{msg.payload}}",
+    "layout": "row-spread",
+    "className": "",
+    "x": 740,
+    "y": 316,
+    "wires": []
+  },
+  {
+    "id": "xsc_g_valve",
+    "type": "ui_group",
+    "name": "Valves (XV)",
+    "tab": "xsphere_ui_tab_control",
+    "order": 2,
+    "disp": true,
+    "width": "6",
+    "collapse": false
+  },
+  {
+    "id": "xsc_in_013",
+    "type": "mqtt in",
+    "z": "xsphere_control_flow",
+    "name": "xsphere/status/valve/cryostat",
+    "topic": "xsphere/status/valve/cryostat",
+    "qos": "1",
+    "datatype": "auto-detect",
+    "broker": "xsphere_mqtt_broker",
+    "x": 140,
+    "y": 380,
+    "wires": [
+      [
+        "xsc_fn_014"
+      ]
+    ]
+  },
+  {
+    "id": "xsc_fn_014",
+    "type": "function",
+    "z": "xsphere_control_flow",
+    "name": "cryostat state",
+    "func": "\nvar p = msg.payload || {};\nmsg.payload = \"XV3 cryostat: \" + (p.state ? \"OPEN\" : \"closed\") + \"  (desired \" + (p.desired?1:0) + \")  auto_open=\" + (p.auto_open?1:0) + \" auto_close=\" + (p.auto_close?1:0);\nreturn msg;",
+    "outputs": 1,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 540,
+    "y": 380,
+    "wires": [
+      [
+        "xsc_txt_015"
+      ]
+    ]
+  },
+  {
+    "id": "xsc_txt_015",
+    "type": "ui_text",
+    "z": "xsphere_control_flow",
+    "group": "xsc_g_valve",
+    "order": 1,
+    "width": "0",
+    "height": "0",
+    "name": "XV3 cryostat",
+    "label": "XV3 cryostat",
+    "format": "{{msg.payload}}",
+    "layout": "row-spread",
+    "className": "",
+    "x": 740,
+    "y": 380,
+    "wires": []
+  },
+  {
+    "id": "xsc_fn_016",
+    "type": "function",
+    "z": "xsphere_control_flow",
+    "name": "cryostat cmd",
+    "func": "\nvar t = msg.topic;\nif (t === \"open\") { msg.topic = \"xsphere/commands/valve/cryostat/state\"; msg.payload = {state: msg.payload ? 1 : 0}; }\nelse if (t === \"auto_open\") { msg.topic = \"xsphere/commands/valve/cryostat/auto_open\"; msg.payload = {enabled: !!msg.payload}; }\nelse if (t === \"auto_close\") { msg.topic = \"xsphere/commands/valve/cryostat/auto_close\"; msg.payload = {enabled: !!msg.payload}; }\nelse return null;\nreturn msg;",
+    "outputs": 1,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 540,
+    "y": 380,
+    "wires": [
+      [
+        "xsc_out_017"
+      ]
+    ]
+  },
+  {
+    "id": "xsc_out_017",
+    "type": "mqtt out",
+    "z": "xsphere_control_flow",
+    "name": "",
+    "topic": "",
+    "qos": "1",
+    "retain": "",
+    "broker": "xsphere_mqtt_broker",
+    "x": 940,
+    "y": 380,
+    "wires": []
+  },
+  {
+    "id": "xsc_sw_018",
+    "type": "ui_switch",
+    "z": "xsphere_control_flow",
+    "group": "xsc_g_valve",
+    "order": 2,
+    "width": "0",
+    "height": "0",
+    "label": "XV3 cryostat: OPEN",
+    "tooltip": "",
+    "style": "",
+    "className": "",
+    "passthru": true,
+    "decouple": "false",
+    "topic": "XV3 cryostat: OPEN",
+    "topicType": "str",
+    "style0": "",
+    "onvalue": "true",
+    "onvalueType": "bool",
+    "onicon": "",
+    "oncolor": "",
+    "offvalue": "false",
+    "offvalueType": "bool",
+    "officon": "",
+    "offcolor": "",
+    "animate": false,
+    "x": 140,
+    "y": 444,
+    "wires": [
+      [
+        "xsc_fn_021"
+      ]
+    ]
+  },
+  {
+    "id": "xsc_sw_019",
+    "type": "ui_switch",
+    "z": "xsphere_control_flow",
+    "group": "xsc_g_valve",
+    "order": 3,
+    "width": "0",
+    "height": "0",
+    "label": "XV3 cryostat: auto-open",
+    "tooltip": "",
+    "style": "",
+    "className": "",
+    "passthru": true,
+    "decouple": "false",
+    "topic": "XV3 cryostat: auto-open",
+    "topicType": "str",
+    "style0": "",
+    "onvalue": "true",
+    "onvalueType": "bool",
+    "onicon": "",
+    "oncolor": "",
+    "offvalue": "false",
+    "offvalueType": "bool",
+    "officon": "",
+    "offcolor": "",
+    "animate": false,
+    "x": 140,
+    "y": 508,
+    "wires": [
+      [
+        "xsc_fn_022"
+      ]
+    ]
+  },
+  {
+    "id": "xsc_sw_020",
+    "type": "ui_switch",
+    "z": "xsphere_control_flow",
+    "group": "xsc_g_valve",
+    "order": 4,
+    "width": "0",
+    "height": "0",
+    "label": "XV3 cryostat: auto-close",
+    "tooltip": "",
+    "style": "",
+    "className": "",
+    "passthru": true,
+    "decouple": "false",
+    "topic": "XV3 cryostat: auto-close",
+    "topicType": "str",
+    "style0": "",
+    "onvalue": "true",
+    "onvalueType": "bool",
+    "onicon": "",
+    "oncolor": "",
+    "offvalue": "false",
+    "offvalueType": "bool",
+    "officon": "",
+    "offcolor": "",
+    "animate": false,
+    "x": 140,
+    "y": 572,
+    "wires": [
+      [
+        "xsc_fn_023"
+      ]
+    ]
+  },
+  {
+    "id": "xsc_fn_021",
+    "type": "function",
+    "z": "xsphere_control_flow",
+    "name": "cryostat open",
+    "func": "msg.topic = \"open\"; return msg;",
+    "outputs": 1,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 540,
+    "y": 572,
+    "wires": [
+      [
+        "xsc_fn_016"
+      ]
+    ]
+  },
+  {
+    "id": "xsc_fn_022",
+    "type": "function",
+    "z": "xsphere_control_flow",
+    "name": "cryostat auto_open",
+    "func": "msg.topic = \"auto_open\"; return msg;",
+    "outputs": 1,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 540,
+    "y": 572,
+    "wires": [
+      [
+        "xsc_fn_016"
+      ]
+    ]
+  },
+  {
+    "id": "xsc_fn_023",
+    "type": "function",
+    "z": "xsphere_control_flow",
+    "name": "cryostat auto_close",
+    "func": "msg.topic = \"auto_close\"; return msg;",
+    "outputs": 1,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 540,
+    "y": 572,
+    "wires": [
+      [
+        "xsc_fn_016"
+      ]
+    ]
+  },
+  {
+    "id": "xsc_in_024",
+    "type": "mqtt in",
+    "z": "xsphere_control_flow",
+    "name": "xsphere/status/valve/primary_xe",
+    "topic": "xsphere/status/valve/primary_xe",
+    "qos": "1",
+    "datatype": "auto-detect",
+    "broker": "xsphere_mqtt_broker",
+    "x": 140,
+    "y": 636,
+    "wires": [
+      [
+        "xsc_fn_025"
+      ]
+    ]
+  },
+  {
+    "id": "xsc_fn_025",
+    "type": "function",
+    "z": "xsphere_control_flow",
+    "name": "primary_xe state",
+    "func": "\nvar p = msg.payload || {};\nmsg.payload = \"XV2 primary Xe: \" + (p.state ? \"OPEN\" : \"closed\") + \"  (desired \" + (p.desired?1:0) + \")  auto_open=\" + (p.auto_open?1:0) + \" auto_close=\" + (p.auto_close?1:0);\nreturn msg;",
+    "outputs": 1,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 540,
+    "y": 636,
+    "wires": [
+      [
+        "xsc_txt_026"
+      ]
+    ]
+  },
+  {
+    "id": "xsc_txt_026",
+    "type": "ui_text",
+    "z": "xsphere_control_flow",
+    "group": "xsc_g_valve",
+    "order": 5,
+    "width": "0",
+    "height": "0",
+    "name": "XV2 primary Xe",
+    "label": "XV2 primary Xe",
+    "format": "{{msg.payload}}",
+    "layout": "row-spread",
+    "className": "",
+    "x": 740,
+    "y": 636,
+    "wires": []
+  },
+  {
+    "id": "xsc_fn_027",
+    "type": "function",
+    "z": "xsphere_control_flow",
+    "name": "primary_xe cmd",
+    "func": "\nvar t = msg.topic;\nif (t === \"open\") { msg.topic = \"xsphere/commands/valve/primary_xe/state\"; msg.payload = {state: msg.payload ? 1 : 0}; }\nelse if (t === \"auto_open\") { msg.topic = \"xsphere/commands/valve/primary_xe/auto_open\"; msg.payload = {enabled: !!msg.payload}; }\nelse if (t === \"auto_close\") { msg.topic = \"xsphere/commands/valve/primary_xe/auto_close\"; msg.payload = {enabled: !!msg.payload}; }\nelse return null;\nreturn msg;",
+    "outputs": 1,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 540,
+    "y": 636,
+    "wires": [
+      [
+        "xsc_out_028"
+      ]
+    ]
+  },
+  {
+    "id": "xsc_out_028",
+    "type": "mqtt out",
+    "z": "xsphere_control_flow",
+    "name": "",
+    "topic": "",
+    "qos": "1",
+    "retain": "",
+    "broker": "xsphere_mqtt_broker",
+    "x": 940,
+    "y": 636,
+    "wires": []
+  },
+  {
+    "id": "xsc_sw_029",
+    "type": "ui_switch",
+    "z": "xsphere_control_flow",
+    "group": "xsc_g_valve",
+    "order": 6,
+    "width": "0",
+    "height": "0",
+    "label": "XV2 primary Xe: OPEN",
+    "tooltip": "",
+    "style": "",
+    "className": "",
+    "passthru": true,
+    "decouple": "false",
+    "topic": "XV2 primary Xe: OPEN",
+    "topicType": "str",
+    "style0": "",
+    "onvalue": "true",
+    "onvalueType": "bool",
+    "onicon": "",
+    "oncolor": "",
+    "offvalue": "false",
+    "offvalueType": "bool",
+    "officon": "",
+    "offcolor": "",
+    "animate": false,
+    "x": 140,
+    "y": 700,
+    "wires": [
+      [
+        "xsc_fn_032"
+      ]
+    ]
+  },
+  {
+    "id": "xsc_sw_030",
+    "type": "ui_switch",
+    "z": "xsphere_control_flow",
+    "group": "xsc_g_valve",
+    "order": 7,
+    "width": "0",
+    "height": "0",
+    "label": "XV2 primary Xe: auto-open",
+    "tooltip": "",
+    "style": "",
+    "className": "",
+    "passthru": true,
+    "decouple": "false",
+    "topic": "XV2 primary Xe: auto-open",
+    "topicType": "str",
+    "style0": "",
+    "onvalue": "true",
+    "onvalueType": "bool",
+    "onicon": "",
+    "oncolor": "",
+    "offvalue": "false",
+    "offvalueType": "bool",
+    "officon": "",
+    "offcolor": "",
+    "animate": false,
+    "x": 140,
+    "y": 764,
+    "wires": [
+      [
+        "xsc_fn_033"
+      ]
+    ]
+  },
+  {
+    "id": "xsc_sw_031",
+    "type": "ui_switch",
+    "z": "xsphere_control_flow",
+    "group": "xsc_g_valve",
+    "order": 8,
+    "width": "0",
+    "height": "0",
+    "label": "XV2 primary Xe: auto-close",
+    "tooltip": "",
+    "style": "",
+    "className": "",
+    "passthru": true,
+    "decouple": "false",
+    "topic": "XV2 primary Xe: auto-close",
+    "topicType": "str",
+    "style0": "",
+    "onvalue": "true",
+    "onvalueType": "bool",
+    "onicon": "",
+    "oncolor": "",
+    "offvalue": "false",
+    "offvalueType": "bool",
+    "officon": "",
+    "offcolor": "",
+    "animate": false,
+    "x": 140,
+    "y": 828,
+    "wires": [
+      [
+        "xsc_fn_034"
+      ]
+    ]
+  },
+  {
+    "id": "xsc_fn_032",
+    "type": "function",
+    "z": "xsphere_control_flow",
+    "name": "primary_xe open",
+    "func": "msg.topic = \"open\"; return msg;",
+    "outputs": 1,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 540,
+    "y": 828,
+    "wires": [
+      [
+        "xsc_fn_027"
+      ]
+    ]
+  },
+  {
+    "id": "xsc_fn_033",
+    "type": "function",
+    "z": "xsphere_control_flow",
+    "name": "primary_xe auto_open",
+    "func": "msg.topic = \"auto_open\"; return msg;",
+    "outputs": 1,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 540,
+    "y": 828,
+    "wires": [
+      [
+        "xsc_fn_027"
+      ]
+    ]
+  },
+  {
+    "id": "xsc_fn_034",
+    "type": "function",
+    "z": "xsphere_control_flow",
+    "name": "primary_xe auto_close",
+    "func": "msg.topic = \"auto_close\"; return msg;",
+    "outputs": 1,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 540,
+    "y": 828,
+    "wires": [
+      [
+        "xsc_fn_027"
+      ]
+    ]
+  },
+  {
+    "id": "xsc_in_035",
+    "type": "mqtt in",
+    "z": "xsphere_control_flow",
+    "name": "xsphere/status/valve/ballast",
+    "topic": "xsphere/status/valve/ballast",
+    "qos": "1",
+    "datatype": "auto-detect",
+    "broker": "xsphere_mqtt_broker",
+    "x": 140,
+    "y": 892,
+    "wires": [
+      [
+        "xsc_fn_036"
+      ]
+    ]
+  },
+  {
+    "id": "xsc_fn_036",
+    "type": "function",
+    "z": "xsphere_control_flow",
+    "name": "ballast state",
+    "func": "\nvar p = msg.payload || {};\nmsg.payload = \"XV1 ballast: \" + (p.state ? \"OPEN\" : \"closed\") + \"  (desired \" + (p.desired?1:0) + \")  auto_open=\" + (p.auto_open?1:0) + \" auto_close=\" + (p.auto_close?1:0);\nreturn msg;",
+    "outputs": 1,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 540,
+    "y": 892,
+    "wires": [
+      [
+        "xsc_txt_037"
+      ]
+    ]
+  },
+  {
+    "id": "xsc_txt_037",
+    "type": "ui_text",
+    "z": "xsphere_control_flow",
+    "group": "xsc_g_valve",
+    "order": 9,
+    "width": "0",
+    "height": "0",
+    "name": "XV1 ballast",
+    "label": "XV1 ballast",
+    "format": "{{msg.payload}}",
+    "layout": "row-spread",
+    "className": "",
+    "x": 740,
+    "y": 892,
+    "wires": []
+  },
+  {
+    "id": "xsc_fn_038",
+    "type": "function",
+    "z": "xsphere_control_flow",
+    "name": "ballast cmd",
+    "func": "\nvar t = msg.topic;\nif (t === \"open\") { msg.topic = \"xsphere/commands/valve/ballast/state\"; msg.payload = {state: msg.payload ? 1 : 0}; }\nelse if (t === \"auto_open\") { msg.topic = \"xsphere/commands/valve/ballast/auto_open\"; msg.payload = {enabled: !!msg.payload}; }\nelse if (t === \"auto_close\") { msg.topic = \"xsphere/commands/valve/ballast/auto_close\"; msg.payload = {enabled: !!msg.payload}; }\nelse return null;\nreturn msg;",
+    "outputs": 1,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 540,
+    "y": 892,
+    "wires": [
+      [
+        "xsc_out_039"
+      ]
+    ]
+  },
+  {
+    "id": "xsc_out_039",
+    "type": "mqtt out",
+    "z": "xsphere_control_flow",
+    "name": "",
+    "topic": "",
+    "qos": "1",
+    "retain": "",
+    "broker": "xsphere_mqtt_broker",
+    "x": 940,
+    "y": 892,
+    "wires": []
+  },
+  {
+    "id": "xsc_sw_040",
+    "type": "ui_switch",
+    "z": "xsphere_control_flow",
+    "group": "xsc_g_valve",
+    "order": 10,
+    "width": "0",
+    "height": "0",
+    "label": "XV1 ballast: OPEN",
+    "tooltip": "",
+    "style": "",
+    "className": "",
+    "passthru": true,
+    "decouple": "false",
+    "topic": "XV1 ballast: OPEN",
+    "topicType": "str",
+    "style0": "",
+    "onvalue": "true",
+    "onvalueType": "bool",
+    "onicon": "",
+    "oncolor": "",
+    "offvalue": "false",
+    "offvalueType": "bool",
+    "officon": "",
+    "offcolor": "",
+    "animate": false,
+    "x": 140,
+    "y": 956,
+    "wires": [
+      [
+        "xsc_fn_043"
+      ]
+    ]
+  },
+  {
+    "id": "xsc_sw_041",
+    "type": "ui_switch",
+    "z": "xsphere_control_flow",
+    "group": "xsc_g_valve",
+    "order": 11,
+    "width": "0",
+    "height": "0",
+    "label": "XV1 ballast: auto-open",
+    "tooltip": "",
+    "style": "",
+    "className": "",
+    "passthru": true,
+    "decouple": "false",
+    "topic": "XV1 ballast: auto-open",
+    "topicType": "str",
+    "style0": "",
+    "onvalue": "true",
+    "onvalueType": "bool",
+    "onicon": "",
+    "oncolor": "",
+    "offvalue": "false",
+    "offvalueType": "bool",
+    "officon": "",
+    "offcolor": "",
+    "animate": false,
+    "x": 140,
+    "y": 1020,
+    "wires": [
+      [
+        "xsc_fn_044"
+      ]
+    ]
+  },
+  {
+    "id": "xsc_sw_042",
+    "type": "ui_switch",
+    "z": "xsphere_control_flow",
+    "group": "xsc_g_valve",
+    "order": 12,
+    "width": "0",
+    "height": "0",
+    "label": "XV1 ballast: auto-close",
+    "tooltip": "",
+    "style": "",
+    "className": "",
+    "passthru": true,
+    "decouple": "false",
+    "topic": "XV1 ballast: auto-close",
+    "topicType": "str",
+    "style0": "",
+    "onvalue": "true",
+    "onvalueType": "bool",
+    "onicon": "",
+    "oncolor": "",
+    "offvalue": "false",
+    "offvalueType": "bool",
+    "officon": "",
+    "offcolor": "",
+    "animate": false,
+    "x": 140,
+    "y": 1084,
+    "wires": [
+      [
+        "xsc_fn_045"
+      ]
+    ]
+  },
+  {
+    "id": "xsc_fn_043",
+    "type": "function",
+    "z": "xsphere_control_flow",
+    "name": "ballast open",
+    "func": "msg.topic = \"open\"; return msg;",
+    "outputs": 1,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 540,
+    "y": 1084,
+    "wires": [
+      [
+        "xsc_fn_038"
+      ]
+    ]
+  },
+  {
+    "id": "xsc_fn_044",
+    "type": "function",
+    "z": "xsphere_control_flow",
+    "name": "ballast auto_open",
+    "func": "msg.topic = \"auto_open\"; return msg;",
+    "outputs": 1,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 540,
+    "y": 1084,
+    "wires": [
+      [
+        "xsc_fn_038"
+      ]
+    ]
+  },
+  {
+    "id": "xsc_fn_045",
+    "type": "function",
+    "z": "xsphere_control_flow",
+    "name": "ballast auto_close",
+    "func": "msg.topic = \"auto_close\"; return msg;",
+    "outputs": 1,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 540,
+    "y": 1084,
+    "wires": [
+      [
+        "xsc_fn_038"
+      ]
+    ]
+  },
+  {
+    "id": "xsc_g_pid_top",
+    "type": "ui_group",
+    "name": "Heater \u2014 top",
+    "tab": "xsphere_ui_tab_control",
+    "order": 3,
+    "disp": true,
+    "width": "6",
+    "collapse": false
+  },
+  {
+    "id": "xsc_in_046",
+    "type": "mqtt in",
+    "z": "xsphere_control_flow",
+    "name": "xsphere/status/pid/top",
+    "topic": "xsphere/status/pid/top",
+    "qos": "1",
+    "datatype": "auto-detect",
+    "broker": "xsphere_mqtt_broker",
+    "x": 140,
+    "y": 1148,
+    "wires": [
+      [
+        "xsc_fn_047"
+      ]
+    ]
+  },
+  {
+    "id": "xsc_fn_047",
+    "type": "function",
+    "z": "xsphere_control_flow",
+    "name": "top pid readout",
+    "func": "\nvar p = msg.payload || {};\nmsg.payload = \"SP \" + p.setpoint_k + \" K (\" + p.setpoint_c + \" \u00b0C)  |  PV \" + p.pv_k + \" K  |  out \" + p.output_pct + \" %  |  Kp/Ki/Kd \" + p.kp + \"/\" + p.ki + \"/\" + p.kd;\nreturn msg;",
+    "outputs": 1,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 540,
+    "y": 1148,
+    "wires": [
+      [
+        "xsc_txt_048"
+      ]
+    ]
+  },
+  {
+    "id": "xsc_txt_048",
+    "type": "ui_text",
+    "z": "xsphere_control_flow",
+    "group": "xsc_g_pid_top",
+    "order": 1,
+    "width": "0",
+    "height": "0",
+    "name": "readout",
+    "label": "readout",
+    "format": "{{msg.payload}}",
+    "layout": "row-spread",
+    "className": "",
+    "x": 740,
+    "y": 1148,
+    "wires": []
+  },
+  {
+    "id": "xsc_num_049",
+    "type": "ui_numeric",
+    "z": "xsphere_control_flow",
+    "group": "xsc_g_pid_top",
+    "order": 2,
+    "width": "0",
+    "height": "0",
+    "name": "top setpoint (K)",
+    "label": "top setpoint (K)",
+    "tooltip": "",
+    "className": "",
+    "format": "{{value}}",
+    "min": "",
+    "max": "",
+    "step": 1,
+    "passthru": false,
+    "topic": "top setpoint (K)",
+    "topicType": "str",
+    "x": 140,
+    "y": 1212,
+    "wires": [
+      [
+        "xsc_fn_052"
+      ]
+    ]
+  },
+  {
+    "id": "xsc_btn_050",
+    "type": "ui_button",
+    "z": "xsphere_control_flow",
+    "group": "xsc_g_pid_top",
+    "order": 3,
+    "width": "0",
+    "height": "0",
+    "name": "Set top setpoint",
+    "label": "Set top setpoint",
+    "tooltip": "",
+    "color": "",
+    "bgcolor": "",
+    "className": "",
+    "icon": "",
+    "payload": "set",
+    "payloadType": "str",
+    "topic": "",
+    "topicType": "str",
+    "x": 140,
+    "y": 1276,
+    "wires": [
+      [
+        "xsc_fn_051"
+      ]
+    ]
+  },
+  {
+    "id": "xsc_fn_051",
+    "type": "function",
+    "z": "xsphere_control_flow",
+    "name": "top setpoint cmd",
+    "func": "\nvar v = global.get(\"xsc_sp_top\");\nif (v === undefined || v === null) return null;\nreturn { topic: \"xsphere/commands/pid/top/setpoint\", payload: { value_k: Number(v) } };",
+    "outputs": 1,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 540,
+    "y": 1276,
+    "wires": [
+      [
+        "xsc_out_053"
+      ]
+    ]
+  },
+  {
+    "id": "xsc_fn_052",
+    "type": "function",
+    "z": "xsphere_control_flow",
+    "name": "store top sp",
+    "func": "global.set(\"xsc_sp_top\", Number(msg.payload)); return null;",
+    "outputs": 1,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 540,
+    "y": 1276,
+    "wires": [
+      []
+    ]
+  },
+  {
+    "id": "xsc_out_053",
+    "type": "mqtt out",
+    "z": "xsphere_control_flow",
+    "name": "",
+    "topic": "",
+    "qos": "1",
+    "retain": "",
+    "broker": "xsphere_mqtt_broker",
+    "x": 940,
+    "y": 1276,
+    "wires": []
+  },
+  {
+    "id": "xsc_num_054",
+    "type": "ui_numeric",
+    "z": "xsphere_control_flow",
+    "group": "xsc_g_pid_top",
+    "order": 4,
+    "width": "0",
+    "height": "0",
+    "name": "top Kp",
+    "label": "top Kp",
+    "tooltip": "",
+    "className": "",
+    "format": "{{value}}",
+    "min": "",
+    "max": "",
+    "step": 1,
+    "passthru": false,
+    "topic": "top Kp",
+    "topicType": "str",
+    "x": 140,
+    "y": 1340,
+    "wires": [
+      [
+        "xsc_fn_057"
+      ]
+    ]
+  },
+  {
+    "id": "xsc_num_055",
+    "type": "ui_numeric",
+    "z": "xsphere_control_flow",
+    "group": "xsc_g_pid_top",
+    "order": 5,
+    "width": "0",
+    "height": "0",
+    "name": "top Ki",
+    "label": "top Ki",
+    "tooltip": "",
+    "className": "",
+    "format": "{{value}}",
+    "min": "",
+    "max": "",
+    "step": 1,
+    "passthru": false,
+    "topic": "top Ki",
+    "topicType": "str",
+    "x": 140,
+    "y": 1404,
+    "wires": [
+      [
+        "xsc_fn_057"
+      ]
+    ]
+  },
+  {
+    "id": "xsc_num_056",
+    "type": "ui_numeric",
+    "z": "xsphere_control_flow",
+    "group": "xsc_g_pid_top",
+    "order": 6,
+    "width": "0",
+    "height": "0",
+    "name": "top Kd",
+    "label": "top Kd",
+    "tooltip": "",
+    "className": "",
+    "format": "{{value}}",
+    "min": "",
+    "max": "",
+    "step": 1,
+    "passthru": false,
+    "topic": "top Kd",
+    "topicType": "str",
+    "x": 140,
+    "y": 1468,
+    "wires": [
+      [
+        "xsc_fn_057"
+      ]
+    ]
+  },
+  {
+    "id": "xsc_fn_057",
+    "type": "function",
+    "z": "xsphere_control_flow",
+    "name": "store top gains",
+    "func": "\nvar g = global.get(\"xsc_gains_top\") || {};\nif (msg.topic && msg.topic.indexOf(\"Kp\")>=0) g.kp = Number(msg.payload);\nif (msg.topic && msg.topic.indexOf(\"Ki\")>=0) g.ki = Number(msg.payload);\nif (msg.topic && msg.topic.indexOf(\"Kd\")>=0) g.kd = Number(msg.payload);\nglobal.set(\"xsc_gains_top\", g); return null;",
+    "outputs": 1,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 540,
+    "y": 1468,
+    "wires": [
+      []
+    ]
+  },
+  {
+    "id": "xsc_btn_058",
+    "type": "ui_button",
+    "z": "xsphere_control_flow",
+    "group": "xsc_g_pid_top",
+    "order": 7,
+    "width": "0",
+    "height": "0",
+    "name": "Set top gains",
+    "label": "Set top gains",
+    "tooltip": "",
+    "color": "",
+    "bgcolor": "",
+    "className": "",
+    "icon": "",
+    "payload": "set",
+    "payloadType": "str",
+    "topic": "",
+    "topicType": "str",
+    "x": 140,
+    "y": 1532,
+    "wires": [
+      [
+        "xsc_fn_059"
+      ]
+    ]
+  },
+  {
+    "id": "xsc_fn_059",
+    "type": "function",
+    "z": "xsphere_control_flow",
+    "name": "top gains cmd",
+    "func": "\nvar g = global.get(\"xsc_gains_top\") || {};\nreturn { topic: \"xsphere/commands/pid/top/gains\", payload: g };",
+    "outputs": 1,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 540,
+    "y": 1532,
+    "wires": [
+      [
+        "xsc_out_060"
+      ]
+    ]
+  },
+  {
+    "id": "xsc_out_060",
+    "type": "mqtt out",
+    "z": "xsphere_control_flow",
+    "name": "",
+    "topic": "",
+    "qos": "1",
+    "retain": "",
+    "broker": "xsphere_mqtt_broker",
+    "x": 940,
+    "y": 1532,
+    "wires": []
+  },
+  {
+    "id": "xsc_g_pid_bottom",
+    "type": "ui_group",
+    "name": "Heater \u2014 bottom",
+    "tab": "xsphere_ui_tab_control",
+    "order": 4,
+    "disp": true,
+    "width": "6",
+    "collapse": false
+  },
+  {
+    "id": "xsc_in_061",
+    "type": "mqtt in",
+    "z": "xsphere_control_flow",
+    "name": "xsphere/status/pid/bottom",
+    "topic": "xsphere/status/pid/bottom",
+    "qos": "1",
+    "datatype": "auto-detect",
+    "broker": "xsphere_mqtt_broker",
+    "x": 140,
+    "y": 1596,
+    "wires": [
+      [
+        "xsc_fn_062"
+      ]
+    ]
+  },
+  {
+    "id": "xsc_fn_062",
+    "type": "function",
+    "z": "xsphere_control_flow",
+    "name": "bottom pid readout",
+    "func": "\nvar p = msg.payload || {};\nmsg.payload = \"SP \" + p.setpoint_k + \" K (\" + p.setpoint_c + \" \u00b0C)  |  PV \" + p.pv_k + \" K  |  out \" + p.output_pct + \" %  |  Kp/Ki/Kd \" + p.kp + \"/\" + p.ki + \"/\" + p.kd;\nreturn msg;",
+    "outputs": 1,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 540,
+    "y": 1596,
+    "wires": [
+      [
+        "xsc_txt_063"
+      ]
+    ]
+  },
+  {
+    "id": "xsc_txt_063",
+    "type": "ui_text",
+    "z": "xsphere_control_flow",
+    "group": "xsc_g_pid_bottom",
+    "order": 1,
+    "width": "0",
+    "height": "0",
+    "name": "readout",
+    "label": "readout",
+    "format": "{{msg.payload}}",
+    "layout": "row-spread",
+    "className": "",
+    "x": 740,
+    "y": 1596,
+    "wires": []
+  },
+  {
+    "id": "xsc_num_064",
+    "type": "ui_numeric",
+    "z": "xsphere_control_flow",
+    "group": "xsc_g_pid_bottom",
+    "order": 2,
+    "width": "0",
+    "height": "0",
+    "name": "bottom setpoint (K)",
+    "label": "bottom setpoint (K)",
+    "tooltip": "",
+    "className": "",
+    "format": "{{value}}",
+    "min": "",
+    "max": "",
+    "step": 1,
+    "passthru": false,
+    "topic": "bottom setpoint (K)",
+    "topicType": "str",
+    "x": 140,
+    "y": 1660,
+    "wires": [
+      [
+        "xsc_fn_067"
+      ]
+    ]
+  },
+  {
+    "id": "xsc_btn_065",
+    "type": "ui_button",
+    "z": "xsphere_control_flow",
+    "group": "xsc_g_pid_bottom",
+    "order": 3,
+    "width": "0",
+    "height": "0",
+    "name": "Set bottom setpoint",
+    "label": "Set bottom setpoint",
+    "tooltip": "",
+    "color": "",
+    "bgcolor": "",
+    "className": "",
+    "icon": "",
+    "payload": "set",
+    "payloadType": "str",
+    "topic": "",
+    "topicType": "str",
+    "x": 140,
+    "y": 1724,
+    "wires": [
+      [
+        "xsc_fn_066"
+      ]
+    ]
+  },
+  {
+    "id": "xsc_fn_066",
+    "type": "function",
+    "z": "xsphere_control_flow",
+    "name": "bottom setpoint cmd",
+    "func": "\nvar v = global.get(\"xsc_sp_bottom\");\nif (v === undefined || v === null) return null;\nreturn { topic: \"xsphere/commands/pid/bottom/setpoint\", payload: { value_k: Number(v) } };",
+    "outputs": 1,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 540,
+    "y": 1724,
+    "wires": [
+      [
+        "xsc_out_068"
+      ]
+    ]
+  },
+  {
+    "id": "xsc_fn_067",
+    "type": "function",
+    "z": "xsphere_control_flow",
+    "name": "store bottom sp",
+    "func": "global.set(\"xsc_sp_bottom\", Number(msg.payload)); return null;",
+    "outputs": 1,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 540,
+    "y": 1724,
+    "wires": [
+      []
+    ]
+  },
+  {
+    "id": "xsc_out_068",
+    "type": "mqtt out",
+    "z": "xsphere_control_flow",
+    "name": "",
+    "topic": "",
+    "qos": "1",
+    "retain": "",
+    "broker": "xsphere_mqtt_broker",
+    "x": 940,
+    "y": 1724,
+    "wires": []
+  },
+  {
+    "id": "xsc_num_069",
+    "type": "ui_numeric",
+    "z": "xsphere_control_flow",
+    "group": "xsc_g_pid_bottom",
+    "order": 4,
+    "width": "0",
+    "height": "0",
+    "name": "bottom Kp",
+    "label": "bottom Kp",
+    "tooltip": "",
+    "className": "",
+    "format": "{{value}}",
+    "min": "",
+    "max": "",
+    "step": 1,
+    "passthru": false,
+    "topic": "bottom Kp",
+    "topicType": "str",
+    "x": 140,
+    "y": 1788,
+    "wires": [
+      [
+        "xsc_fn_072"
+      ]
+    ]
+  },
+  {
+    "id": "xsc_num_070",
+    "type": "ui_numeric",
+    "z": "xsphere_control_flow",
+    "group": "xsc_g_pid_bottom",
+    "order": 5,
+    "width": "0",
+    "height": "0",
+    "name": "bottom Ki",
+    "label": "bottom Ki",
+    "tooltip": "",
+    "className": "",
+    "format": "{{value}}",
+    "min": "",
+    "max": "",
+    "step": 1,
+    "passthru": false,
+    "topic": "bottom Ki",
+    "topicType": "str",
+    "x": 140,
+    "y": 1852,
+    "wires": [
+      [
+        "xsc_fn_072"
+      ]
+    ]
+  },
+  {
+    "id": "xsc_num_071",
+    "type": "ui_numeric",
+    "z": "xsphere_control_flow",
+    "group": "xsc_g_pid_bottom",
+    "order": 6,
+    "width": "0",
+    "height": "0",
+    "name": "bottom Kd",
+    "label": "bottom Kd",
+    "tooltip": "",
+    "className": "",
+    "format": "{{value}}",
+    "min": "",
+    "max": "",
+    "step": 1,
+    "passthru": false,
+    "topic": "bottom Kd",
+    "topicType": "str",
+    "x": 140,
+    "y": 1916,
+    "wires": [
+      [
+        "xsc_fn_072"
+      ]
+    ]
+  },
+  {
+    "id": "xsc_fn_072",
+    "type": "function",
+    "z": "xsphere_control_flow",
+    "name": "store bottom gains",
+    "func": "\nvar g = global.get(\"xsc_gains_bottom\") || {};\nif (msg.topic && msg.topic.indexOf(\"Kp\")>=0) g.kp = Number(msg.payload);\nif (msg.topic && msg.topic.indexOf(\"Ki\")>=0) g.ki = Number(msg.payload);\nif (msg.topic && msg.topic.indexOf(\"Kd\")>=0) g.kd = Number(msg.payload);\nglobal.set(\"xsc_gains_bottom\", g); return null;",
+    "outputs": 1,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 540,
+    "y": 1916,
+    "wires": [
+      []
+    ]
+  },
+  {
+    "id": "xsc_btn_073",
+    "type": "ui_button",
+    "z": "xsphere_control_flow",
+    "group": "xsc_g_pid_bottom",
+    "order": 7,
+    "width": "0",
+    "height": "0",
+    "name": "Set bottom gains",
+    "label": "Set bottom gains",
+    "tooltip": "",
+    "color": "",
+    "bgcolor": "",
+    "className": "",
+    "icon": "",
+    "payload": "set",
+    "payloadType": "str",
+    "topic": "",
+    "topicType": "str",
+    "x": 140,
+    "y": 1980,
+    "wires": [
+      [
+        "xsc_fn_074"
+      ]
+    ]
+  },
+  {
+    "id": "xsc_fn_074",
+    "type": "function",
+    "z": "xsphere_control_flow",
+    "name": "bottom gains cmd",
+    "func": "\nvar g = global.get(\"xsc_gains_bottom\") || {};\nreturn { topic: \"xsphere/commands/pid/bottom/gains\", payload: g };",
+    "outputs": 1,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 540,
+    "y": 1980,
+    "wires": [
+      [
+        "xsc_out_075"
+      ]
+    ]
+  },
+  {
+    "id": "xsc_out_075",
+    "type": "mqtt out",
+    "z": "xsphere_control_flow",
+    "name": "",
+    "topic": "",
+    "qos": "1",
+    "retain": "",
+    "broker": "xsphere_mqtt_broker",
+    "x": 940,
+    "y": 1980,
+    "wires": []
+  },
+  {
+    "id": "xsc_g_pid_nozzle",
+    "type": "ui_group",
+    "name": "Heater \u2014 nozzle",
+    "tab": "xsphere_ui_tab_control",
+    "order": 5,
+    "disp": true,
+    "width": "6",
+    "collapse": false
+  },
+  {
+    "id": "xsc_in_076",
+    "type": "mqtt in",
+    "z": "xsphere_control_flow",
+    "name": "xsphere/status/pid/nozzle",
+    "topic": "xsphere/status/pid/nozzle",
+    "qos": "1",
+    "datatype": "auto-detect",
+    "broker": "xsphere_mqtt_broker",
+    "x": 140,
+    "y": 2044,
+    "wires": [
+      [
+        "xsc_fn_077"
+      ]
+    ]
+  },
+  {
+    "id": "xsc_fn_077",
+    "type": "function",
+    "z": "xsphere_control_flow",
+    "name": "nozzle pid readout",
+    "func": "\nvar p = msg.payload || {};\nmsg.payload = \"SP \" + p.setpoint_k + \" K (\" + p.setpoint_c + \" \u00b0C)  |  PV \" + p.pv_k + \" K  |  out \" + p.output_pct + \" %  |  Kp/Ki/Kd \" + p.kp + \"/\" + p.ki + \"/\" + p.kd;\nreturn msg;",
+    "outputs": 1,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 540,
+    "y": 2044,
+    "wires": [
+      [
+        "xsc_txt_078"
+      ]
+    ]
+  },
+  {
+    "id": "xsc_txt_078",
+    "type": "ui_text",
+    "z": "xsphere_control_flow",
+    "group": "xsc_g_pid_nozzle",
+    "order": 1,
+    "width": "0",
+    "height": "0",
+    "name": "readout",
+    "label": "readout",
+    "format": "{{msg.payload}}",
+    "layout": "row-spread",
+    "className": "",
+    "x": 740,
+    "y": 2044,
+    "wires": []
+  },
+  {
+    "id": "xsc_num_079",
+    "type": "ui_numeric",
+    "z": "xsphere_control_flow",
+    "group": "xsc_g_pid_nozzle",
+    "order": 2,
+    "width": "0",
+    "height": "0",
+    "name": "nozzle setpoint (K)",
+    "label": "nozzle setpoint (K)",
+    "tooltip": "",
+    "className": "",
+    "format": "{{value}}",
+    "min": "",
+    "max": "",
+    "step": 1,
+    "passthru": false,
+    "topic": "nozzle setpoint (K)",
+    "topicType": "str",
+    "x": 140,
+    "y": 2108,
+    "wires": [
+      [
+        "xsc_fn_082"
+      ]
+    ]
+  },
+  {
+    "id": "xsc_btn_080",
+    "type": "ui_button",
+    "z": "xsphere_control_flow",
+    "group": "xsc_g_pid_nozzle",
+    "order": 3,
+    "width": "0",
+    "height": "0",
+    "name": "Set nozzle setpoint",
+    "label": "Set nozzle setpoint",
+    "tooltip": "",
+    "color": "",
+    "bgcolor": "",
+    "className": "",
+    "icon": "",
+    "payload": "set",
+    "payloadType": "str",
+    "topic": "",
+    "topicType": "str",
+    "x": 140,
+    "y": 2172,
+    "wires": [
+      [
+        "xsc_fn_081"
+      ]
+    ]
+  },
+  {
+    "id": "xsc_fn_081",
+    "type": "function",
+    "z": "xsphere_control_flow",
+    "name": "nozzle setpoint cmd",
+    "func": "\nvar v = global.get(\"xsc_sp_nozzle\");\nif (v === undefined || v === null) return null;\nreturn { topic: \"xsphere/commands/pid/nozzle/setpoint\", payload: { value_k: Number(v) } };",
+    "outputs": 1,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 540,
+    "y": 2172,
+    "wires": [
+      [
+        "xsc_out_083"
+      ]
+    ]
+  },
+  {
+    "id": "xsc_fn_082",
+    "type": "function",
+    "z": "xsphere_control_flow",
+    "name": "store nozzle sp",
+    "func": "global.set(\"xsc_sp_nozzle\", Number(msg.payload)); return null;",
+    "outputs": 1,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 540,
+    "y": 2172,
+    "wires": [
+      []
+    ]
+  },
+  {
+    "id": "xsc_out_083",
+    "type": "mqtt out",
+    "z": "xsphere_control_flow",
+    "name": "",
+    "topic": "",
+    "qos": "1",
+    "retain": "",
+    "broker": "xsphere_mqtt_broker",
+    "x": 940,
+    "y": 2172,
+    "wires": []
+  },
+  {
+    "id": "xsc_num_084",
+    "type": "ui_numeric",
+    "z": "xsphere_control_flow",
+    "group": "xsc_g_pid_nozzle",
+    "order": 4,
+    "width": "0",
+    "height": "0",
+    "name": "nozzle Kp",
+    "label": "nozzle Kp",
+    "tooltip": "",
+    "className": "",
+    "format": "{{value}}",
+    "min": "",
+    "max": "",
+    "step": 1,
+    "passthru": false,
+    "topic": "nozzle Kp",
+    "topicType": "str",
+    "x": 140,
+    "y": 2236,
+    "wires": [
+      [
+        "xsc_fn_087"
+      ]
+    ]
+  },
+  {
+    "id": "xsc_num_085",
+    "type": "ui_numeric",
+    "z": "xsphere_control_flow",
+    "group": "xsc_g_pid_nozzle",
+    "order": 5,
+    "width": "0",
+    "height": "0",
+    "name": "nozzle Ki",
+    "label": "nozzle Ki",
+    "tooltip": "",
+    "className": "",
+    "format": "{{value}}",
+    "min": "",
+    "max": "",
+    "step": 1,
+    "passthru": false,
+    "topic": "nozzle Ki",
+    "topicType": "str",
+    "x": 140,
+    "y": 2300,
+    "wires": [
+      [
+        "xsc_fn_087"
+      ]
+    ]
+  },
+  {
+    "id": "xsc_num_086",
+    "type": "ui_numeric",
+    "z": "xsphere_control_flow",
+    "group": "xsc_g_pid_nozzle",
+    "order": 6,
+    "width": "0",
+    "height": "0",
+    "name": "nozzle Kd",
+    "label": "nozzle Kd",
+    "tooltip": "",
+    "className": "",
+    "format": "{{value}}",
+    "min": "",
+    "max": "",
+    "step": 1,
+    "passthru": false,
+    "topic": "nozzle Kd",
+    "topicType": "str",
+    "x": 140,
+    "y": 2364,
+    "wires": [
+      [
+        "xsc_fn_087"
+      ]
+    ]
+  },
+  {
+    "id": "xsc_fn_087",
+    "type": "function",
+    "z": "xsphere_control_flow",
+    "name": "store nozzle gains",
+    "func": "\nvar g = global.get(\"xsc_gains_nozzle\") || {};\nif (msg.topic && msg.topic.indexOf(\"Kp\")>=0) g.kp = Number(msg.payload);\nif (msg.topic && msg.topic.indexOf(\"Ki\")>=0) g.ki = Number(msg.payload);\nif (msg.topic && msg.topic.indexOf(\"Kd\")>=0) g.kd = Number(msg.payload);\nglobal.set(\"xsc_gains_nozzle\", g); return null;",
+    "outputs": 1,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 540,
+    "y": 2364,
+    "wires": [
+      []
+    ]
+  },
+  {
+    "id": "xsc_btn_088",
+    "type": "ui_button",
+    "z": "xsphere_control_flow",
+    "group": "xsc_g_pid_nozzle",
+    "order": 7,
+    "width": "0",
+    "height": "0",
+    "name": "Set nozzle gains",
+    "label": "Set nozzle gains",
+    "tooltip": "",
+    "color": "",
+    "bgcolor": "",
+    "className": "",
+    "icon": "",
+    "payload": "set",
+    "payloadType": "str",
+    "topic": "",
+    "topicType": "str",
+    "x": 140,
+    "y": 2428,
+    "wires": [
+      [
+        "xsc_fn_089"
+      ]
+    ]
+  },
+  {
+    "id": "xsc_fn_089",
+    "type": "function",
+    "z": "xsphere_control_flow",
+    "name": "nozzle gains cmd",
+    "func": "\nvar g = global.get(\"xsc_gains_nozzle\") || {};\nreturn { topic: \"xsphere/commands/pid/nozzle/gains\", payload: g };",
+    "outputs": 1,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 540,
+    "y": 2428,
+    "wires": [
+      [
+        "xsc_out_090"
+      ]
+    ]
+  },
+  {
+    "id": "xsc_out_090",
+    "type": "mqtt out",
+    "z": "xsphere_control_flow",
+    "name": "",
+    "topic": "",
+    "qos": "1",
+    "retain": "",
+    "broker": "xsphere_mqtt_broker",
+    "x": 940,
+    "y": 2428,
+    "wires": []
+  },
+  {
+    "id": "xsc_g_grad",
+    "type": "ui_group",
+    "name": "Gradient",
+    "tab": "xsphere_ui_tab_control",
+    "order": 10,
+    "disp": true,
+    "width": "6",
+    "collapse": false
+  },
+  {
+    "id": "xsc_sw_091",
+    "type": "ui_switch",
+    "z": "xsphere_control_flow",
+    "group": "xsc_g_grad",
+    "order": 1,
+    "width": "0",
+    "height": "0",
+    "label": "Gradient mode (off = absolute)",
+    "tooltip": "",
+    "style": "",
+    "className": "",
+    "passthru": true,
+    "decouple": "false",
+    "topic": "Gradient mode (off = absolute)",
+    "topicType": "str",
+    "style0": "",
+    "onvalue": "true",
+    "onvalueType": "bool",
+    "onicon": "",
+    "oncolor": "",
+    "offvalue": "false",
+    "offvalueType": "bool",
+    "officon": "",
+    "offcolor": "",
+    "animate": false,
+    "x": 140,
+    "y": 2492,
+    "wires": [
+      [
+        "xsc_fn_092"
+      ]
+    ]
+  },
+  {
+    "id": "xsc_fn_092",
+    "type": "function",
+    "z": "xsphere_control_flow",
+    "name": "gradient mode cmd",
+    "func": "return { topic: \"xsphere/commands/gradient/mode\", payload: { mode: msg.payload ? \"gradient\" : \"absolute\" } };",
+    "outputs": 1,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 540,
+    "y": 2492,
+    "wires": [
+      [
+        "xsc_out_093"
+      ]
+    ]
+  },
+  {
+    "id": "xsc_out_093",
+    "type": "mqtt out",
+    "z": "xsphere_control_flow",
+    "name": "",
+    "topic": "",
+    "qos": "1",
+    "retain": "",
+    "broker": "xsphere_mqtt_broker",
+    "x": 940,
+    "y": 2492,
+    "wires": []
+  },
+  {
+    "id": "xsc_num_094",
+    "type": "ui_numeric",
+    "z": "xsphere_control_flow",
+    "group": "xsc_g_grad",
+    "order": 2,
+    "width": "0",
+    "height": "0",
+    "name": "gradient base (K)",
+    "label": "gradient base (K)",
+    "tooltip": "",
+    "className": "",
+    "format": "{{value}}",
+    "min": "",
+    "max": "",
+    "step": 1,
+    "passthru": false,
+    "topic": "gradient base (K)",
+    "topicType": "str",
+    "x": 140,
+    "y": 2556,
+    "wires": [
+      [
+        "xsc_fn_095"
+      ]
+    ]
+  },
+  {
+    "id": "xsc_fn_095",
+    "type": "function",
+    "z": "xsphere_control_flow",
+    "name": "store grad base",
+    "func": "global.set(\"xsc_grad_base\", Number(msg.payload)); return null;",
+    "outputs": 1,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 540,
+    "y": 2556,
+    "wires": [
+      []
+    ]
+  },
+  {
+    "id": "xsc_btn_096",
+    "type": "ui_button",
+    "z": "xsphere_control_flow",
+    "group": "xsc_g_grad",
+    "order": 3,
+    "width": "0",
+    "height": "0",
+    "name": "Set base (K)",
+    "label": "Set base (K)",
+    "tooltip": "",
+    "color": "",
+    "bgcolor": "",
+    "className": "",
+    "icon": "",
+    "payload": "set",
+    "payloadType": "str",
+    "topic": "",
+    "topicType": "str",
+    "x": 140,
+    "y": 2620,
+    "wires": [
+      [
+        "xsc_fn_097"
+      ]
+    ]
+  },
+  {
+    "id": "xsc_fn_097",
+    "type": "function",
+    "z": "xsphere_control_flow",
+    "name": "grad base cmd",
+    "func": "\nvar v = global.get(\"xsc_grad_base\");\nif (v === undefined || v === null) return null;\nreturn { topic: \"xsphere/commands/gradient/base\", payload: { \"value_k\": Number(v) } };",
+    "outputs": 1,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 540,
+    "y": 2620,
+    "wires": [
+      [
+        "xsc_out_098"
+      ]
+    ]
+  },
+  {
+    "id": "xsc_out_098",
+    "type": "mqtt out",
+    "z": "xsphere_control_flow",
+    "name": "",
+    "topic": "",
+    "qos": "1",
+    "retain": "",
+    "broker": "xsphere_mqtt_broker",
+    "x": 940,
+    "y": 2620,
+    "wires": []
+  },
+  {
+    "id": "xsc_num_099",
+    "type": "ui_numeric",
+    "z": "xsphere_control_flow",
+    "group": "xsc_g_grad",
+    "order": 4,
+    "width": "0",
+    "height": "0",
+    "name": "gradient \u0394vertical (K)",
+    "label": "gradient \u0394vertical (K)",
+    "tooltip": "",
+    "className": "",
+    "format": "{{value}}",
+    "min": "",
+    "max": "",
+    "step": 1,
+    "passthru": false,
+    "topic": "gradient \u0394vertical (K)",
+    "topicType": "str",
+    "x": 140,
+    "y": 2684,
+    "wires": [
+      [
+        "xsc_fn_100"
+      ]
+    ]
+  },
+  {
+    "id": "xsc_fn_100",
+    "type": "function",
+    "z": "xsphere_control_flow",
+    "name": "store grad vertical",
+    "func": "global.set(\"xsc_grad_vertical\", Number(msg.payload)); return null;",
+    "outputs": 1,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 540,
+    "y": 2684,
+    "wires": [
+      []
+    ]
+  },
+  {
+    "id": "xsc_btn_101",
+    "type": "ui_button",
+    "z": "xsphere_control_flow",
+    "group": "xsc_g_grad",
+    "order": 5,
+    "width": "0",
+    "height": "0",
+    "name": "Set \u0394vertical (K)",
+    "label": "Set \u0394vertical (K)",
+    "tooltip": "",
+    "color": "",
+    "bgcolor": "",
+    "className": "",
+    "icon": "",
+    "payload": "set",
+    "payloadType": "str",
+    "topic": "",
+    "topicType": "str",
+    "x": 140,
+    "y": 2748,
+    "wires": [
+      [
+        "xsc_fn_102"
+      ]
+    ]
+  },
+  {
+    "id": "xsc_fn_102",
+    "type": "function",
+    "z": "xsphere_control_flow",
+    "name": "grad vertical cmd",
+    "func": "\nvar v = global.get(\"xsc_grad_vertical\");\nif (v === undefined || v === null) return null;\nreturn { topic: \"xsphere/commands/gradient/vertical\", payload: { \"delta_k\": Number(v) } };",
+    "outputs": 1,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 540,
+    "y": 2748,
+    "wires": [
+      [
+        "xsc_out_103"
+      ]
+    ]
+  },
+  {
+    "id": "xsc_out_103",
+    "type": "mqtt out",
+    "z": "xsphere_control_flow",
+    "name": "",
+    "topic": "",
+    "qos": "1",
+    "retain": "",
+    "broker": "xsphere_mqtt_broker",
+    "x": 940,
+    "y": 2748,
+    "wires": []
+  },
+  {
+    "id": "xsc_num_104",
+    "type": "ui_numeric",
+    "z": "xsphere_control_flow",
+    "group": "xsc_g_grad",
+    "order": 6,
+    "width": "0",
+    "height": "0",
+    "name": "gradient \u0394longitudinal (K)",
+    "label": "gradient \u0394longitudinal (K)",
+    "tooltip": "",
+    "className": "",
+    "format": "{{value}}",
+    "min": "",
+    "max": "",
+    "step": 1,
+    "passthru": false,
+    "topic": "gradient \u0394longitudinal (K)",
+    "topicType": "str",
+    "x": 140,
+    "y": 2812,
+    "wires": [
+      [
+        "xsc_fn_105"
+      ]
+    ]
+  },
+  {
+    "id": "xsc_fn_105",
+    "type": "function",
+    "z": "xsphere_control_flow",
+    "name": "store grad longitudinal",
+    "func": "global.set(\"xsc_grad_longitudinal\", Number(msg.payload)); return null;",
+    "outputs": 1,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 540,
+    "y": 2812,
+    "wires": [
+      []
+    ]
+  },
+  {
+    "id": "xsc_btn_106",
+    "type": "ui_button",
+    "z": "xsphere_control_flow",
+    "group": "xsc_g_grad",
+    "order": 7,
+    "width": "0",
+    "height": "0",
+    "name": "Set \u0394longitudinal (K)",
+    "label": "Set \u0394longitudinal (K)",
+    "tooltip": "",
+    "color": "",
+    "bgcolor": "",
+    "className": "",
+    "icon": "",
+    "payload": "set",
+    "payloadType": "str",
+    "topic": "",
+    "topicType": "str",
+    "x": 140,
+    "y": 2876,
+    "wires": [
+      [
+        "xsc_fn_107"
+      ]
+    ]
+  },
+  {
+    "id": "xsc_fn_107",
+    "type": "function",
+    "z": "xsphere_control_flow",
+    "name": "grad longitudinal cmd",
+    "func": "\nvar v = global.get(\"xsc_grad_longitudinal\");\nif (v === undefined || v === null) return null;\nreturn { topic: \"xsphere/commands/gradient/longitudinal\", payload: { \"delta_k\": Number(v) } };",
+    "outputs": 1,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 540,
+    "y": 2876,
+    "wires": [
+      [
+        "xsc_out_108"
+      ]
+    ]
+  },
+  {
+    "id": "xsc_out_108",
+    "type": "mqtt out",
+    "z": "xsphere_control_flow",
+    "name": "",
+    "topic": "",
+    "qos": "1",
+    "retain": "",
+    "broker": "xsphere_mqtt_broker",
+    "x": 940,
+    "y": 2876,
+    "wires": []
+  },
+  {
+    "id": "xsc_g_follow",
+    "type": "ui_group",
+    "name": "Follow a sensor",
+    "tab": "xsphere_ui_tab_control",
+    "order": 11,
+    "disp": true,
+    "width": "6",
+    "collapse": false
+  },
+  {
+    "id": "xsc_dd_109",
+    "type": "ui_dropdown",
+    "z": "xsphere_control_flow",
+    "group": "xsc_g_follow",
+    "order": 1,
+    "width": "0",
+    "height": "0",
+    "label": "Zone to drive",
+    "tooltip": "",
+    "place": "Select",
+    "className": "",
+    "propertyType": "msg",
+    "property": "payload",
+    "multiple": false,
+    "options": [
+      {
+        "label": "top",
+        "value": "top",
+        "type": "str"
+      },
+      {
+        "label": "bottom",
+        "value": "bottom",
+        "type": "str"
+      },
+      {
+        "label": "nozzle",
+        "value": "nozzle",
+        "type": "str"
+      }
+    ],
+    "payload": "",
+    "topic": "Zone to drive",
+    "topicType": "str",
+    "x": 140,
+    "y": 2940,
+    "wires": [
+      [
+        "xsc_fn_112"
+      ]
+    ]
+  },
+  {
+    "id": "xsc_dd_110",
+    "type": "ui_dropdown",
+    "z": "xsphere_control_flow",
+    "group": "xsc_g_follow",
+    "order": 2,
+    "width": "0",
+    "height": "0",
+    "label": "Source sensor (RTD topic)",
+    "tooltip": "",
+    "place": "Select",
+    "className": "",
+    "propertyType": "msg",
+    "property": "payload",
+    "multiple": false,
+    "options": [
+      {
+        "label": "xsphere/sensors/temperature/plc/rtd/4",
+        "value": "xsphere/sensors/temperature/plc/rtd/4",
+        "type": "str"
+      },
+      {
+        "label": "xsphere/sensors/temperature/plc/rtd/5",
+        "value": "xsphere/sensors/temperature/plc/rtd/5",
+        "type": "str"
+      },
+      {
+        "label": "xsphere/sensors/temperature/plc/rtd/6",
+        "value": "xsphere/sensors/temperature/plc/rtd/6",
+        "type": "str"
+      },
+      {
+        "label": "xsphere/sensors/temperature/labjack/rtd/1",
+        "value": "xsphere/sensors/temperature/labjack/rtd/1",
+        "type": "str"
+      },
+      {
+        "label": "xsphere/sensors/temperature/labjack/rtd/2",
+        "value": "xsphere/sensors/temperature/labjack/rtd/2",
+        "type": "str"
+      },
+      {
+        "label": "xsphere/sensors/temperature/labjack/rtd/3",
+        "value": "xsphere/sensors/temperature/labjack/rtd/3",
+        "type": "str"
+      }
+    ],
+    "payload": "",
+    "topic": "Source sensor (RTD topic)",
+    "topicType": "str",
+    "x": 140,
+    "y": 3004,
+    "wires": [
+      [
+        "xsc_fn_112"
+      ]
+    ]
+  },
+  {
+    "id": "xsc_sw_111",
+    "type": "ui_switch",
+    "z": "xsphere_control_flow",
+    "group": "xsc_g_follow",
+    "order": 3,
+    "width": "0",
+    "height": "0",
+    "label": "Follow enabled",
+    "tooltip": "",
+    "style": "",
+    "className": "",
+    "passthru": true,
+    "decouple": "false",
+    "topic": "Follow enabled",
+    "topicType": "str",
+    "style0": "",
+    "onvalue": "true",
+    "onvalueType": "bool",
+    "onicon": "",
+    "oncolor": "",
+    "offvalue": "false",
+    "offvalueType": "bool",
+    "officon": "",
+    "offcolor": "",
+    "animate": false,
+    "x": 140,
+    "y": 3068,
+    "wires": [
+      [
+        "xsc_fn_112"
+      ]
+    ]
+  },
+  {
+    "id": "xsc_fn_112",
+    "type": "function",
+    "z": "xsphere_control_flow",
+    "name": "follow cfg",
+    "func": "\nif (msg.topic === \"Zone to drive\") flow.set(\"follow_zone\", msg.payload);\nelse if (msg.topic === \"Source sensor (RTD topic)\") flow.set(\"follow_src\", msg.payload);\nelse if (msg.topic === \"Follow enabled\") flow.set(\"follow_on\", !!msg.payload);\nvar on = flow.get(\"follow_on\"), z = flow.get(\"follow_zone\"), s = flow.get(\"follow_src\");\nreturn { payload: on ? (z + \" \u2190 \" + (s || \"(no source)\")) : \"off\" };",
+    "outputs": 1,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 540,
+    "y": 3068,
+    "wires": [
+      [
+        "xsc_txt_113"
+      ]
+    ]
+  },
+  {
+    "id": "xsc_txt_113",
+    "type": "ui_text",
+    "z": "xsphere_control_flow",
+    "group": "xsc_g_follow",
+    "order": 4,
+    "width": "0",
+    "height": "0",
+    "name": "follow status",
+    "label": "follow status",
+    "format": "{{msg.payload}}",
+    "layout": "row-spread",
+    "className": "",
+    "x": 740,
+    "y": 3068,
+    "wires": []
+  },
+  {
+    "id": "xsc_in_114",
+    "type": "mqtt in",
+    "z": "xsphere_control_flow",
+    "name": "xsphere/sensors/temperature/#",
+    "topic": "xsphere/sensors/temperature/#",
+    "qos": "1",
+    "datatype": "auto-detect",
+    "broker": "xsphere_mqtt_broker",
+    "x": 140,
+    "y": 3132,
+    "wires": [
+      [
+        "xsc_fn_115"
+      ]
+    ]
+  },
+  {
+    "id": "xsc_fn_115",
+    "type": "function",
+    "z": "xsphere_control_flow",
+    "name": "follow -> setpoint",
+    "func": "\nif (!flow.get(\"follow_on\")) return null;\nvar src = flow.get(\"follow_src\"), zone = flow.get(\"follow_zone\");\nif (!src || !zone || msg.topic !== src) return null;\nvar vk = msg.payload && (msg.payload.value_k);\nif (vk === undefined || vk === null) return null;\nreturn { topic: \"xsphere/commands/pid/\" + zone + \"/setpoint\", payload: { value_k: Number(vk) } };",
+    "outputs": 1,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 540,
+    "y": 3132,
+    "wires": [
+      [
+        "xsc_out_116"
+      ]
+    ]
+  },
+  {
+    "id": "xsc_out_116",
+    "type": "mqtt out",
+    "z": "xsphere_control_flow",
+    "name": "",
+    "topic": "",
+    "qos": "1",
+    "retain": "",
+    "broker": "xsphere_mqtt_broker",
+    "x": 940,
+    "y": 3132,
+    "wires": []
+  },
+  {
+    "id": "xsc_g_seq",
+    "type": "ui_group",
+    "name": "Ramp sequencer",
+    "tab": "xsphere_ui_tab_control",
+    "order": 12,
+    "disp": true,
+    "width": "6",
+    "collapse": false
+  },
+  {
+    "id": "xsc_ti_117",
+    "type": "ui_text_input",
+    "z": "xsphere_control_flow",
+    "group": "xsc_g_seq",
+    "order": 1,
+    "width": "0",
+    "height": "0",
+    "name": "Steps (one per line: ZONE TARGET_K HOLD_MIN; ZONE = top/bottom/nozzle/base)",
+    "label": "Steps (one per line: ZONE TARGET_K HOLD_MIN; ZONE = top/bottom/nozzle/base)",
+    "tooltip": "",
+    "mode": "multiline",
+    "delay": "0",
+    "topic": "Steps (one per line: ZONE TARGET_K HOLD_MIN; ZONE = top/bottom/nozzle/base)",
+    "topicType": "str",
+    "sendOnBlur": true,
+    "className": "",
+    "x": 140,
+    "y": 3196,
+    "wires": [
+      [
+        "xsc_fn_118"
+      ]
+    ]
+  },
+  {
+    "id": "xsc_fn_118",
+    "type": "function",
+    "z": "xsphere_control_flow",
+    "name": "store seq text",
+    "func": "flow.set(\"seq_text\", String(msg.payload || \"\")); return null;",
+    "outputs": 1,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 540,
+    "y": 3196,
+    "wires": [
+      []
+    ]
+  },
+  {
+    "id": "xsc_btn_119",
+    "type": "ui_button",
+    "z": "xsphere_control_flow",
+    "group": "xsc_g_seq",
+    "order": 2,
+    "width": "0",
+    "height": "0",
+    "name": "Run sequence",
+    "label": "Run sequence",
+    "tooltip": "",
+    "color": "",
+    "bgcolor": "",
+    "className": "",
+    "icon": "",
+    "payload": "run",
+    "payloadType": "str",
+    "topic": "",
+    "topicType": "str",
+    "x": 140,
+    "y": 3260,
+    "wires": [
+      [
+        "xsc_fn_122"
+      ]
+    ]
+  },
+  {
+    "id": "xsc_btn_120",
+    "type": "ui_button",
+    "z": "xsphere_control_flow",
+    "group": "xsc_g_seq",
+    "order": 3,
+    "width": "0",
+    "height": "0",
+    "name": "Stop sequence",
+    "label": "Stop sequence",
+    "tooltip": "",
+    "color": "",
+    "bgcolor": "",
+    "className": "",
+    "icon": "",
+    "payload": "stop",
+    "payloadType": "str",
+    "topic": "",
+    "topicType": "str",
+    "x": 140,
+    "y": 3324,
+    "wires": [
+      [
+        "xsc_fn_122"
+      ]
+    ]
+  },
+  {
+    "id": "xsc_txt_121",
+    "type": "ui_text",
+    "z": "xsphere_control_flow",
+    "group": "xsc_g_seq",
+    "order": 4,
+    "width": "0",
+    "height": "0",
+    "name": "sequence status",
+    "label": "sequence status",
+    "format": "{{msg.payload}}",
+    "layout": "row-spread",
+    "className": "",
+    "x": 740,
+    "y": 3324,
+    "wires": []
+  },
+  {
+    "id": "xsc_fn_122",
+    "type": "function",
+    "z": "xsphere_control_flow",
+    "name": "ramp sequencer",
+    "func": "\n// run-state lives in this node's context: steps[], idx, timer\nfunction emit(zone, vk){\n    var t = (zone === \"base\") ? \"xsphere/commands/gradient/base\"\n                              : \"xsphere/commands/pid/\" + zone + \"/setpoint\";\n    node.send([{ topic: t, payload: { value_k: vk } }, null]);\n}\nfunction status(s){ node.send([null, { payload: s }]); }\nfunction clearT(){ var h = context.get(\"timer\"); if (h){ clearTimeout(h); context.set(\"timer\", null); } }\nfunction runStep(){\n    var steps = context.get(\"steps\") || [], i = context.get(\"idx\") || 0;\n    if (i >= steps.length){ status(\"done (\" + steps.length + \" steps)\"); clearT(); return; }\n    var st = steps[i];\n    emit(st.zone, st.vk);\n    status(\"step \" + (i+1) + \"/\" + steps.length + \": \" + st.zone + \" -> \" + st.vk + \" K, hold \" + st.hold + \" min\");\n    context.set(\"idx\", i+1);\n    context.set(\"timer\", setTimeout(runStep, st.hold * 60000));\n}\nif (msg.payload === \"stop\"){ clearT(); status(\"stopped\"); return null; }\nif (msg.payload === \"run\"){\n    var raw = flow.get(\"seq_text\") || \"\", steps = [];\n    raw.split(/\\r?\\n/).forEach(function(line){\n        line = line.trim(); if (!line) return;\n        var p = line.split(/[\\s,]+/);\n        if (p.length >= 3 && !isNaN(Number(p[1])) && !isNaN(Number(p[2])))\n            steps.push({ zone: p[0], vk: Number(p[1]), hold: Number(p[2]) });\n    });\n    if (!steps.length){ status(\"no valid steps parsed\"); return null; }\n    clearT(); context.set(\"steps\", steps); context.set(\"idx\", 0); runStep(); return null;\n}\nreturn null;",
+    "outputs": 2,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 540,
+    "y": 3324,
+    "wires": [
+      [
+        "xsc_out_123"
+      ],
+      [
+        "xsc_txt_121"
+      ]
+    ]
+  },
+  {
+    "id": "xsc_out_123",
+    "type": "mqtt out",
+    "z": "xsphere_control_flow",
+    "name": "",
+    "topic": "",
+    "qos": "1",
+    "retain": "",
+    "broker": "xsphere_mqtt_broker",
+    "x": 940,
+    "y": 3324,
+    "wires": []
+  },
+  {
+    "id": "xsc_g_scan",
+    "type": "ui_group",
+    "name": "Gradient scan",
+    "tab": "xsphere_ui_tab_control",
+    "order": 13,
+    "disp": true,
+    "width": "6",
+    "collapse": false
+  },
+  {
+    "id": "xsc_num_124",
+    "type": "ui_numeric",
+    "z": "xsphere_control_flow",
+    "group": "xsc_g_scan",
+    "order": 1,
+    "width": "0",
+    "height": "0",
+    "name": "scan start (K)",
+    "label": "scan start (K)",
+    "tooltip": "",
+    "className": "",
+    "format": "{{value}}",
+    "min": "",
+    "max": "",
+    "step": 1,
+    "passthru": false,
+    "topic": "scan start (K)",
+    "topicType": "str",
+    "x": 140,
+    "y": 3388,
+    "wires": [
+      [
+        "xsc_fn_128"
+      ]
+    ]
+  },
+  {
+    "id": "xsc_num_125",
+    "type": "ui_numeric",
+    "z": "xsphere_control_flow",
+    "group": "xsc_g_scan",
+    "order": 2,
+    "width": "0",
+    "height": "0",
+    "name": "scan end (K)",
+    "label": "scan end (K)",
+    "tooltip": "",
+    "className": "",
+    "format": "{{value}}",
+    "min": "",
+    "max": "",
+    "step": 1,
+    "passthru": false,
+    "topic": "scan end (K)",
+    "topicType": "str",
+    "x": 140,
+    "y": 3452,
+    "wires": [
+      [
+        "xsc_fn_128"
+      ]
+    ]
+  },
+  {
+    "id": "xsc_num_126",
+    "type": "ui_numeric",
+    "z": "xsphere_control_flow",
+    "group": "xsc_g_scan",
+    "order": 3,
+    "width": "0",
+    "height": "0",
+    "name": "scan step (K)",
+    "label": "scan step (K)",
+    "tooltip": "",
+    "className": "",
+    "format": "{{value}}",
+    "min": "",
+    "max": "",
+    "step": 1,
+    "passthru": false,
+    "topic": "scan step (K)",
+    "topicType": "str",
+    "x": 140,
+    "y": 3516,
+    "wires": [
+      [
+        "xsc_fn_128"
+      ]
+    ]
+  },
+  {
+    "id": "xsc_num_127",
+    "type": "ui_numeric",
+    "z": "xsphere_control_flow",
+    "group": "xsc_g_scan",
+    "order": 4,
+    "width": "0",
+    "height": "0",
+    "name": "dwell per step (min)",
+    "label": "dwell per step (min)",
+    "tooltip": "",
+    "className": "",
+    "format": "{{value}}",
+    "min": "",
+    "max": "",
+    "step": 1,
+    "passthru": false,
+    "topic": "dwell per step (min)",
+    "topicType": "str",
+    "x": 140,
+    "y": 3580,
+    "wires": [
+      [
+        "xsc_fn_128"
+      ]
+    ]
+  },
+  {
+    "id": "xsc_fn_128",
+    "type": "function",
+    "z": "xsphere_control_flow",
+    "name": "collect scan params",
+    "func": "\nvar c = flow.get(\"scan\") || {};\nif (msg.topic === \"scan start (K)\") c.start_k = Number(msg.payload);\nif (msg.topic === \"scan end (K)\")   c.end_k   = Number(msg.payload);\nif (msg.topic === \"scan step (K)\")  c.step_k  = Number(msg.payload);\nif (msg.topic === \"dwell per step (min)\") c.dwell_m = Number(msg.payload);\nflow.set(\"scan\", c); return null;",
+    "outputs": 1,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 540,
+    "y": 3580,
+    "wires": [
+      []
+    ]
+  },
+  {
+    "id": "xsc_btn_129",
+    "type": "ui_button",
+    "z": "xsphere_control_flow",
+    "group": "xsc_g_scan",
+    "order": 5,
+    "width": "0",
+    "height": "0",
+    "name": "Start scan",
+    "label": "Start scan",
+    "tooltip": "",
+    "color": "",
+    "bgcolor": "",
+    "className": "",
+    "icon": "",
+    "payload": "start",
+    "payloadType": "str",
+    "topic": "",
+    "topicType": "str",
+    "x": 140,
+    "y": 3644,
+    "wires": [
+      [
+        "xsc_fn_131"
+      ]
+    ]
+  },
+  {
+    "id": "xsc_btn_130",
+    "type": "ui_button",
+    "z": "xsphere_control_flow",
+    "group": "xsc_g_scan",
+    "order": 6,
+    "width": "0",
+    "height": "0",
+    "name": "Stop scan",
+    "label": "Stop scan",
+    "tooltip": "",
+    "color": "",
+    "bgcolor": "",
+    "className": "",
+    "icon": "",
+    "payload": "stop",
+    "payloadType": "str",
+    "topic": "",
+    "topicType": "str",
+    "x": 140,
+    "y": 3708,
+    "wires": [
+      [
+        "xsc_fn_131"
+      ]
+    ]
+  },
+  {
+    "id": "xsc_fn_131",
+    "type": "function",
+    "z": "xsphere_control_flow",
+    "name": "scan cmd",
+    "func": "\nif (msg.payload === \"stop\"){ return { topic: \"xsphere/commands/gradient_scanner/stop\", payload: {} }; }\nvar c = flow.get(\"scan\") || {};\nif (c.start_k===undefined || c.end_k===undefined || c.step_k===undefined || c.dwell_m===undefined){\n    node.warn(\"scan params incomplete\"); return null;\n}\nreturn { topic: \"xsphere/commands/gradient_scanner/start\",\n         payload: { start_k: c.start_k, end_k: c.end_k, step_k: c.step_k, dwell_s: c.dwell_m * 60 } };",
+    "outputs": 1,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 540,
+    "y": 3708,
+    "wires": [
+      [
+        "xsc_out_132"
+      ]
+    ]
+  },
+  {
+    "id": "xsc_out_132",
+    "type": "mqtt out",
+    "z": "xsphere_control_flow",
+    "name": "",
+    "topic": "",
+    "qos": "1",
+    "retain": "",
+    "broker": "xsphere_mqtt_broker",
+    "x": 940,
+    "y": 3708,
+    "wires": []
+  },
+  {
+    "id": "xsc_in_133",
+    "type": "mqtt in",
+    "z": "xsphere_control_flow",
+    "name": "xsphere/status/gradient_scanner",
+    "topic": "xsphere/status/gradient_scanner",
+    "qos": "1",
+    "datatype": "auto-detect",
+    "broker": "xsphere_mqtt_broker",
+    "x": 140,
+    "y": 3772,
+    "wires": [
+      [
+        "xsc_fn_134"
+      ]
+    ]
+  },
+  {
+    "id": "xsc_fn_134",
+    "type": "function",
+    "z": "xsphere_control_flow",
+    "name": "scan status txt",
+    "func": "msg.payload = JSON.stringify(msg.payload); return msg;",
+    "outputs": 1,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 540,
+    "y": 3772,
+    "wires": [
+      [
+        "xsc_txt_135"
+      ]
+    ]
+  },
+  {
+    "id": "xsc_txt_135",
+    "type": "ui_text",
+    "z": "xsphere_control_flow",
+    "group": "xsc_g_scan",
+    "order": 7,
+    "width": "0",
+    "height": "0",
+    "name": "scan status",
+    "label": "scan status",
+    "format": "{{msg.payload}}",
+    "layout": "row-spread",
+    "className": "",
+    "x": 740,
+    "y": 3772,
+    "wires": []
+  }
+]

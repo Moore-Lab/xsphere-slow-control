@@ -1,0 +1,4478 @@
+[
+    {
+        "id": "54d6f73ec3b6c331",
+        "type": "tab",
+        "label": "Backup",
+        "disabled": false,
+        "info": "",
+        "env": []
+    },
+    {
+        "id": "ce7a7a024a123f31",
+        "type": "tab",
+        "label": "Gas Handling System",
+        "disabled": false,
+        "info": "",
+        "env": []
+    },
+    {
+        "id": "a68e762a14e25990",
+        "type": "tab",
+        "label": "Cryostat (Click PLUS PLC)",
+        "disabled": false,
+        "info": "",
+        "env": []
+    },
+    {
+        "id": "57ac4c072ce478f6",
+        "type": "tab",
+        "label": "Cryostat (Omega RDXL6S)",
+        "disabled": false,
+        "info": "",
+        "env": []
+    },
+    {
+        "id": "167b789b7a2c7236",
+        "type": "tab",
+        "label": "Nanosphere ADC",
+        "disabled": false,
+        "info": "",
+        "env": []
+    },
+    {
+        "id": "71760c349a0630ea",
+        "type": "tab",
+        "label": "Valve UI",
+        "disabled": false,
+        "info": "",
+        "env": []
+    },
+    {
+        "id": "305fbdd33ef007ec",
+        "type": "tab",
+        "label": "Heater UI",
+        "disabled": false,
+        "info": "",
+        "env": []
+    },
+    {
+        "id": "27548fe472b0cb9e",
+        "type": "tab",
+        "label": "Test - Slow cooldown",
+        "disabled": false,
+        "info": "",
+        "env": []
+    },
+    {
+        "id": "955e7bee30bdb2de",
+        "type": "influxdb",
+        "hostname": "127.0.0.1",
+        "port": 8086,
+        "protocol": "http",
+        "database": "database",
+        "name": "influxdb",
+        "usetls": false,
+        "tls": "",
+        "influxdbVersion": "2.0",
+        "url": "http://influxdb2:8086",
+        "timeout": 10,
+        "rejectUnauthorized": true
+    },
+    {
+        "id": "b3f80ce4288ba64e",
+        "type": "serial-port",
+        "name": "",
+        "serialport": "/dev/ttyUSB1",
+        "serialbaud": "9600",
+        "databits": 8,
+        "parity": "none",
+        "stopbits": 1,
+        "waitfor": "",
+        "dtr": "none",
+        "rts": "none",
+        "cts": "none",
+        "dsr": "none",
+        "newline": "\\n",
+        "bin": "false",
+        "out": "char",
+        "addchar": "",
+        "responsetimeout": 10000
+    },
+    {
+        "id": "d7d4be9dd03833ca",
+        "type": "dropbox-config",
+        "name": "xbox-server-backup"
+    },
+    {
+        "id": "ce01d54b36ea5d40",
+        "type": "mqtt-broker",
+        "name": "",
+        "broker": "http://mosquitto",
+        "port": 1883,
+        "clientid": "",
+        "autoConnect": true,
+        "usetls": false,
+        "protocolVersion": 4,
+        "keepalive": 60,
+        "cleansession": true,
+        "autoUnsubscribe": true,
+        "birthTopic": "",
+        "birthQos": "0",
+        "birthRetain": "false",
+        "birthPayload": "",
+        "birthMsg": {},
+        "closeTopic": "",
+        "closeQos": "0",
+        "closeRetain": "false",
+        "closePayload": "",
+        "closeMsg": {},
+        "willTopic": "",
+        "willQos": "0",
+        "willRetain": "false",
+        "willPayload": "",
+        "willMsg": {},
+        "userProps": "",
+        "sessionExpiry": ""
+    },
+    {
+        "id": "b6f98b073ed36289",
+        "type": "modbus-client",
+        "name": "RDXL6S",
+        "clienttype": "tcp",
+        "bufferCommands": true,
+        "stateLogEnabled": false,
+        "queueLogEnabled": false,
+        "failureLogEnabled": true,
+        "tcpHost": "192.168.8.116",
+        "tcpPort": "5000",
+        "tcpType": "DEFAULT",
+        "serialPort": "/dev/ttyUSB0",
+        "serialType": "RTU",
+        "serialBaudrate": "57600",
+        "serialDatabits": 8,
+        "serialStopbits": 1,
+        "serialParity": "none",
+        "serialConnectionDelay": 100,
+        "serialAsciiResponseStartDelimiter": "0x3A",
+        "unit_id": 1,
+        "commandDelay": 1,
+        "clientTimeout": 1000,
+        "reconnectOnTimeout": true,
+        "reconnectTimeout": 2000,
+        "parallelUnitIdsAllowed": true,
+        "showErrors": false,
+        "showWarnings": true,
+        "showLogs": true
+    },
+    {
+        "id": "55ab77eda0ef1662",
+        "type": "serial-port",
+        "name": "",
+        "serialport": "tcp://192.168.8.116:5000",
+        "serialbaud": "57600",
+        "databits": 8,
+        "parity": "none",
+        "stopbits": "2",
+        "waitfor": "",
+        "dtr": "none",
+        "rts": "none",
+        "cts": "none",
+        "dsr": "none",
+        "newline": "\\n",
+        "bin": "false",
+        "out": "char",
+        "addchar": "",
+        "responsetimeout": 10000
+    },
+    {
+        "id": "d99d97e004fee415",
+        "type": "ui_tab",
+        "name": "Cryostat",
+        "icon": "dashboard",
+        "disabled": false,
+        "hidden": false
+    },
+    {
+        "id": "c2762fc15be11ea4",
+        "type": "ui_base",
+        "theme": {
+            "name": "theme-light",
+            "lightTheme": {
+                "default": "#0094CE",
+                "baseColor": "#0094CE",
+                "baseFont": "-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Oxygen-Sans,Ubuntu,Cantarell,Helvetica Neue,sans-serif",
+                "edited": true,
+                "reset": false
+            },
+            "darkTheme": {
+                "default": "#097479",
+                "baseColor": "#097479",
+                "baseFont": "-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Oxygen-Sans,Ubuntu,Cantarell,Helvetica Neue,sans-serif",
+                "edited": false
+            },
+            "customTheme": {
+                "name": "Untitled Theme 1",
+                "default": "#4B7930",
+                "baseColor": "#4B7930",
+                "baseFont": "-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Oxygen-Sans,Ubuntu,Cantarell,Helvetica Neue,sans-serif"
+            },
+            "themeState": {
+                "base-color": {
+                    "default": "#0094CE",
+                    "value": "#0094CE",
+                    "edited": false
+                },
+                "page-titlebar-backgroundColor": {
+                    "value": "#0094CE",
+                    "edited": false
+                },
+                "page-backgroundColor": {
+                    "value": "#fafafa",
+                    "edited": false
+                },
+                "page-sidebar-backgroundColor": {
+                    "value": "#ffffff",
+                    "edited": false
+                },
+                "group-textColor": {
+                    "value": "#1bbfff",
+                    "edited": false
+                },
+                "group-borderColor": {
+                    "value": "#ffffff",
+                    "edited": false
+                },
+                "group-backgroundColor": {
+                    "value": "#ffffff",
+                    "edited": false
+                },
+                "widget-textColor": {
+                    "value": "#111111",
+                    "edited": false
+                },
+                "widget-backgroundColor": {
+                    "value": "#0094ce",
+                    "edited": false
+                },
+                "widget-borderColor": {
+                    "value": "#ffffff",
+                    "edited": false
+                },
+                "base-font": {
+                    "value": "-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Oxygen-Sans,Ubuntu,Cantarell,Helvetica Neue,sans-serif"
+                }
+            },
+            "angularTheme": {
+                "primary": "indigo",
+                "accents": "blue",
+                "warn": "red",
+                "background": "grey",
+                "palette": "light"
+            }
+        },
+        "site": {
+            "name": "Node-RED Dashboard",
+            "hideToolbar": "false",
+            "allowSwipe": "false",
+            "lockMenu": "false",
+            "allowTempTheme": "true",
+            "dateFormat": "DD/MM/YYYY",
+            "sizes": {
+                "sx": 48,
+                "sy": 48,
+                "gx": 6,
+                "gy": 6,
+                "cx": 6,
+                "cy": 6,
+                "px": 0,
+                "py": 0
+            }
+        }
+    },
+    {
+        "id": "2b478b23d9da69c2",
+        "type": "ui_group",
+        "name": "XV1",
+        "tab": "d99d97e004fee415",
+        "order": 2,
+        "disp": true,
+        "width": 9,
+        "collapse": false,
+        "className": ""
+    },
+    {
+        "id": "e0c023145660dfe6",
+        "type": "dropbox-config",
+        "name": "Dropbox Upload"
+    },
+    {
+        "id": "774ac6264e8074fa",
+        "type": "ui_group",
+        "name": "XV2",
+        "tab": "d99d97e004fee415",
+        "order": 2,
+        "disp": true,
+        "width": 9,
+        "collapse": false,
+        "className": ""
+    },
+    {
+        "id": "c2af4e70655a4351",
+        "type": "ui_group",
+        "name": "XV3",
+        "tab": "d99d97e004fee415",
+        "order": 3,
+        "disp": true,
+        "width": 9,
+        "collapse": false,
+        "className": ""
+    },
+    {
+        "id": "42a4c0fb14084e42",
+        "type": "ui_group",
+        "name": "HTR1",
+        "tab": "d99d97e004fee415",
+        "order": 4,
+        "disp": true,
+        "width": 7,
+        "collapse": false,
+        "className": ""
+    },
+    {
+        "id": "32e4b394eb03e89a",
+        "type": "ui_spacer",
+        "z": "305fbdd33ef007ec",
+        "name": "spacer",
+        "group": "2b478b23d9da69c2",
+        "order": 6,
+        "width": 1,
+        "height": 1
+    },
+    {
+        "id": "66b87960eee440bc",
+        "type": "ui_spacer",
+        "z": "305fbdd33ef007ec",
+        "name": "spacer",
+        "group": "2b478b23d9da69c2",
+        "order": 9,
+        "width": 1,
+        "height": 1
+    },
+    {
+        "id": "32cbecc2645fa673",
+        "type": "ui_spacer",
+        "z": "305fbdd33ef007ec",
+        "name": "spacer",
+        "group": "2b478b23d9da69c2",
+        "order": 13,
+        "width": 1,
+        "height": 1
+    },
+    {
+        "id": "85bfee36d6fe0c2b",
+        "type": "ui_spacer",
+        "z": "305fbdd33ef007ec",
+        "name": "spacer",
+        "group": "2b478b23d9da69c2",
+        "order": 15,
+        "width": 1,
+        "height": 1
+    },
+    {
+        "id": "1e4fcd1e5c3fdd19",
+        "type": "ui_spacer",
+        "z": "305fbdd33ef007ec",
+        "name": "spacer",
+        "group": "774ac6264e8074fa",
+        "order": 6,
+        "width": 1,
+        "height": 1
+    },
+    {
+        "id": "527c0c5d40fd509b",
+        "type": "ui_spacer",
+        "z": "305fbdd33ef007ec",
+        "name": "spacer",
+        "group": "774ac6264e8074fa",
+        "order": 9,
+        "width": 1,
+        "height": 1
+    },
+    {
+        "id": "f70703589e05cc21",
+        "type": "ui_spacer",
+        "z": "305fbdd33ef007ec",
+        "name": "spacer",
+        "group": "774ac6264e8074fa",
+        "order": 13,
+        "width": 1,
+        "height": 1
+    },
+    {
+        "id": "116010c0e0f357a9",
+        "type": "ui_spacer",
+        "z": "305fbdd33ef007ec",
+        "name": "spacer",
+        "group": "774ac6264e8074fa",
+        "order": 15,
+        "width": 1,
+        "height": 1
+    },
+    {
+        "id": "0cb5f1b3b235643c",
+        "type": "ui_spacer",
+        "z": "305fbdd33ef007ec",
+        "name": "spacer",
+        "group": "c2af4e70655a4351",
+        "order": 6,
+        "width": 1,
+        "height": 1
+    },
+    {
+        "id": "ef2c139bb3405182",
+        "type": "ui_spacer",
+        "z": "305fbdd33ef007ec",
+        "name": "spacer",
+        "group": "c2af4e70655a4351",
+        "order": 9,
+        "width": 1,
+        "height": 1
+    },
+    {
+        "id": "7c6113b5821480f2",
+        "type": "ui_spacer",
+        "z": "305fbdd33ef007ec",
+        "name": "spacer",
+        "group": "c2af4e70655a4351",
+        "order": 13,
+        "width": 1,
+        "height": 1
+    },
+    {
+        "id": "d425495976ec45bf",
+        "type": "ui_spacer",
+        "z": "305fbdd33ef007ec",
+        "name": "spacer",
+        "group": "c2af4e70655a4351",
+        "order": 15,
+        "width": 1,
+        "height": 1
+    },
+    {
+        "id": "e3317c241891e80e",
+        "type": "ui_spacer",
+        "z": "305fbdd33ef007ec",
+        "name": "spacer",
+        "group": "42a4c0fb14084e42",
+        "order": 2,
+        "width": 3,
+        "height": 1
+    },
+    {
+        "id": "46be1a00de03b39c",
+        "type": "ui_spacer",
+        "z": "305fbdd33ef007ec",
+        "name": "spacer",
+        "group": "42a4c0fb14084e42",
+        "order": 5,
+        "width": 1,
+        "height": 1
+    },
+    {
+        "id": "87d5942f9aa1d2ed",
+        "type": "inject",
+        "z": "54d6f73ec3b6c331",
+        "name": "Sunday at 2:05 AM",
+        "props": [
+            {
+                "p": "payload"
+            },
+            {
+                "p": "topic",
+                "vt": "str"
+            }
+        ],
+        "repeat": "",
+        "crontab": "05 02 * * 0",
+        "once": false,
+        "onceDelay": 0.1,
+        "topic": "",
+        "payload": "",
+        "payloadType": "date",
+        "x": 260,
+        "y": 120,
+        "wires": [
+            [
+                "6f4b38a37fc3b35f"
+            ]
+        ]
+    },
+    {
+        "id": "925ed6a575cc4653",
+        "type": "comment",
+        "z": "54d6f73ec3b6c331",
+        "name": "Backup Slow Control Data and Build Image to Dropbox",
+        "info": "",
+        "x": 360,
+        "y": 80,
+        "wires": []
+    },
+    {
+        "id": "6f4b38a37fc3b35f",
+        "type": "dropbox out",
+        "z": "54d6f73ec3b6c331",
+        "dropbox": "e0c023145660dfe6",
+        "filename": "/Apps/xbox-server-backup/backup_7.tar.gz",
+        "localFilename": "/backups/rolling/backup_7.tar.gz",
+        "name": "Dropbox",
+        "x": 460,
+        "y": 120,
+        "wires": []
+    },
+    {
+        "id": "96bfd968d9daa41d",
+        "type": "mqtt in",
+        "z": "ce7a7a024a123f31",
+        "name": "",
+        "topic": "sensor/temperature",
+        "qos": "2",
+        "datatype": "auto-detect",
+        "broker": "ce01d54b36ea5d40",
+        "nl": false,
+        "rap": true,
+        "rh": 0,
+        "inputs": 0,
+        "x": 230,
+        "y": 120,
+        "wires": [
+            [
+                "e5155679519c705c"
+            ]
+        ]
+    },
+    {
+        "id": "7149a5d5719f8bb7",
+        "type": "mqtt in",
+        "z": "ce7a7a024a123f31",
+        "name": "",
+        "topic": "sensor/humidity",
+        "qos": "2",
+        "datatype": "auto-detect",
+        "broker": "ce01d54b36ea5d40",
+        "nl": false,
+        "rap": true,
+        "rh": 0,
+        "inputs": 0,
+        "x": 220,
+        "y": 180,
+        "wires": [
+            [
+                "febab3273a7e0ed1"
+            ]
+        ]
+    },
+    {
+        "id": "dca8c571164aa1d2",
+        "type": "mqtt in",
+        "z": "ce7a7a024a123f31",
+        "name": "",
+        "topic": "sensor/ch0_voltage",
+        "qos": "2",
+        "datatype": "auto-detect",
+        "broker": "ce01d54b36ea5d40",
+        "nl": false,
+        "rap": true,
+        "rh": 0,
+        "inputs": 0,
+        "x": 230,
+        "y": 300,
+        "wires": [
+            [
+                "6352db51c73d6dd6"
+            ]
+        ]
+    },
+    {
+        "id": "e440739ccac2a42d",
+        "type": "mqtt in",
+        "z": "ce7a7a024a123f31",
+        "name": "",
+        "topic": "sensor/ch0_pressure",
+        "qos": "2",
+        "datatype": "auto-detect",
+        "broker": "ce01d54b36ea5d40",
+        "nl": false,
+        "rap": true,
+        "rh": 0,
+        "inputs": 0,
+        "x": 240,
+        "y": 360,
+        "wires": [
+            [
+                "469bc7cab68e6ecf"
+            ]
+        ]
+    },
+    {
+        "id": "d62cf53483bb3867",
+        "type": "mqtt in",
+        "z": "ce7a7a024a123f31",
+        "name": "",
+        "topic": "sensor/ch1_voltage",
+        "qos": "2",
+        "datatype": "auto-detect",
+        "broker": "ce01d54b36ea5d40",
+        "nl": false,
+        "rap": true,
+        "rh": 0,
+        "inputs": 0,
+        "x": 230,
+        "y": 480,
+        "wires": [
+            [
+                "f596ad5394c421c0"
+            ]
+        ]
+    },
+    {
+        "id": "56d560c4aae9313e",
+        "type": "mqtt in",
+        "z": "ce7a7a024a123f31",
+        "name": "",
+        "topic": "sensor/ch1_pressure",
+        "qos": "2",
+        "datatype": "auto-detect",
+        "broker": "ce01d54b36ea5d40",
+        "nl": false,
+        "rap": true,
+        "rh": 0,
+        "inputs": 0,
+        "x": 240,
+        "y": 540,
+        "wires": [
+            [
+                "17edcf4b88afe988"
+            ]
+        ]
+    },
+    {
+        "id": "f4d8c6a89723b72c",
+        "type": "mqtt in",
+        "z": "ce7a7a024a123f31",
+        "name": "",
+        "topic": "sensor/ch2_voltage",
+        "qos": "2",
+        "datatype": "auto-detect",
+        "broker": "ce01d54b36ea5d40",
+        "nl": false,
+        "rap": true,
+        "rh": 0,
+        "inputs": 0,
+        "x": 230,
+        "y": 780,
+        "wires": [
+            [
+                "f4ce96cdfa1ae58e"
+            ]
+        ]
+    },
+    {
+        "id": "c1be1cf42c6a54d4",
+        "type": "mqtt in",
+        "z": "ce7a7a024a123f31",
+        "name": "",
+        "topic": "sensor/ch2_pressure",
+        "qos": "2",
+        "datatype": "auto-detect",
+        "broker": "ce01d54b36ea5d40",
+        "nl": false,
+        "rap": true,
+        "rh": 0,
+        "inputs": 0,
+        "x": 240,
+        "y": 840,
+        "wires": [
+            [
+                "9e2256dbce11f361"
+            ]
+        ]
+    },
+    {
+        "id": "81964c2b8885a72e",
+        "type": "comment",
+        "z": "ce7a7a024a123f31",
+        "name": "DHT11 Sensor",
+        "info": "",
+        "x": 220,
+        "y": 80,
+        "wires": []
+    },
+    {
+        "id": "09d18bdfeaeba4cb",
+        "type": "comment",
+        "z": "ce7a7a024a123f31",
+        "name": "Setra 225 Sensor",
+        "info": "",
+        "x": 220,
+        "y": 260,
+        "wires": []
+    },
+    {
+        "id": "2ba4cf953e02e804",
+        "type": "comment",
+        "z": "ce7a7a024a123f31",
+        "name": "Setra 225 Sensor",
+        "info": "",
+        "x": 220,
+        "y": 440,
+        "wires": []
+    },
+    {
+        "id": "f73cd58b54919b63",
+        "type": "comment",
+        "z": "ce7a7a024a123f31",
+        "name": "PTR 90 Sensor",
+        "info": "",
+        "x": 220,
+        "y": 740,
+        "wires": []
+    },
+    {
+        "id": "e5155679519c705c",
+        "type": "influxdb out",
+        "z": "ce7a7a024a123f31",
+        "influxdb": "955e7bee30bdb2de",
+        "name": "Ambient Temperature (DHT11)",
+        "measurement": "Ambient Temperature (DHT11)",
+        "precision": "",
+        "retentionPolicy": "",
+        "database": "database",
+        "precisionV18FluxV20": "ms",
+        "retentionPolicyV18Flux": "",
+        "org": "xbox-server",
+        "bucket": "Gas Handling System",
+        "x": 610,
+        "y": 120,
+        "wires": []
+    },
+    {
+        "id": "febab3273a7e0ed1",
+        "type": "influxdb out",
+        "z": "ce7a7a024a123f31",
+        "influxdb": "955e7bee30bdb2de",
+        "name": "Ambient Humidity (DHT11)",
+        "measurement": "Ambient Humidity (DHT11)",
+        "precision": "",
+        "retentionPolicy": "",
+        "database": "database",
+        "precisionV18FluxV20": "ms",
+        "retentionPolicyV18Flux": "",
+        "org": "xbox-server",
+        "bucket": "Gas Handling System",
+        "x": 600,
+        "y": 180,
+        "wires": []
+    },
+    {
+        "id": "6352db51c73d6dd6",
+        "type": "influxdb out",
+        "z": "ce7a7a024a123f31",
+        "influxdb": "955e7bee30bdb2de",
+        "name": "ADC0",
+        "measurement": "ADC0",
+        "precision": "",
+        "retentionPolicy": "",
+        "database": "database",
+        "precisionV18FluxV20": "ms",
+        "retentionPolicyV18Flux": "",
+        "org": "xbox-server",
+        "bucket": "Gas Handling System",
+        "x": 530,
+        "y": 300,
+        "wires": []
+    },
+    {
+        "id": "469bc7cab68e6ecf",
+        "type": "influxdb out",
+        "z": "ce7a7a024a123f31",
+        "influxdb": "955e7bee30bdb2de",
+        "name": "Setra 225 - Fill Line",
+        "measurement": "Setra 225 - Fill Line",
+        "precision": "",
+        "retentionPolicy": "",
+        "database": "database",
+        "precisionV18FluxV20": "ms",
+        "retentionPolicyV18Flux": "",
+        "org": "xbox-server",
+        "bucket": "Gas Handling System",
+        "x": 570,
+        "y": 360,
+        "wires": []
+    },
+    {
+        "id": "f596ad5394c421c0",
+        "type": "influxdb out",
+        "z": "ce7a7a024a123f31",
+        "influxdb": "955e7bee30bdb2de",
+        "name": "ADC1",
+        "measurement": "ADC1",
+        "precision": "",
+        "retentionPolicy": "",
+        "database": "database",
+        "precisionV18FluxV20": "ms",
+        "retentionPolicyV18Flux": "",
+        "org": "xbox-server",
+        "bucket": "Gas Handling System",
+        "x": 530,
+        "y": 480,
+        "wires": []
+    },
+    {
+        "id": "17edcf4b88afe988",
+        "type": "influxdb out",
+        "z": "ce7a7a024a123f31",
+        "influxdb": "955e7bee30bdb2de",
+        "name": "Setra 225 - Xenon Bottle",
+        "measurement": "Setra 225 - Xenon Bottle",
+        "precision": "",
+        "retentionPolicy": "",
+        "database": "database",
+        "precisionV18FluxV20": "ms",
+        "retentionPolicyV18Flux": "",
+        "org": "xbox-server",
+        "bucket": "Gas Handling System",
+        "x": 590,
+        "y": 540,
+        "wires": []
+    },
+    {
+        "id": "f4ce96cdfa1ae58e",
+        "type": "influxdb out",
+        "z": "ce7a7a024a123f31",
+        "influxdb": "955e7bee30bdb2de",
+        "name": "ADC2",
+        "measurement": "ADC2",
+        "precision": "",
+        "retentionPolicy": "",
+        "database": "database",
+        "precisionV18FluxV20": "ms",
+        "retentionPolicyV18Flux": "",
+        "org": "xbox-server",
+        "bucket": "Gas Handling System",
+        "x": 530,
+        "y": 780,
+        "wires": []
+    },
+    {
+        "id": "9e2256dbce11f361",
+        "type": "influxdb out",
+        "z": "ce7a7a024a123f31",
+        "influxdb": "955e7bee30bdb2de",
+        "name": "PTR 90 - Xenon Cart",
+        "measurement": "PTR 90 - Xenon Cart",
+        "precision": "",
+        "retentionPolicy": "",
+        "database": "database",
+        "precisionV18FluxV20": "ms",
+        "retentionPolicyV18Flux": "",
+        "org": "xbox-server",
+        "bucket": "Gas Handling System",
+        "x": 580,
+        "y": 840,
+        "wires": []
+    },
+    {
+        "id": "3a0e685a551e4e02",
+        "type": "mqtt in",
+        "z": "ce7a7a024a123f31",
+        "name": "",
+        "topic": "sensor/ch3_voltage",
+        "qos": "2",
+        "datatype": "auto-detect",
+        "broker": "ce01d54b36ea5d40",
+        "nl": false,
+        "rap": true,
+        "rh": 0,
+        "inputs": 0,
+        "x": 230,
+        "y": 960,
+        "wires": [
+            [
+                "b41a7b7ffd7c7de2"
+            ]
+        ]
+    },
+    {
+        "id": "cbda4c16a538f74e",
+        "type": "mqtt in",
+        "z": "ce7a7a024a123f31",
+        "name": "",
+        "topic": "sensor/ch3_pressure",
+        "qos": "2",
+        "datatype": "auto-detect",
+        "broker": "ce01d54b36ea5d40",
+        "nl": false,
+        "rap": true,
+        "rh": 0,
+        "inputs": 0,
+        "x": 240,
+        "y": 1020,
+        "wires": [
+            [
+                "594b9ae31e430b85"
+            ]
+        ]
+    },
+    {
+        "id": "a8777ac210706dbd",
+        "type": "comment",
+        "z": "ce7a7a024a123f31",
+        "name": "PTR 90 Sensor",
+        "info": "",
+        "x": 220,
+        "y": 920,
+        "wires": []
+    },
+    {
+        "id": "b41a7b7ffd7c7de2",
+        "type": "influxdb out",
+        "z": "ce7a7a024a123f31",
+        "influxdb": "955e7bee30bdb2de",
+        "name": "ADC3",
+        "measurement": "ADC2",
+        "precision": "",
+        "retentionPolicy": "",
+        "database": "database",
+        "precisionV18FluxV20": "ms",
+        "retentionPolicyV18Flux": "",
+        "org": "xbox-server",
+        "bucket": "Gas Handling System",
+        "x": 530,
+        "y": 960,
+        "wires": []
+    },
+    {
+        "id": "594b9ae31e430b85",
+        "type": "influxdb out",
+        "z": "ce7a7a024a123f31",
+        "influxdb": "955e7bee30bdb2de",
+        "name": "PTR 90 - Outer Chamber",
+        "measurement": "PTR 90 - Outer Chamber",
+        "precision": "",
+        "retentionPolicy": "",
+        "database": "database",
+        "precisionV18FluxV20": "ms",
+        "retentionPolicyV18Flux": "",
+        "org": "xbox-server",
+        "bucket": "Gas Handling System",
+        "x": 590,
+        "y": 1020,
+        "wires": []
+    },
+    {
+        "id": "05d74f651fb2b043",
+        "type": "mqtt in",
+        "z": "ce7a7a024a123f31",
+        "name": "",
+        "topic": "sensor/ch4_voltage",
+        "qos": "2",
+        "datatype": "auto-detect",
+        "broker": "ce01d54b36ea5d40",
+        "nl": false,
+        "rap": true,
+        "rh": 0,
+        "inputs": 0,
+        "x": 230,
+        "y": 1140,
+        "wires": [
+            [
+                "72ba932f3b68a086"
+            ]
+        ]
+    },
+    {
+        "id": "0d8590116e79cf9b",
+        "type": "comment",
+        "z": "ce7a7a024a123f31",
+        "name": "Ballast Level Sensor",
+        "info": "",
+        "x": 230,
+        "y": 1100,
+        "wires": []
+    },
+    {
+        "id": "72ba932f3b68a086",
+        "type": "influxdb out",
+        "z": "ce7a7a024a123f31",
+        "influxdb": "955e7bee30bdb2de",
+        "name": "ADC4",
+        "measurement": "ADC4",
+        "precision": "",
+        "retentionPolicy": "",
+        "database": "database",
+        "precisionV18FluxV20": "ms",
+        "retentionPolicyV18Flux": "",
+        "org": "xbox-server",
+        "bucket": "Gas Handling System",
+        "x": 530,
+        "y": 1140,
+        "wires": []
+    },
+    {
+        "id": "b689e3c4dfa3d250",
+        "type": "mqtt in",
+        "z": "ce7a7a024a123f31",
+        "name": "",
+        "topic": "sensor/ch5_voltage",
+        "qos": "2",
+        "datatype": "auto-detect",
+        "broker": "ce01d54b36ea5d40",
+        "nl": false,
+        "rap": true,
+        "rh": 0,
+        "inputs": 0,
+        "x": 230,
+        "y": 1260,
+        "wires": [
+            [
+                "16efd3c5e791f8f4"
+            ]
+        ]
+    },
+    {
+        "id": "c2dba65b5918ca46",
+        "type": "comment",
+        "z": "ce7a7a024a123f31",
+        "name": "Bottle Level Sensor",
+        "info": "",
+        "x": 230,
+        "y": 1220,
+        "wires": []
+    },
+    {
+        "id": "16efd3c5e791f8f4",
+        "type": "influxdb out",
+        "z": "ce7a7a024a123f31",
+        "influxdb": "955e7bee30bdb2de",
+        "name": "ADC5",
+        "measurement": "ADC5",
+        "precision": "",
+        "retentionPolicy": "",
+        "database": "database",
+        "precisionV18FluxV20": "ms",
+        "retentionPolicyV18Flux": "",
+        "org": "xbox-server",
+        "bucket": "Gas Handling System",
+        "x": 530,
+        "y": 1260,
+        "wires": []
+    },
+    {
+        "id": "16be6fb3e9a5f424",
+        "type": "mqtt in",
+        "z": "ce7a7a024a123f31",
+        "name": "",
+        "topic": "sensor/bmp_temperature",
+        "qos": "2",
+        "datatype": "auto-detect",
+        "broker": "ce01d54b36ea5d40",
+        "nl": false,
+        "rap": true,
+        "rh": 0,
+        "inputs": 0,
+        "x": 250,
+        "y": 1380,
+        "wires": [
+            [
+                "2788df889687f756"
+            ]
+        ]
+    },
+    {
+        "id": "85dec76a93156878",
+        "type": "mqtt in",
+        "z": "ce7a7a024a123f31",
+        "name": "",
+        "topic": "sensor/bmp_pressure",
+        "qos": "2",
+        "datatype": "auto-detect",
+        "broker": "ce01d54b36ea5d40",
+        "nl": false,
+        "rap": true,
+        "rh": 0,
+        "inputs": 0,
+        "x": 240,
+        "y": 1440,
+        "wires": [
+            [
+                "4038b00c89e66141"
+            ]
+        ]
+    },
+    {
+        "id": "9b019a8f7d83765e",
+        "type": "comment",
+        "z": "ce7a7a024a123f31",
+        "name": "BMP3XX Sensor",
+        "info": "",
+        "x": 220,
+        "y": 1340,
+        "wires": []
+    },
+    {
+        "id": "2788df889687f756",
+        "type": "influxdb out",
+        "z": "ce7a7a024a123f31",
+        "influxdb": "955e7bee30bdb2de",
+        "name": "Ambient Temperature (BMP)",
+        "measurement": "Ambient Temperature (BMP)",
+        "precision": "",
+        "retentionPolicy": "",
+        "database": "database",
+        "precisionV18FluxV20": "ms",
+        "retentionPolicyV18Flux": "",
+        "org": "xbox-server",
+        "bucket": "Gas Handling System",
+        "x": 600,
+        "y": 1380,
+        "wires": []
+    },
+    {
+        "id": "4038b00c89e66141",
+        "type": "influxdb out",
+        "z": "ce7a7a024a123f31",
+        "influxdb": "955e7bee30bdb2de",
+        "name": "Ambient Pressure (BMP)",
+        "measurement": "Ambient Pressure (BMP)",
+        "precision": "",
+        "retentionPolicy": "",
+        "database": "database",
+        "precisionV18FluxV20": "ms",
+        "retentionPolicyV18Flux": "",
+        "org": "xbox-server",
+        "bucket": "Gas Handling System",
+        "x": 590,
+        "y": 1440,
+        "wires": []
+    },
+    {
+        "id": "8244511af2d74d49",
+        "type": "comment",
+        "z": "ce7a7a024a123f31",
+        "name": "Setra 225 - 4L Xe Bottle Pressure",
+        "info": "",
+        "x": 270,
+        "y": 600,
+        "wires": []
+    },
+    {
+        "id": "8df31ad2d7044640",
+        "type": "mqtt in",
+        "z": "ce7a7a024a123f31",
+        "name": "",
+        "topic": "sensor/ch6_voltage",
+        "qos": "2",
+        "datatype": "auto-detect",
+        "broker": "ce01d54b36ea5d40",
+        "nl": false,
+        "rap": true,
+        "rh": 0,
+        "inputs": 0,
+        "x": 230,
+        "y": 640,
+        "wires": [
+            [
+                "e84a44e7a6896917",
+                "af0a3313e018af5c"
+            ]
+        ]
+    },
+    {
+        "id": "8d459792e2209b8c",
+        "type": "mqtt in",
+        "z": "ce7a7a024a123f31",
+        "name": "",
+        "topic": "sensor/ch6_pressure",
+        "qos": "2",
+        "datatype": "auto-detect",
+        "broker": "ce01d54b36ea5d40",
+        "nl": false,
+        "rap": true,
+        "rh": 0,
+        "inputs": 0,
+        "x": 240,
+        "y": 700,
+        "wires": [
+            [
+                "6872aed7fa36b8fa",
+                "af0a3313e018af5c"
+            ]
+        ]
+    },
+    {
+        "id": "e84a44e7a6896917",
+        "type": "influxdb out",
+        "z": "ce7a7a024a123f31",
+        "influxdb": "955e7bee30bdb2de",
+        "name": "ADC 6",
+        "measurement": "ADC6",
+        "precision": "",
+        "retentionPolicy": "",
+        "database": "database",
+        "precisionV18FluxV20": "ms",
+        "retentionPolicyV18Flux": "",
+        "org": "xbox-server",
+        "bucket": "Gas Handling System",
+        "x": 530,
+        "y": 640,
+        "wires": []
+    },
+    {
+        "id": "6872aed7fa36b8fa",
+        "type": "influxdb out",
+        "z": "ce7a7a024a123f31",
+        "influxdb": "955e7bee30bdb2de",
+        "name": "Setra 225 - 4L Xe Bottle ",
+        "measurement": "Setra 225 - 4L Xenon Bottle",
+        "precision": "",
+        "retentionPolicy": "",
+        "database": "database",
+        "precisionV18FluxV20": "ms",
+        "retentionPolicyV18Flux": "",
+        "org": "xbox-server",
+        "bucket": "Gas Handling System",
+        "x": 590,
+        "y": 700,
+        "wires": []
+    },
+    {
+        "id": "af0a3313e018af5c",
+        "type": "debug",
+        "z": "ce7a7a024a123f31",
+        "name": "debug 4",
+        "active": false,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "false",
+        "statusVal": "",
+        "statusType": "auto",
+        "x": 760,
+        "y": 640,
+        "wires": []
+    },
+    {
+        "id": "7c1ae28f15f8b982",
+        "type": "mqtt in",
+        "z": "a68e762a14e25990",
+        "name": "PLC RTD",
+        "topic": "PLC RTD",
+        "qos": "2",
+        "datatype": "auto-detect",
+        "broker": "ce01d54b36ea5d40",
+        "nl": false,
+        "rap": true,
+        "rh": 0,
+        "inputs": 0,
+        "x": 240,
+        "y": 120,
+        "wires": [
+            [
+                "613a02ac945921b6"
+            ]
+        ]
+    },
+    {
+        "id": "613a02ac945921b6",
+        "type": "function",
+        "z": "a68e762a14e25990",
+        "name": "Parse RTD",
+        "func": "const C2K = 273.15;\n\nmsg.payload = [\n    {\n        measurement: \"RTD\", // name of your measurement in Influx\n        fields: {\n            RTD1_C: parseFloat(msg.payload.RTD1),\n            RTD1_K: parseFloat(msg.payload.RTD1 + C2K),\n            RTD2_C: parseFloat(msg.payload.RTD2),\n            RTD2_K: parseFloat(msg.payload.RTD2 + C2K),\n            RTD3_C: parseFloat(msg.payload.RTD3),\n            RTD3_K: parseFloat(msg.payload.RTD3 + C2K),\n            RTD4_C: parseFloat(msg.payload.RTD4),\n            RTD4_K: parseFloat(msg.payload.RTD4 + C2K)\n        },\n    }\n];\n\nreturn msg;\n",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 490,
+        "y": 120,
+        "wires": [
+            [
+                "2c48c8e2d4fa0ca7",
+                "753749a2ea5a5dac"
+            ]
+        ]
+    },
+    {
+        "id": "2c48c8e2d4fa0ca7",
+        "type": "influxdb batch",
+        "z": "a68e762a14e25990",
+        "influxdb": "955e7bee30bdb2de",
+        "precision": "",
+        "retentionPolicy": "",
+        "name": "",
+        "database": "database",
+        "precisionV18FluxV20": "ms",
+        "retentionPolicyV18Flux": "",
+        "org": "xbox-server",
+        "bucket": "Cryostat",
+        "x": 840,
+        "y": 300,
+        "wires": []
+    },
+    {
+        "id": "bc88cf43c48a4777",
+        "type": "mqtt in",
+        "z": "a68e762a14e25990",
+        "name": "",
+        "topic": "PLC XV1",
+        "qos": "2",
+        "datatype": "auto-detect",
+        "broker": "ce01d54b36ea5d40",
+        "nl": false,
+        "rap": true,
+        "rh": 0,
+        "inputs": 0,
+        "x": 240,
+        "y": 180,
+        "wires": [
+            [
+                "e832185e89291f07"
+            ]
+        ]
+    },
+    {
+        "id": "e832185e89291f07",
+        "type": "function",
+        "z": "a68e762a14e25990",
+        "name": "Parse XV1",
+        "func": "msg.payload = [\n    {\n        measurement: \"XV1\",\n        fields: {\n            Y001: msg.payload.Y001,\n            X001: msg.payload.X001,\n            C1001: msg.payload.C1001,\n            DS1001: msg.payload.DS1001,\n            DS1002: msg.payload.DS1002,\n            DS1101: msg.payload.DS1101,\n            DS1102: msg.payload.DS1102\n        }\n    }\n];\n\nreturn msg;",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 490,
+        "y": 180,
+        "wires": [
+            [
+                "2c48c8e2d4fa0ca7"
+            ]
+        ]
+    },
+    {
+        "id": "75e5cc924dcd92f0",
+        "type": "mqtt in",
+        "z": "a68e762a14e25990",
+        "name": "",
+        "topic": "PLC XV2",
+        "qos": "2",
+        "datatype": "auto-detect",
+        "broker": "ce01d54b36ea5d40",
+        "nl": false,
+        "rap": true,
+        "rh": 0,
+        "inputs": 0,
+        "x": 240,
+        "y": 240,
+        "wires": [
+            [
+                "f8d067f199765b81"
+            ]
+        ]
+    },
+    {
+        "id": "a165696bce3ef8ee",
+        "type": "mqtt in",
+        "z": "a68e762a14e25990",
+        "name": "",
+        "topic": "PLC XV3",
+        "qos": "2",
+        "datatype": "auto-detect",
+        "broker": "ce01d54b36ea5d40",
+        "nl": false,
+        "rap": true,
+        "rh": 0,
+        "inputs": 0,
+        "x": 240,
+        "y": 300,
+        "wires": [
+            [
+                "f2b855bc912ca401"
+            ]
+        ]
+    },
+    {
+        "id": "f8d067f199765b81",
+        "type": "function",
+        "z": "a68e762a14e25990",
+        "name": "Parse XV2",
+        "func": "msg.payload = [\n    {\n        measurement: \"XV2\",\n        fields: {\n            Y002: msg.payload.Y002,\n            X002: msg.payload.X002,\n            C1002: msg.payload.C1002,\n            DS1003: msg.payload.DS1003,\n            DS1004: msg.payload.DS1004,\n            DS1103: msg.payload.DS1103,\n            DS1104: msg.payload.DS1104\n        }\n    }\n];\n\nreturn msg;",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 490,
+        "y": 240,
+        "wires": [
+            [
+                "2c48c8e2d4fa0ca7"
+            ]
+        ]
+    },
+    {
+        "id": "f2b855bc912ca401",
+        "type": "function",
+        "z": "a68e762a14e25990",
+        "name": "Parse XV3",
+        "func": "msg.payload = [\n    {\n        measurement: \"XV3\",\n        fields: {\n            Y003: msg.payload.Y003,\n            X003: msg.payload.X003,\n            C1003: msg.payload.C1003,\n            DS1005: msg.payload.DS1005,\n            DS1006: msg.payload.DS1006,\n            DS1105: msg.payload.DS1105,\n            DS1106: msg.payload.DS1106\n        }\n    }\n];\n\nreturn msg;",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 490,
+        "y": 300,
+        "wires": [
+            [
+                "2c48c8e2d4fa0ca7"
+            ]
+        ]
+    },
+    {
+        "id": "952e4f18b76937cf",
+        "type": "mqtt in",
+        "z": "a68e762a14e25990",
+        "name": "",
+        "topic": "PLC ADC",
+        "qos": "2",
+        "datatype": "auto-detect",
+        "broker": "ce01d54b36ea5d40",
+        "nl": false,
+        "rap": true,
+        "rh": 0,
+        "inputs": 0,
+        "x": 240,
+        "y": 360,
+        "wires": [
+            [
+                "0c4ec1f9e3c00a54"
+            ]
+        ]
+    },
+    {
+        "id": "0c4ec1f9e3c00a54",
+        "type": "function",
+        "z": "a68e762a14e25990",
+        "name": "Parse ADC",
+        "func": "msg.payload = [\n    {\n        measurement: \"PLC_ADC\", // name of your measurement in Influx\n        fields: {\n            ADC3_raw: parseFloat(msg.payload.ADC3_raw),\n            ADC3_filt: parseFloat(msg.payload.ADC3_filt)\n        },\n    }\n];\n\nreturn msg;",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 490,
+        "y": 360,
+        "wires": [
+            [
+                "2c48c8e2d4fa0ca7"
+            ]
+        ]
+    },
+    {
+        "id": "5d891b29407a7ec8",
+        "type": "mqtt in",
+        "z": "a68e762a14e25990",
+        "name": "",
+        "topic": "PLC PID1",
+        "qos": "2",
+        "datatype": "auto-detect",
+        "broker": "ce01d54b36ea5d40",
+        "nl": false,
+        "rap": true,
+        "rh": 0,
+        "inputs": 0,
+        "x": 240,
+        "y": 420,
+        "wires": [
+            [
+                "d0020f50dcfd66a4"
+            ]
+        ]
+    },
+    {
+        "id": "d0020f50dcfd66a4",
+        "type": "function",
+        "z": "a68e762a14e25990",
+        "name": "Parse PID1",
+        "func": "msg.payload = [\n    {\n        measurement: \"PLC_PID1\", // name of your measurement in Influx\n        fields: {\n            PID1_SP: parseFloat(msg.payload.PID1_SP),\n            PID1_Kp: parseFloat(msg.payload.PID1_Kp),\n            PID1_Ki: parseFloat(msg.payload.PID1_Ki),\n            PID1_Kd: parseFloat(msg.payload.PID1_Kd),\n            PID1_PV: parseFloat(msg.payload.PID1_PV),\n            PID1_rawPV: parseFloat(msg.payload.PID1_rawPV),\n            PID1_Bias: parseFloat(msg.payload.PID1_Bias),\n            PID1_Output: parseFloat(msg.payload.PID1_Output)\n        },\n    }\n];\n\nreturn msg;",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 490,
+        "y": 420,
+        "wires": [
+            [
+                "2c48c8e2d4fa0ca7"
+            ]
+        ]
+    },
+    {
+        "id": "1380bce64d9d4f88",
+        "type": "mqtt in",
+        "z": "a68e762a14e25990",
+        "name": "",
+        "topic": "PLC PID2",
+        "qos": "2",
+        "datatype": "auto-detect",
+        "broker": "ce01d54b36ea5d40",
+        "nl": false,
+        "rap": true,
+        "rh": 0,
+        "inputs": 0,
+        "x": 240,
+        "y": 480,
+        "wires": [
+            [
+                "2adf118f2d680e5a"
+            ]
+        ]
+    },
+    {
+        "id": "e4a28fd7cebe168c",
+        "type": "mqtt in",
+        "z": "a68e762a14e25990",
+        "name": "",
+        "topic": "PLC PID3",
+        "qos": "2",
+        "datatype": "auto-detect",
+        "broker": "ce01d54b36ea5d40",
+        "nl": false,
+        "rap": true,
+        "rh": 0,
+        "inputs": 0,
+        "x": 240,
+        "y": 540,
+        "wires": [
+            [
+                "e8df71cd438afaab"
+            ]
+        ]
+    },
+    {
+        "id": "2adf118f2d680e5a",
+        "type": "function",
+        "z": "a68e762a14e25990",
+        "name": "Parse PID2",
+        "func": "msg.payload = [\n    {\n        measurement: \"PLC_PID2\", // name of your measurement in Influx\n        fields: {\n            PID2_SP: parseFloat(msg.payload.PID2_SP),\n            PID2_Kp: parseFloat(msg.payload.PID2_Kp),\n            PID2_Ki: parseFloat(msg.payload.PID2_Ki),\n            PID2_Kd: parseFloat(msg.payload.PID2_Kd),\n            PID2_PV: parseFloat(msg.payload.PID2_PV),\n            PID2_rawPV: parseFloat(msg.payload.PID2_rawPV),\n            PID2_Bias: parseFloat(msg.payload.PID2_Bias),\n            PID2_Output: parseFloat(msg.payload.PID2_Output)\n        },\n    }\n];\n\nreturn msg;",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 490,
+        "y": 480,
+        "wires": [
+            [
+                "2c48c8e2d4fa0ca7"
+            ]
+        ]
+    },
+    {
+        "id": "e8df71cd438afaab",
+        "type": "function",
+        "z": "a68e762a14e25990",
+        "name": "Parse PID3",
+        "func": "msg.payload = [\n    {\n        measurement: \"PLC_PID3\", // name of your measurement in Influx\n        fields: {\n            PID3_SP: parseFloat(msg.payload.PID3_SP),\n            PID3_Kp: parseFloat(msg.payload.PID3_Kp),\n            PID3_Ki: parseFloat(msg.payload.PID3_Ki),\n            PID3_Kd: parseFloat(msg.payload.PID3_Kd),\n            PID3_PV: parseFloat(msg.payload.PID3_PV),\n            PID3_rawPV: parseFloat(msg.payload.PID3_rawPV),\n            PID3_Bias: parseFloat(msg.payload.PID3_Bias),\n            PID3_Output: parseFloat(msg.payload.PID3_Output)\n        },\n    }\n];\n\nreturn msg;",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 490,
+        "y": 540,
+        "wires": [
+            [
+                "2c48c8e2d4fa0ca7"
+            ]
+        ]
+    },
+    {
+        "id": "753749a2ea5a5dac",
+        "type": "debug",
+        "z": "a68e762a14e25990",
+        "name": "debug 6",
+        "active": true,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "false",
+        "statusVal": "",
+        "statusType": "auto",
+        "x": 820,
+        "y": 120,
+        "wires": []
+    },
+    {
+        "id": "b8df7608d52b92f0",
+        "type": "mqtt out",
+        "z": "57ac4c072ce478f6",
+        "name": "Status out",
+        "topic": "RDXL6SD/status",
+        "qos": "",
+        "retain": "",
+        "respTopic": "",
+        "contentType": "",
+        "userProps": "",
+        "correl": "",
+        "expiry": "",
+        "broker": "ce01d54b36ea5d40",
+        "x": 440,
+        "y": 120,
+        "wires": []
+    },
+    {
+        "id": "3723c31c5c67d139",
+        "type": "inject",
+        "z": "57ac4c072ce478f6",
+        "name": "",
+        "props": [
+            {
+                "p": "payload"
+            },
+            {
+                "p": "topic",
+                "vt": "str"
+            }
+        ],
+        "repeat": "",
+        "crontab": "",
+        "once": true,
+        "onceDelay": 0.1,
+        "topic": "",
+        "payload": "true",
+        "payloadType": "bool",
+        "x": 130,
+        "y": 100,
+        "wires": [
+            [
+                "b8df7608d52b92f0"
+            ]
+        ]
+    },
+    {
+        "id": "9d568451eb3cdaad",
+        "type": "inject",
+        "z": "57ac4c072ce478f6",
+        "name": "",
+        "props": [
+            {
+                "p": "payload"
+            },
+            {
+                "p": "topic",
+                "vt": "str"
+            }
+        ],
+        "repeat": "",
+        "crontab": "",
+        "once": false,
+        "onceDelay": 0.1,
+        "topic": "",
+        "payload": "false",
+        "payloadType": "bool",
+        "x": 130,
+        "y": 140,
+        "wires": [
+            [
+                "b8df7608d52b92f0"
+            ]
+        ]
+    },
+    {
+        "id": "e42d44d5689613ee",
+        "type": "mqtt in",
+        "z": "57ac4c072ce478f6",
+        "name": "",
+        "topic": "RDXL6SD/temps",
+        "qos": "2",
+        "datatype": "auto-detect",
+        "broker": "ce01d54b36ea5d40",
+        "nl": false,
+        "rap": true,
+        "rh": 0,
+        "inputs": 0,
+        "x": 140,
+        "y": 300,
+        "wires": [
+            [
+                "7c6c029b64d15698",
+                "ea124f6fc79889c9"
+            ]
+        ]
+    },
+    {
+        "id": "7c6c029b64d15698",
+        "type": "function",
+        "z": "57ac4c072ce478f6",
+        "name": "Parse RDXL6SD",
+        "func": "if (\n    !msg.payload ||\n    !msg.payload.temps_c ||\n    !Array.isArray(msg.payload.temps_c) ||\n    msg.payload.temps_c.length === 0\n) {\n    return null; // Don't process the message if temps are missing or malformed\n}\n\n\nlet data = msg.payload;\n\n// If payload is still a string, parse it\nif (typeof data === \"string\") {\n    data = JSON.parse(data);\n}\n\nlet temps_c = data.temps_c;\nlet temps_k = data.temps_k;\n\n// Build InfluxDB points\nmsg.payload = [\n    {\n        measurement: \"RDXL6SD\",\n        fields: {\n            TC1_C: temps_c[0],\n            TC2_C: temps_c[1],\n            TC3_C: temps_c[2],\n            TC4_C: temps_c[3],\n            RTD5_C: temps_c[4],\n            RTD6_C: temps_c[5],\n            TC1_K: temps_k[0],\n            TC2_K: temps_k[1],\n            TC3_K: temps_k[2],\n            TC4_K: temps_k[3],\n            RTD5_K: temps_k[4],\n            RTD6_K: temps_k[5],\n        }\n    }\n];\n\nreturn msg;\n",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 390,
+        "y": 300,
+        "wires": [
+            [
+                "c6c233269b1f47b4",
+                "ea124f6fc79889c9"
+            ]
+        ]
+    },
+    {
+        "id": "c6c233269b1f47b4",
+        "type": "influxdb batch",
+        "z": "57ac4c072ce478f6",
+        "influxdb": "955e7bee30bdb2de",
+        "precision": "",
+        "retentionPolicy": "",
+        "name": "",
+        "database": "database",
+        "precisionV18FluxV20": "ms",
+        "retentionPolicyV18Flux": "",
+        "org": "xbox-server",
+        "bucket": "Cryostat",
+        "x": 680,
+        "y": 300,
+        "wires": []
+    },
+    {
+        "id": "ea124f6fc79889c9",
+        "type": "debug",
+        "z": "57ac4c072ce478f6",
+        "name": "debug 1",
+        "active": false,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "false",
+        "statusVal": "",
+        "statusType": "auto",
+        "x": 660,
+        "y": 220,
+        "wires": []
+    },
+    {
+        "id": "32df18f6b20d14d0",
+        "type": "mqtt out",
+        "z": "57ac4c072ce478f6",
+        "name": "Status out",
+        "topic": "RDXL6SD/status_1",
+        "qos": "",
+        "retain": "",
+        "respTopic": "",
+        "contentType": "",
+        "userProps": "",
+        "correl": "",
+        "expiry": "",
+        "broker": "ce01d54b36ea5d40",
+        "x": 440,
+        "y": 420,
+        "wires": []
+    },
+    {
+        "id": "5dbedc6f7edcfb5b",
+        "type": "inject",
+        "z": "57ac4c072ce478f6",
+        "name": "",
+        "props": [
+            {
+                "p": "payload"
+            },
+            {
+                "p": "topic",
+                "vt": "str"
+            }
+        ],
+        "repeat": "",
+        "crontab": "",
+        "once": true,
+        "onceDelay": 0.1,
+        "topic": "",
+        "payload": "true",
+        "payloadType": "bool",
+        "x": 130,
+        "y": 400,
+        "wires": [
+            [
+                "32df18f6b20d14d0"
+            ]
+        ]
+    },
+    {
+        "id": "b64f081d1acd9444",
+        "type": "inject",
+        "z": "57ac4c072ce478f6",
+        "name": "",
+        "props": [
+            {
+                "p": "payload"
+            },
+            {
+                "p": "topic",
+                "vt": "str"
+            }
+        ],
+        "repeat": "",
+        "crontab": "",
+        "once": false,
+        "onceDelay": 0.1,
+        "topic": "",
+        "payload": "false",
+        "payloadType": "bool",
+        "x": 130,
+        "y": 440,
+        "wires": [
+            [
+                "32df18f6b20d14d0"
+            ]
+        ]
+    },
+    {
+        "id": "615a9ce5a6d45710",
+        "type": "mqtt in",
+        "z": "57ac4c072ce478f6",
+        "name": "",
+        "topic": "RDXL6SD/temps_1",
+        "qos": "2",
+        "datatype": "auto-detect",
+        "broker": "ce01d54b36ea5d40",
+        "nl": false,
+        "rap": true,
+        "rh": 0,
+        "inputs": 0,
+        "x": 150,
+        "y": 560,
+        "wires": [
+            [
+                "c3164591a93eb7d5",
+                "3f81de7663a97559"
+            ]
+        ]
+    },
+    {
+        "id": "c3164591a93eb7d5",
+        "type": "function",
+        "z": "57ac4c072ce478f6",
+        "name": "Parse RDXL6SD",
+        "func": "if (\n    !msg.payload ||\n    !msg.payload.temps_c ||\n    !Array.isArray(msg.payload.temps_c) ||\n    msg.payload.temps_c.length === 0\n) {\n    return null; // Don't process the message if temps are missing or malformed\n}\n\n\nlet data = msg.payload;\n\n// If payload is still a string, parse it\nif (typeof data === \"string\") {\n    data = JSON.parse(data);\n}\n\nlet temps_c = data.temps_c;\nlet temps_k = data.temps_k;\n\n// Build InfluxDB points\nmsg.payload = [\n    {\n        measurement: \"RDXL6SD_1\",\n        fields: {\n            TC1_C: temps_c[0],\n            TC2_C: temps_c[1],\n            TC3_C: temps_c[2],\n            TC4_C: temps_c[3],\n            RTD5_C: temps_c[4],\n            RTD6_C: temps_c[5],\n            TC1_K: temps_k[0],\n            TC2_K: temps_k[1],\n            TC3_K: temps_k[2],\n            TC4_K: temps_k[3],\n            RTD5_K: temps_k[4],\n            RTD6_K: temps_k[5],\n        }\n    }\n];\n\nreturn msg;\n",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 390,
+        "y": 560,
+        "wires": [
+            [
+                "abf751625a9a0fee",
+                "3f81de7663a97559"
+            ]
+        ]
+    },
+    {
+        "id": "abf751625a9a0fee",
+        "type": "influxdb batch",
+        "z": "57ac4c072ce478f6",
+        "influxdb": "955e7bee30bdb2de",
+        "precision": "",
+        "retentionPolicy": "",
+        "name": "",
+        "database": "database",
+        "precisionV18FluxV20": "ms",
+        "retentionPolicyV18Flux": "",
+        "org": "xbox-server",
+        "bucket": "Cryostat",
+        "x": 680,
+        "y": 560,
+        "wires": []
+    },
+    {
+        "id": "3f81de7663a97559",
+        "type": "debug",
+        "z": "57ac4c072ce478f6",
+        "name": "debug 3",
+        "active": false,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "payload",
+        "targetType": "msg",
+        "statusVal": "",
+        "statusType": "auto",
+        "x": 660,
+        "y": 480,
+        "wires": []
+    },
+    {
+        "id": "140dff4b887a43a7",
+        "type": "mqtt in",
+        "z": "167b789b7a2c7236",
+        "name": "",
+        "topic": "nanosphere/ch0_voltage",
+        "qos": "2",
+        "datatype": "auto-detect",
+        "broker": "ce01d54b36ea5d40",
+        "nl": false,
+        "rap": true,
+        "rh": 0,
+        "inputs": 0,
+        "x": 270,
+        "y": 180,
+        "wires": [
+            [
+                "3fabf3fecc533125"
+            ]
+        ]
+    },
+    {
+        "id": "3fabf3fecc533125",
+        "type": "influxdb out",
+        "z": "167b789b7a2c7236",
+        "influxdb": "955e7bee30bdb2de",
+        "name": "",
+        "measurement": "ch0_voltage",
+        "precision": "",
+        "retentionPolicy": "",
+        "database": "database",
+        "precisionV18FluxV20": "ms",
+        "retentionPolicyV18Flux": "",
+        "org": "xbox-server",
+        "bucket": "Nanosphere",
+        "x": 580,
+        "y": 180,
+        "wires": []
+    },
+    {
+        "id": "07ad736824d9bd25",
+        "type": "mqtt in",
+        "z": "167b789b7a2c7236",
+        "name": "",
+        "topic": "nanosphere/ch1_voltage",
+        "qos": "2",
+        "datatype": "auto-detect",
+        "broker": "ce01d54b36ea5d40",
+        "nl": false,
+        "rap": true,
+        "rh": 0,
+        "inputs": 0,
+        "x": 270,
+        "y": 260,
+        "wires": [
+            [
+                "283cedd9827bd2af"
+            ]
+        ]
+    },
+    {
+        "id": "d6bb861e9214272c",
+        "type": "mqtt in",
+        "z": "167b789b7a2c7236",
+        "name": "",
+        "topic": "nanosphere/ch2_voltage",
+        "qos": "2",
+        "datatype": "auto-detect",
+        "broker": "ce01d54b36ea5d40",
+        "nl": false,
+        "rap": true,
+        "rh": 0,
+        "inputs": 0,
+        "x": 270,
+        "y": 340,
+        "wires": [
+            [
+                "e457fb72b8e8a41f"
+            ]
+        ]
+    },
+    {
+        "id": "8eb7bb3b8c891c70",
+        "type": "mqtt in",
+        "z": "167b789b7a2c7236",
+        "name": "",
+        "topic": "nanosphere/ch3_voltage",
+        "qos": "2",
+        "datatype": "auto-detect",
+        "broker": "ce01d54b36ea5d40",
+        "nl": false,
+        "rap": true,
+        "rh": 0,
+        "inputs": 0,
+        "x": 270,
+        "y": 420,
+        "wires": [
+            [
+                "4ad0884af9f1ba90"
+            ]
+        ]
+    },
+    {
+        "id": "283cedd9827bd2af",
+        "type": "influxdb out",
+        "z": "167b789b7a2c7236",
+        "influxdb": "955e7bee30bdb2de",
+        "name": "",
+        "measurement": "ch1_voltage",
+        "precision": "",
+        "retentionPolicy": "",
+        "database": "database",
+        "precisionV18FluxV20": "ms",
+        "retentionPolicyV18Flux": "",
+        "org": "xbox-server",
+        "bucket": "Nanosphere",
+        "x": 580,
+        "y": 260,
+        "wires": []
+    },
+    {
+        "id": "e457fb72b8e8a41f",
+        "type": "influxdb out",
+        "z": "167b789b7a2c7236",
+        "influxdb": "955e7bee30bdb2de",
+        "name": "",
+        "measurement": "ch2_voltage",
+        "precision": "",
+        "retentionPolicy": "",
+        "database": "database",
+        "precisionV18FluxV20": "ms",
+        "retentionPolicyV18Flux": "",
+        "org": "xbox-server",
+        "bucket": "Nanosphere",
+        "x": 580,
+        "y": 340,
+        "wires": []
+    },
+    {
+        "id": "4ad0884af9f1ba90",
+        "type": "influxdb out",
+        "z": "167b789b7a2c7236",
+        "influxdb": "955e7bee30bdb2de",
+        "name": "",
+        "measurement": "ch3_voltage",
+        "precision": "",
+        "retentionPolicy": "",
+        "database": "database",
+        "precisionV18FluxV20": "ms",
+        "retentionPolicyV18Flux": "",
+        "org": "xbox-server",
+        "bucket": "Nanosphere",
+        "x": 580,
+        "y": 420,
+        "wires": []
+    },
+    {
+        "id": "772d1d53c8a3b86f",
+        "type": "ui_button",
+        "z": "71760c349a0630ea",
+        "name": "",
+        "group": "2b478b23d9da69c2",
+        "order": 10,
+        "width": 3,
+        "height": 2,
+        "passthru": false,
+        "label": "Open XV1",
+        "tooltip": "",
+        "color": "",
+        "bgcolor": "green",
+        "className": "",
+        "icon": "",
+        "payload": "true",
+        "payloadType": "bool",
+        "topic": "valves/ds1001",
+        "topicType": "msg",
+        "x": 530,
+        "y": 420,
+        "wires": [
+            [
+                "880f6a5e37b0f655"
+            ]
+        ]
+    },
+    {
+        "id": "04c9266ce30af0fa",
+        "type": "ui_button",
+        "z": "71760c349a0630ea",
+        "name": "",
+        "group": "2b478b23d9da69c2",
+        "order": 11,
+        "width": 3,
+        "height": 2,
+        "passthru": false,
+        "label": "Close XV1",
+        "tooltip": "",
+        "color": "",
+        "bgcolor": "red",
+        "className": "",
+        "icon": "",
+        "payload": "false",
+        "payloadType": "bool",
+        "topic": "valves/ds1001",
+        "topicType": "msg",
+        "x": 530,
+        "y": 460,
+        "wires": [
+            [
+                "880f6a5e37b0f655"
+            ]
+        ]
+    },
+    {
+        "id": "1c9411664e4d1491",
+        "type": "ui_gauge",
+        "z": "71760c349a0630ea",
+        "name": "",
+        "group": "2b478b23d9da69c2",
+        "order": 1,
+        "width": 1,
+        "height": 1,
+        "gtype": "gage",
+        "title": "DS1001",
+        "label": "",
+        "format": "",
+        "min": 0,
+        "max": "1",
+        "colors": [
+            "#00b500",
+            "#e6e600",
+            "#ca3838"
+        ],
+        "seg1": "",
+        "seg2": "",
+        "diff": false,
+        "className": "",
+        "x": 800,
+        "y": 180,
+        "wires": []
+    },
+    {
+        "id": "08246123aadffe79",
+        "type": "ui_gauge",
+        "z": "71760c349a0630ea",
+        "name": "",
+        "group": "2b478b23d9da69c2",
+        "order": 2,
+        "width": 1,
+        "height": 1,
+        "gtype": "gage",
+        "title": "DS1002",
+        "label": "",
+        "format": "",
+        "min": 0,
+        "max": "1",
+        "colors": [
+            "#00b500",
+            "#e6e600",
+            "#ca3838"
+        ],
+        "seg1": "",
+        "seg2": "",
+        "diff": false,
+        "className": "",
+        "x": 800,
+        "y": 220,
+        "wires": []
+    },
+    {
+        "id": "19da98d874ba3e37",
+        "type": "ui_gauge",
+        "z": "71760c349a0630ea",
+        "name": "",
+        "group": "2b478b23d9da69c2",
+        "order": 3,
+        "width": 1,
+        "height": 1,
+        "gtype": "gage",
+        "title": "X001",
+        "label": "",
+        "format": "",
+        "min": 0,
+        "max": "1",
+        "colors": [
+            "#00b500",
+            "#e6e600",
+            "#ca3838"
+        ],
+        "seg1": "",
+        "seg2": "",
+        "diff": false,
+        "className": "",
+        "x": 790,
+        "y": 140,
+        "wires": []
+    },
+    {
+        "id": "9327652ec2d2bc1b",
+        "type": "ui_gauge",
+        "z": "71760c349a0630ea",
+        "name": "",
+        "group": "2b478b23d9da69c2",
+        "order": 4,
+        "width": 1,
+        "height": 1,
+        "gtype": "gage",
+        "title": "Y001",
+        "label": "",
+        "format": "",
+        "min": 0,
+        "max": "1",
+        "colors": [
+            "#00b500",
+            "#e6e600",
+            "#ca3838"
+        ],
+        "seg1": "",
+        "seg2": "",
+        "diff": false,
+        "className": "",
+        "x": 790,
+        "y": 100,
+        "wires": []
+    },
+    {
+        "id": "f763ae0385e0c7cf",
+        "type": "ui_gauge",
+        "z": "71760c349a0630ea",
+        "name": "",
+        "group": "2b478b23d9da69c2",
+        "order": 5,
+        "width": 1,
+        "height": 1,
+        "gtype": "gage",
+        "title": "C1001",
+        "label": "",
+        "format": "",
+        "min": 0,
+        "max": "1",
+        "colors": [
+            "#00b500",
+            "#e6e600",
+            "#ca3838"
+        ],
+        "seg1": "",
+        "seg2": "",
+        "diff": false,
+        "className": "",
+        "x": 790,
+        "y": 60,
+        "wires": []
+    },
+    {
+        "id": "9a331eb773a1e2d2",
+        "type": "ui_switch",
+        "z": "71760c349a0630ea",
+        "name": "",
+        "label": "Auto Close",
+        "tooltip": "",
+        "group": "2b478b23d9da69c2",
+        "order": 12,
+        "width": 2,
+        "height": 1,
+        "passthru": true,
+        "decouple": "false",
+        "topic": "valves/ds1001",
+        "topicType": "msg",
+        "style": "",
+        "onvalue": "true",
+        "onvalueType": "bool",
+        "onicon": "",
+        "oncolor": "",
+        "offvalue": "false",
+        "offvalueType": "bool",
+        "officon": "",
+        "offcolor": "",
+        "animate": false,
+        "className": "",
+        "x": 1170,
+        "y": 300,
+        "wires": [
+            [
+                "a05b070a676e5c33"
+            ]
+        ]
+    },
+    {
+        "id": "0b7d9a786c4fdfa3",
+        "type": "ui_switch",
+        "z": "71760c349a0630ea",
+        "name": "",
+        "label": "Auto Open",
+        "tooltip": "",
+        "group": "2b478b23d9da69c2",
+        "order": 14,
+        "width": 2,
+        "height": 1,
+        "passthru": true,
+        "decouple": "false",
+        "topic": "valves/ds1102",
+        "topicType": "msg",
+        "style": "",
+        "onvalue": "true",
+        "onvalueType": "bool",
+        "onicon": "",
+        "oncolor": "",
+        "offvalue": "false",
+        "offvalueType": "bool",
+        "officon": "",
+        "offcolor": "",
+        "animate": false,
+        "className": "",
+        "x": 1170,
+        "y": 380,
+        "wires": [
+            [
+                "014526a1a013189b"
+            ]
+        ]
+    },
+    {
+        "id": "880f6a5e37b0f655",
+        "type": "mqtt out",
+        "z": "71760c349a0630ea",
+        "name": "",
+        "topic": "valves/ds1001",
+        "qos": "",
+        "retain": "",
+        "respTopic": "",
+        "contentType": "",
+        "userProps": "",
+        "correl": "",
+        "expiry": "",
+        "broker": "ce01d54b36ea5d40",
+        "x": 820,
+        "y": 420,
+        "wires": []
+    },
+    {
+        "id": "c8608b0b830307fe",
+        "type": "mqtt in",
+        "z": "71760c349a0630ea",
+        "name": "",
+        "topic": "PLC XV1",
+        "qos": "2",
+        "datatype": "auto-detect",
+        "broker": "ce01d54b36ea5d40",
+        "nl": false,
+        "rap": true,
+        "rh": 0,
+        "inputs": 0,
+        "x": 260,
+        "y": 60,
+        "wires": [
+            [
+                "cf1766e117847678",
+                "234180b3eb3424ce",
+                "6b4721d19c504875",
+                "b261dec55c1d25b2",
+                "13fce526da88f3ae",
+                "414282d89c28394e",
+                "e0c63aae6b2280fc"
+            ]
+        ]
+    },
+    {
+        "id": "cf1766e117847678",
+        "type": "function",
+        "z": "71760c349a0630ea",
+        "name": "X001",
+        "func": "msg.payload = msg.payload.X001\nreturn msg;",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 510,
+        "y": 140,
+        "wires": [
+            [
+                "19da98d874ba3e37"
+            ]
+        ]
+    },
+    {
+        "id": "b261dec55c1d25b2",
+        "type": "function",
+        "z": "71760c349a0630ea",
+        "name": "DS1002",
+        "func": "msg.payload = msg.payload.DS1002\nreturn msg;",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 520,
+        "y": 220,
+        "wires": [
+            [
+                "08246123aadffe79"
+            ]
+        ]
+    },
+    {
+        "id": "6b4721d19c504875",
+        "type": "function",
+        "z": "71760c349a0630ea",
+        "name": "Y001",
+        "func": "msg.payload = msg.payload.Y001\nreturn msg;",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 510,
+        "y": 100,
+        "wires": [
+            [
+                "9327652ec2d2bc1b"
+            ]
+        ]
+    },
+    {
+        "id": "234180b3eb3424ce",
+        "type": "function",
+        "z": "71760c349a0630ea",
+        "name": "C1001",
+        "func": "msg.payload = msg.payload.C1001\nreturn msg;",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 510,
+        "y": 60,
+        "wires": [
+            [
+                "f763ae0385e0c7cf"
+            ]
+        ]
+    },
+    {
+        "id": "13fce526da88f3ae",
+        "type": "function",
+        "z": "71760c349a0630ea",
+        "name": "DS1001",
+        "func": "msg.payload = msg.payload.DS1001\nreturn msg;",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 520,
+        "y": 180,
+        "wires": [
+            [
+                "1c9411664e4d1491"
+            ]
+        ]
+    },
+    {
+        "id": "a05b070a676e5c33",
+        "type": "mqtt out",
+        "z": "71760c349a0630ea",
+        "name": "",
+        "topic": "valves/ds1101",
+        "qos": "",
+        "retain": "",
+        "respTopic": "",
+        "contentType": "",
+        "userProps": "",
+        "correl": "",
+        "expiry": "",
+        "broker": "ce01d54b36ea5d40",
+        "x": 1580,
+        "y": 300,
+        "wires": []
+    },
+    {
+        "id": "ec2ba5f324d10823",
+        "type": "mqtt out",
+        "z": "71760c349a0630ea",
+        "name": "",
+        "topic": "valves/ds1102",
+        "qos": "",
+        "retain": "",
+        "respTopic": "",
+        "contentType": "",
+        "userProps": "",
+        "correl": "",
+        "expiry": "",
+        "broker": "ce01d54b36ea5d40",
+        "x": 1580,
+        "y": 380,
+        "wires": []
+    },
+    {
+        "id": "014526a1a013189b",
+        "type": "switch",
+        "z": "71760c349a0630ea",
+        "name": "",
+        "property": "payload",
+        "propertyType": "msg",
+        "rules": [
+            {
+                "t": "true"
+            },
+            {
+                "t": "false"
+            }
+        ],
+        "checkall": "true",
+        "repair": false,
+        "outputs": 2,
+        "x": 1330,
+        "y": 380,
+        "wires": [
+            [
+                "a05b070a676e5c33",
+                "ec2ba5f324d10823"
+            ],
+            [
+                "ec2ba5f324d10823"
+            ]
+        ]
+    },
+    {
+        "id": "414282d89c28394e",
+        "type": "function",
+        "z": "71760c349a0630ea",
+        "name": "DS1101",
+        "func": "msg.payload = msg.payload.DS1101\nreturn msg;",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 520,
+        "y": 260,
+        "wires": [
+            [
+                "3e366a46fb74fffb",
+                "794da60defe0f58b"
+            ]
+        ]
+    },
+    {
+        "id": "e0c63aae6b2280fc",
+        "type": "function",
+        "z": "71760c349a0630ea",
+        "name": "DS1102",
+        "func": "msg.payload = msg.payload.DS1102\nreturn msg;",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 520,
+        "y": 340,
+        "wires": [
+            [
+                "bef9f33a83228f91",
+                "599ebdf55b5a070c"
+            ]
+        ]
+    },
+    {
+        "id": "bef9f33a83228f91",
+        "type": "ui_gauge",
+        "z": "71760c349a0630ea",
+        "name": "",
+        "group": "2b478b23d9da69c2",
+        "order": 8,
+        "width": 1,
+        "height": 1,
+        "gtype": "gage",
+        "title": "DS1102",
+        "label": "",
+        "format": "",
+        "min": 0,
+        "max": "1",
+        "colors": [
+            "#00b500",
+            "#e6e600",
+            "#ca3838"
+        ],
+        "seg1": "",
+        "seg2": "",
+        "diff": false,
+        "className": "",
+        "x": 800,
+        "y": 340,
+        "wires": []
+    },
+    {
+        "id": "3e366a46fb74fffb",
+        "type": "ui_gauge",
+        "z": "71760c349a0630ea",
+        "name": "",
+        "group": "2b478b23d9da69c2",
+        "order": 7,
+        "width": 1,
+        "height": 1,
+        "gtype": "gage",
+        "title": "DS1101",
+        "label": "",
+        "format": "",
+        "min": 0,
+        "max": "1",
+        "colors": [
+            "#00b500",
+            "#e6e600",
+            "#ca3838"
+        ],
+        "seg1": "",
+        "seg2": "",
+        "diff": false,
+        "className": "",
+        "x": 800,
+        "y": 260,
+        "wires": []
+    },
+    {
+        "id": "794da60defe0f58b",
+        "type": "delay",
+        "z": "71760c349a0630ea",
+        "name": "",
+        "pauseType": "rate",
+        "timeout": "5",
+        "timeoutUnits": "seconds",
+        "rate": "1",
+        "nbRateUnits": "1",
+        "rateUnits": "minute",
+        "randomFirst": "1",
+        "randomLast": "5",
+        "randomUnits": "seconds",
+        "drop": true,
+        "allowrate": false,
+        "outputs": 1,
+        "x": 810,
+        "y": 300,
+        "wires": [
+            [
+                "c7cff344a497fc31"
+            ]
+        ]
+    },
+    {
+        "id": "599ebdf55b5a070c",
+        "type": "delay",
+        "z": "71760c349a0630ea",
+        "name": "",
+        "pauseType": "rate",
+        "timeout": "5",
+        "timeoutUnits": "seconds",
+        "rate": "1",
+        "nbRateUnits": "1",
+        "rateUnits": "minute",
+        "randomFirst": "1",
+        "randomLast": "5",
+        "randomUnits": "seconds",
+        "drop": true,
+        "allowrate": false,
+        "outputs": 1,
+        "x": 810,
+        "y": 380,
+        "wires": [
+            [
+                "185a0fce16d8faee"
+            ]
+        ]
+    },
+    {
+        "id": "c7cff344a497fc31",
+        "type": "change",
+        "z": "71760c349a0630ea",
+        "name": "",
+        "rules": [
+            {
+                "t": "change",
+                "p": "payload",
+                "pt": "msg",
+                "from": "1",
+                "fromt": "num",
+                "to": "true",
+                "tot": "bool"
+            },
+            {
+                "t": "change",
+                "p": "payload",
+                "pt": "msg",
+                "from": "0",
+                "fromt": "num",
+                "to": "false",
+                "tot": "bool"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 1000,
+        "y": 300,
+        "wires": [
+            [
+                "9a331eb773a1e2d2"
+            ]
+        ]
+    },
+    {
+        "id": "185a0fce16d8faee",
+        "type": "change",
+        "z": "71760c349a0630ea",
+        "name": "",
+        "rules": [
+            {
+                "t": "change",
+                "p": "payload",
+                "pt": "msg",
+                "from": "1",
+                "fromt": "num",
+                "to": "true",
+                "tot": "bool"
+            },
+            {
+                "t": "change",
+                "p": "payload",
+                "pt": "msg",
+                "from": "0",
+                "fromt": "num",
+                "to": "false",
+                "tot": "bool"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 1000,
+        "y": 380,
+        "wires": [
+            [
+                "0b7d9a786c4fdfa3"
+            ]
+        ]
+    },
+    {
+        "id": "beb927cf5c50cd0e",
+        "type": "ui_button",
+        "z": "71760c349a0630ea",
+        "name": "",
+        "group": "774ac6264e8074fa",
+        "order": 10,
+        "width": 3,
+        "height": 2,
+        "passthru": false,
+        "label": "Open XV2",
+        "tooltip": "",
+        "color": "",
+        "bgcolor": "green",
+        "className": "",
+        "icon": "",
+        "payload": "true",
+        "payloadType": "bool",
+        "topic": "valves/ds1003",
+        "topicType": "msg",
+        "x": 530,
+        "y": 900,
+        "wires": [
+            [
+                "e4b3aa455e03b9a1"
+            ]
+        ]
+    },
+    {
+        "id": "4479f8929ce98f88",
+        "type": "ui_button",
+        "z": "71760c349a0630ea",
+        "name": "",
+        "group": "774ac6264e8074fa",
+        "order": 11,
+        "width": 3,
+        "height": 2,
+        "passthru": false,
+        "label": "Close XV2",
+        "tooltip": "",
+        "color": "",
+        "bgcolor": "red",
+        "className": "",
+        "icon": "",
+        "payload": "false",
+        "payloadType": "bool",
+        "topic": "valves/ds1003",
+        "topicType": "msg",
+        "x": 530,
+        "y": 940,
+        "wires": [
+            [
+                "e4b3aa455e03b9a1"
+            ]
+        ]
+    },
+    {
+        "id": "bc9803da8fa9e939",
+        "type": "ui_gauge",
+        "z": "71760c349a0630ea",
+        "name": "",
+        "group": "774ac6264e8074fa",
+        "order": 1,
+        "width": 1,
+        "height": 1,
+        "gtype": "gage",
+        "title": "DS1003",
+        "label": "",
+        "format": "",
+        "min": 0,
+        "max": "1",
+        "colors": [
+            "#00b500",
+            "#e6e600",
+            "#ca3838"
+        ],
+        "seg1": "",
+        "seg2": "",
+        "diff": false,
+        "className": "",
+        "x": 800,
+        "y": 660,
+        "wires": []
+    },
+    {
+        "id": "ffb5d126361ce059",
+        "type": "ui_gauge",
+        "z": "71760c349a0630ea",
+        "name": "",
+        "group": "774ac6264e8074fa",
+        "order": 2,
+        "width": 1,
+        "height": 1,
+        "gtype": "gage",
+        "title": "DS1004",
+        "label": "",
+        "format": "",
+        "min": 0,
+        "max": "1",
+        "colors": [
+            "#00b500",
+            "#e6e600",
+            "#ca3838"
+        ],
+        "seg1": "",
+        "seg2": "",
+        "diff": false,
+        "className": "",
+        "x": 800,
+        "y": 700,
+        "wires": []
+    },
+    {
+        "id": "e853833b0eb1af11",
+        "type": "ui_gauge",
+        "z": "71760c349a0630ea",
+        "name": "",
+        "group": "774ac6264e8074fa",
+        "order": 3,
+        "width": 1,
+        "height": 1,
+        "gtype": "gage",
+        "title": "X002",
+        "label": "",
+        "format": "",
+        "min": 0,
+        "max": "1",
+        "colors": [
+            "#00b500",
+            "#e6e600",
+            "#ca3838"
+        ],
+        "seg1": "",
+        "seg2": "",
+        "diff": false,
+        "className": "",
+        "x": 790,
+        "y": 620,
+        "wires": []
+    },
+    {
+        "id": "79264addeac7befd",
+        "type": "ui_gauge",
+        "z": "71760c349a0630ea",
+        "name": "",
+        "group": "774ac6264e8074fa",
+        "order": 4,
+        "width": 1,
+        "height": 1,
+        "gtype": "gage",
+        "title": "Y002",
+        "label": "",
+        "format": "",
+        "min": 0,
+        "max": "1",
+        "colors": [
+            "#00b500",
+            "#e6e600",
+            "#ca3838"
+        ],
+        "seg1": "",
+        "seg2": "",
+        "diff": false,
+        "className": "",
+        "x": 790,
+        "y": 580,
+        "wires": []
+    },
+    {
+        "id": "8ada68df52419121",
+        "type": "ui_gauge",
+        "z": "71760c349a0630ea",
+        "name": "",
+        "group": "774ac6264e8074fa",
+        "order": 5,
+        "width": 1,
+        "height": 1,
+        "gtype": "gage",
+        "title": "C1002",
+        "label": "",
+        "format": "",
+        "min": 0,
+        "max": "1",
+        "colors": [
+            "#00b500",
+            "#e6e600",
+            "#ca3838"
+        ],
+        "seg1": "",
+        "seg2": "",
+        "diff": false,
+        "className": "",
+        "x": 790,
+        "y": 540,
+        "wires": []
+    },
+    {
+        "id": "c591d0f42ae4c950",
+        "type": "ui_switch",
+        "z": "71760c349a0630ea",
+        "name": "",
+        "label": "Auto Close",
+        "tooltip": "",
+        "group": "774ac6264e8074fa",
+        "order": 12,
+        "width": 2,
+        "height": 1,
+        "passthru": true,
+        "decouple": "false",
+        "topic": "valves/ds1001",
+        "topicType": "msg",
+        "style": "",
+        "onvalue": "true",
+        "onvalueType": "bool",
+        "onicon": "",
+        "oncolor": "",
+        "offvalue": "false",
+        "offvalueType": "bool",
+        "officon": "",
+        "offcolor": "",
+        "animate": false,
+        "className": "",
+        "x": 1170,
+        "y": 780,
+        "wires": [
+            [
+                "29471cbe2159b87b"
+            ]
+        ]
+    },
+    {
+        "id": "4cb1d0a5bda75057",
+        "type": "ui_switch",
+        "z": "71760c349a0630ea",
+        "name": "",
+        "label": "Auto Open",
+        "tooltip": "",
+        "group": "774ac6264e8074fa",
+        "order": 14,
+        "width": 2,
+        "height": 1,
+        "passthru": true,
+        "decouple": "false",
+        "topic": "valves/ds1102",
+        "topicType": "msg",
+        "style": "",
+        "onvalue": "true",
+        "onvalueType": "bool",
+        "onicon": "",
+        "oncolor": "",
+        "offvalue": "false",
+        "offvalueType": "bool",
+        "officon": "",
+        "offcolor": "",
+        "animate": false,
+        "className": "",
+        "x": 1170,
+        "y": 860,
+        "wires": [
+            [
+                "9378450e6b2bae44"
+            ]
+        ]
+    },
+    {
+        "id": "e4b3aa455e03b9a1",
+        "type": "mqtt out",
+        "z": "71760c349a0630ea",
+        "name": "",
+        "topic": "valves/ds1003",
+        "qos": "",
+        "retain": "",
+        "respTopic": "",
+        "contentType": "",
+        "userProps": "",
+        "correl": "",
+        "expiry": "",
+        "broker": "ce01d54b36ea5d40",
+        "x": 820,
+        "y": 900,
+        "wires": []
+    },
+    {
+        "id": "8510af2d41161da5",
+        "type": "mqtt in",
+        "z": "71760c349a0630ea",
+        "name": "",
+        "topic": "PLC XV2",
+        "qos": "2",
+        "datatype": "auto-detect",
+        "broker": "ce01d54b36ea5d40",
+        "nl": false,
+        "rap": true,
+        "rh": 0,
+        "inputs": 0,
+        "x": 260,
+        "y": 540,
+        "wires": [
+            [
+                "a71467a450d1f806",
+                "194c7681fdb9565f",
+                "e936601c07a221f7",
+                "79838226a91fafa6",
+                "ef53be18e43ca719",
+                "b5f9022e87243567",
+                "85850e6aa56528e7"
+            ]
+        ]
+    },
+    {
+        "id": "a71467a450d1f806",
+        "type": "function",
+        "z": "71760c349a0630ea",
+        "name": "X002",
+        "func": "msg.payload = msg.payload.X002\nreturn msg;",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 510,
+        "y": 620,
+        "wires": [
+            [
+                "e853833b0eb1af11"
+            ]
+        ]
+    },
+    {
+        "id": "79838226a91fafa6",
+        "type": "function",
+        "z": "71760c349a0630ea",
+        "name": "DS1004",
+        "func": "msg.payload = msg.payload.DS1004\nreturn msg;",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 520,
+        "y": 700,
+        "wires": [
+            [
+                "ffb5d126361ce059"
+            ]
+        ]
+    },
+    {
+        "id": "e936601c07a221f7",
+        "type": "function",
+        "z": "71760c349a0630ea",
+        "name": "Y002",
+        "func": "msg.payload = msg.payload.Y002\nreturn msg;",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 510,
+        "y": 580,
+        "wires": [
+            [
+                "79264addeac7befd"
+            ]
+        ]
+    },
+    {
+        "id": "194c7681fdb9565f",
+        "type": "function",
+        "z": "71760c349a0630ea",
+        "name": "C1002",
+        "func": "msg.payload = msg.payload.C1002\nreturn msg;",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 510,
+        "y": 540,
+        "wires": [
+            [
+                "8ada68df52419121"
+            ]
+        ]
+    },
+    {
+        "id": "ef53be18e43ca719",
+        "type": "function",
+        "z": "71760c349a0630ea",
+        "name": "DS1003",
+        "func": "msg.payload = msg.payload.DS1003\nreturn msg;",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 520,
+        "y": 660,
+        "wires": [
+            [
+                "bc9803da8fa9e939"
+            ]
+        ]
+    },
+    {
+        "id": "29471cbe2159b87b",
+        "type": "mqtt out",
+        "z": "71760c349a0630ea",
+        "name": "",
+        "topic": "valves/ds1103",
+        "qos": "",
+        "retain": "",
+        "respTopic": "",
+        "contentType": "",
+        "userProps": "",
+        "correl": "",
+        "expiry": "",
+        "broker": "ce01d54b36ea5d40",
+        "x": 1580,
+        "y": 780,
+        "wires": []
+    },
+    {
+        "id": "4d9c5134263c2bba",
+        "type": "mqtt out",
+        "z": "71760c349a0630ea",
+        "name": "",
+        "topic": "valves/ds1104",
+        "qos": "",
+        "retain": "",
+        "respTopic": "",
+        "contentType": "",
+        "userProps": "",
+        "correl": "",
+        "expiry": "",
+        "broker": "ce01d54b36ea5d40",
+        "x": 1580,
+        "y": 860,
+        "wires": []
+    },
+    {
+        "id": "9378450e6b2bae44",
+        "type": "switch",
+        "z": "71760c349a0630ea",
+        "name": "",
+        "property": "payload",
+        "propertyType": "msg",
+        "rules": [
+            {
+                "t": "true"
+            },
+            {
+                "t": "false"
+            }
+        ],
+        "checkall": "true",
+        "repair": false,
+        "outputs": 2,
+        "x": 1330,
+        "y": 860,
+        "wires": [
+            [
+                "29471cbe2159b87b",
+                "4d9c5134263c2bba"
+            ],
+            [
+                "4d9c5134263c2bba"
+            ]
+        ]
+    },
+    {
+        "id": "b5f9022e87243567",
+        "type": "function",
+        "z": "71760c349a0630ea",
+        "name": "DS1103",
+        "func": "msg.payload = msg.payload.DS1103\nreturn msg;",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 520,
+        "y": 740,
+        "wires": [
+            [
+                "31724e2fbbbad6cb",
+                "56cb6c498a590dd7"
+            ]
+        ]
+    },
+    {
+        "id": "85850e6aa56528e7",
+        "type": "function",
+        "z": "71760c349a0630ea",
+        "name": "DS1104",
+        "func": "msg.payload = msg.payload.DS1104\nreturn msg;",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 520,
+        "y": 820,
+        "wires": [
+            [
+                "094adc22da801841",
+                "9df7406edb4d4a3d"
+            ]
+        ]
+    },
+    {
+        "id": "094adc22da801841",
+        "type": "ui_gauge",
+        "z": "71760c349a0630ea",
+        "name": "",
+        "group": "774ac6264e8074fa",
+        "order": 8,
+        "width": 1,
+        "height": 1,
+        "gtype": "gage",
+        "title": "DS1104",
+        "label": "",
+        "format": "",
+        "min": 0,
+        "max": "1",
+        "colors": [
+            "#00b500",
+            "#e6e600",
+            "#ca3838"
+        ],
+        "seg1": "",
+        "seg2": "",
+        "diff": false,
+        "className": "",
+        "x": 800,
+        "y": 820,
+        "wires": []
+    },
+    {
+        "id": "31724e2fbbbad6cb",
+        "type": "ui_gauge",
+        "z": "71760c349a0630ea",
+        "name": "",
+        "group": "774ac6264e8074fa",
+        "order": 7,
+        "width": 1,
+        "height": 1,
+        "gtype": "gage",
+        "title": "DS1103",
+        "label": "",
+        "format": "",
+        "min": 0,
+        "max": "1",
+        "colors": [
+            "#00b500",
+            "#e6e600",
+            "#ca3838"
+        ],
+        "seg1": "",
+        "seg2": "",
+        "diff": false,
+        "className": "",
+        "x": 800,
+        "y": 740,
+        "wires": []
+    },
+    {
+        "id": "56cb6c498a590dd7",
+        "type": "delay",
+        "z": "71760c349a0630ea",
+        "name": "",
+        "pauseType": "rate",
+        "timeout": "5",
+        "timeoutUnits": "seconds",
+        "rate": "1",
+        "nbRateUnits": "1",
+        "rateUnits": "minute",
+        "randomFirst": "1",
+        "randomLast": "5",
+        "randomUnits": "seconds",
+        "drop": true,
+        "allowrate": false,
+        "outputs": 1,
+        "x": 810,
+        "y": 780,
+        "wires": [
+            [
+                "de38349ff8aefb1d"
+            ]
+        ]
+    },
+    {
+        "id": "9df7406edb4d4a3d",
+        "type": "delay",
+        "z": "71760c349a0630ea",
+        "name": "",
+        "pauseType": "rate",
+        "timeout": "5",
+        "timeoutUnits": "seconds",
+        "rate": "1",
+        "nbRateUnits": "1",
+        "rateUnits": "minute",
+        "randomFirst": "1",
+        "randomLast": "5",
+        "randomUnits": "seconds",
+        "drop": true,
+        "allowrate": false,
+        "outputs": 1,
+        "x": 810,
+        "y": 860,
+        "wires": [
+            [
+                "0dbb9add69caf85f"
+            ]
+        ]
+    },
+    {
+        "id": "de38349ff8aefb1d",
+        "type": "change",
+        "z": "71760c349a0630ea",
+        "name": "",
+        "rules": [
+            {
+                "t": "change",
+                "p": "payload",
+                "pt": "msg",
+                "from": "1",
+                "fromt": "num",
+                "to": "true",
+                "tot": "bool"
+            },
+            {
+                "t": "change",
+                "p": "payload",
+                "pt": "msg",
+                "from": "0",
+                "fromt": "num",
+                "to": "false",
+                "tot": "bool"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 1000,
+        "y": 780,
+        "wires": [
+            [
+                "c591d0f42ae4c950"
+            ]
+        ]
+    },
+    {
+        "id": "0dbb9add69caf85f",
+        "type": "change",
+        "z": "71760c349a0630ea",
+        "name": "",
+        "rules": [
+            {
+                "t": "change",
+                "p": "payload",
+                "pt": "msg",
+                "from": "1",
+                "fromt": "num",
+                "to": "true",
+                "tot": "bool"
+            },
+            {
+                "t": "change",
+                "p": "payload",
+                "pt": "msg",
+                "from": "0",
+                "fromt": "num",
+                "to": "false",
+                "tot": "bool"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 1000,
+        "y": 860,
+        "wires": [
+            [
+                "4cb1d0a5bda75057"
+            ]
+        ]
+    },
+    {
+        "id": "e420f213fa8c696b",
+        "type": "ui_button",
+        "z": "71760c349a0630ea",
+        "name": "",
+        "group": "c2af4e70655a4351",
+        "order": 10,
+        "width": 3,
+        "height": 2,
+        "passthru": false,
+        "label": "Open XV3",
+        "tooltip": "",
+        "color": "",
+        "bgcolor": "green",
+        "className": "",
+        "icon": "",
+        "payload": "true",
+        "payloadType": "bool",
+        "topic": "valves/ds1001",
+        "topicType": "msg",
+        "x": 530,
+        "y": 1420,
+        "wires": [
+            [
+                "5a127e8a1eb03bfb"
+            ]
+        ]
+    },
+    {
+        "id": "64477e15d9b9abb8",
+        "type": "ui_button",
+        "z": "71760c349a0630ea",
+        "name": "",
+        "group": "c2af4e70655a4351",
+        "order": 11,
+        "width": 3,
+        "height": 2,
+        "passthru": false,
+        "label": "Close XV3",
+        "tooltip": "",
+        "color": "",
+        "bgcolor": "red",
+        "className": "",
+        "icon": "",
+        "payload": "false",
+        "payloadType": "bool",
+        "topic": "valves/ds1001",
+        "topicType": "msg",
+        "x": 530,
+        "y": 1460,
+        "wires": [
+            [
+                "5a127e8a1eb03bfb"
+            ]
+        ]
+    },
+    {
+        "id": "7af04d3a94cef8eb",
+        "type": "ui_gauge",
+        "z": "71760c349a0630ea",
+        "name": "",
+        "group": "c2af4e70655a4351",
+        "order": 1,
+        "width": 1,
+        "height": 1,
+        "gtype": "gage",
+        "title": "DS1005",
+        "label": "",
+        "format": "",
+        "min": 0,
+        "max": "1",
+        "colors": [
+            "#00b500",
+            "#e6e600",
+            "#ca3838"
+        ],
+        "seg1": "",
+        "seg2": "",
+        "diff": false,
+        "className": "",
+        "x": 800,
+        "y": 1180,
+        "wires": []
+    },
+    {
+        "id": "629c3d45ee153fcb",
+        "type": "ui_gauge",
+        "z": "71760c349a0630ea",
+        "name": "",
+        "group": "c2af4e70655a4351",
+        "order": 2,
+        "width": 1,
+        "height": 1,
+        "gtype": "gage",
+        "title": "DS1006",
+        "label": "",
+        "format": "",
+        "min": 0,
+        "max": "1",
+        "colors": [
+            "#00b500",
+            "#e6e600",
+            "#ca3838"
+        ],
+        "seg1": "",
+        "seg2": "",
+        "diff": false,
+        "className": "",
+        "x": 800,
+        "y": 1220,
+        "wires": []
+    },
+    {
+        "id": "d54150a9afd71d37",
+        "type": "ui_gauge",
+        "z": "71760c349a0630ea",
+        "name": "",
+        "group": "c2af4e70655a4351",
+        "order": 3,
+        "width": 1,
+        "height": 1,
+        "gtype": "gage",
+        "title": "X003",
+        "label": "",
+        "format": "",
+        "min": 0,
+        "max": "1",
+        "colors": [
+            "#00b500",
+            "#e6e600",
+            "#ca3838"
+        ],
+        "seg1": "",
+        "seg2": "",
+        "diff": false,
+        "className": "",
+        "x": 790,
+        "y": 1140,
+        "wires": []
+    },
+    {
+        "id": "ba7a29457ad01935",
+        "type": "ui_gauge",
+        "z": "71760c349a0630ea",
+        "name": "",
+        "group": "c2af4e70655a4351",
+        "order": 4,
+        "width": 1,
+        "height": 1,
+        "gtype": "gage",
+        "title": "Y003",
+        "label": "",
+        "format": "",
+        "min": 0,
+        "max": "1",
+        "colors": [
+            "#00b500",
+            "#e6e600",
+            "#ca3838"
+        ],
+        "seg1": "",
+        "seg2": "",
+        "diff": false,
+        "className": "",
+        "x": 790,
+        "y": 1100,
+        "wires": []
+    },
+    {
+        "id": "65283b574a8ef69e",
+        "type": "ui_gauge",
+        "z": "71760c349a0630ea",
+        "name": "",
+        "group": "c2af4e70655a4351",
+        "order": 5,
+        "width": 1,
+        "height": 1,
+        "gtype": "gage",
+        "title": "C1003",
+        "label": "",
+        "format": "",
+        "min": 0,
+        "max": "1",
+        "colors": [
+            "#00b500",
+            "#e6e600",
+            "#ca3838"
+        ],
+        "seg1": "",
+        "seg2": "",
+        "diff": false,
+        "className": "",
+        "x": 790,
+        "y": 1060,
+        "wires": []
+    },
+    {
+        "id": "6c3fcf56dbed08b6",
+        "type": "ui_switch",
+        "z": "71760c349a0630ea",
+        "name": "",
+        "label": "Auto Close",
+        "tooltip": "",
+        "group": "c2af4e70655a4351",
+        "order": 12,
+        "width": 2,
+        "height": 1,
+        "passthru": true,
+        "decouple": "false",
+        "topic": "valves/ds1001",
+        "topicType": "msg",
+        "style": "",
+        "onvalue": "true",
+        "onvalueType": "bool",
+        "onicon": "",
+        "oncolor": "",
+        "offvalue": "false",
+        "offvalueType": "bool",
+        "officon": "",
+        "offcolor": "",
+        "animate": false,
+        "className": "",
+        "x": 1170,
+        "y": 1300,
+        "wires": [
+            [
+                "c4aa26f14fcd327a"
+            ]
+        ]
+    },
+    {
+        "id": "2e1806324658484c",
+        "type": "ui_switch",
+        "z": "71760c349a0630ea",
+        "name": "",
+        "label": "Auto Open",
+        "tooltip": "",
+        "group": "c2af4e70655a4351",
+        "order": 14,
+        "width": 2,
+        "height": 1,
+        "passthru": true,
+        "decouple": "false",
+        "topic": "valves/ds1102",
+        "topicType": "msg",
+        "style": "",
+        "onvalue": "true",
+        "onvalueType": "bool",
+        "onicon": "",
+        "oncolor": "",
+        "offvalue": "false",
+        "offvalueType": "bool",
+        "officon": "",
+        "offcolor": "",
+        "animate": false,
+        "className": "",
+        "x": 1170,
+        "y": 1380,
+        "wires": [
+            [
+                "2b1d162376fd8348"
+            ]
+        ]
+    },
+    {
+        "id": "5a127e8a1eb03bfb",
+        "type": "mqtt out",
+        "z": "71760c349a0630ea",
+        "name": "",
+        "topic": "valves/ds1005",
+        "qos": "",
+        "retain": "",
+        "respTopic": "",
+        "contentType": "",
+        "userProps": "",
+        "correl": "",
+        "expiry": "",
+        "broker": "ce01d54b36ea5d40",
+        "x": 820,
+        "y": 1420,
+        "wires": []
+    },
+    {
+        "id": "d7a98371adc75fa3",
+        "type": "mqtt in",
+        "z": "71760c349a0630ea",
+        "name": "",
+        "topic": "PLC XV3",
+        "qos": "2",
+        "datatype": "auto-detect",
+        "broker": "ce01d54b36ea5d40",
+        "nl": false,
+        "rap": true,
+        "rh": 0,
+        "inputs": 0,
+        "x": 260,
+        "y": 1060,
+        "wires": [
+            [
+                "750b3368d4e01520",
+                "75932e5d11500af4",
+                "1ab13c1d1c277683",
+                "3ece414e20b2c38e",
+                "9f1ed84fa190e101",
+                "43aec77698aa9c30",
+                "8a7d025ccdee84f8"
+            ]
+        ]
+    },
+    {
+        "id": "750b3368d4e01520",
+        "type": "function",
+        "z": "71760c349a0630ea",
+        "name": "X003",
+        "func": "msg.payload = msg.payload.X003\nreturn msg;",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 510,
+        "y": 1140,
+        "wires": [
+            [
+                "d54150a9afd71d37"
+            ]
+        ]
+    },
+    {
+        "id": "3ece414e20b2c38e",
+        "type": "function",
+        "z": "71760c349a0630ea",
+        "name": "DS1006",
+        "func": "msg.payload = msg.payload.DS1006\nreturn msg;",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 520,
+        "y": 1220,
+        "wires": [
+            [
+                "629c3d45ee153fcb"
+            ]
+        ]
+    },
+    {
+        "id": "1ab13c1d1c277683",
+        "type": "function",
+        "z": "71760c349a0630ea",
+        "name": "Y003",
+        "func": "msg.payload = msg.payload.Y003\nreturn msg;",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 510,
+        "y": 1100,
+        "wires": [
+            [
+                "ba7a29457ad01935"
+            ]
+        ]
+    },
+    {
+        "id": "75932e5d11500af4",
+        "type": "function",
+        "z": "71760c349a0630ea",
+        "name": "C1003",
+        "func": "msg.payload = msg.payload.C1003\nreturn msg;",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 510,
+        "y": 1060,
+        "wires": [
+            [
+                "65283b574a8ef69e"
+            ]
+        ]
+    },
+    {
+        "id": "9f1ed84fa190e101",
+        "type": "function",
+        "z": "71760c349a0630ea",
+        "name": "DS1005",
+        "func": "msg.payload = msg.payload.DS1005\nreturn msg;",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 520,
+        "y": 1180,
+        "wires": [
+            [
+                "7af04d3a94cef8eb"
+            ]
+        ]
+    },
+    {
+        "id": "c4aa26f14fcd327a",
+        "type": "mqtt out",
+        "z": "71760c349a0630ea",
+        "name": "",
+        "topic": "valves/ds1105",
+        "qos": "",
+        "retain": "",
+        "respTopic": "",
+        "contentType": "",
+        "userProps": "",
+        "correl": "",
+        "expiry": "",
+        "broker": "ce01d54b36ea5d40",
+        "x": 1580,
+        "y": 1300,
+        "wires": []
+    },
+    {
+        "id": "02183848faa3474d",
+        "type": "mqtt out",
+        "z": "71760c349a0630ea",
+        "name": "",
+        "topic": "valves/ds1106",
+        "qos": "",
+        "retain": "",
+        "respTopic": "",
+        "contentType": "",
+        "userProps": "",
+        "correl": "",
+        "expiry": "",
+        "broker": "ce01d54b36ea5d40",
+        "x": 1580,
+        "y": 1380,
+        "wires": []
+    },
+    {
+        "id": "2b1d162376fd8348",
+        "type": "switch",
+        "z": "71760c349a0630ea",
+        "name": "",
+        "property": "payload",
+        "propertyType": "msg",
+        "rules": [
+            {
+                "t": "true"
+            },
+            {
+                "t": "false"
+            }
+        ],
+        "checkall": "true",
+        "repair": false,
+        "outputs": 2,
+        "x": 1330,
+        "y": 1380,
+        "wires": [
+            [
+                "c4aa26f14fcd327a",
+                "02183848faa3474d"
+            ],
+            [
+                "02183848faa3474d"
+            ]
+        ]
+    },
+    {
+        "id": "43aec77698aa9c30",
+        "type": "function",
+        "z": "71760c349a0630ea",
+        "name": "DS1105",
+        "func": "msg.payload = msg.payload.DS1105\nreturn msg;",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 520,
+        "y": 1260,
+        "wires": [
+            [
+                "07af31b078b5b3a6",
+                "d040036cfaf02d7a"
+            ]
+        ]
+    },
+    {
+        "id": "8a7d025ccdee84f8",
+        "type": "function",
+        "z": "71760c349a0630ea",
+        "name": "DS1106",
+        "func": "msg.payload = msg.payload.DS1106\nreturn msg;",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 520,
+        "y": 1340,
+        "wires": [
+            [
+                "bf02e4d4d24d2320",
+                "8ca1dc50f4c93b33"
+            ]
+        ]
+    },
+    {
+        "id": "bf02e4d4d24d2320",
+        "type": "ui_gauge",
+        "z": "71760c349a0630ea",
+        "name": "",
+        "group": "c2af4e70655a4351",
+        "order": 8,
+        "width": 1,
+        "height": 1,
+        "gtype": "gage",
+        "title": "DS1106",
+        "label": "",
+        "format": "",
+        "min": 0,
+        "max": "1",
+        "colors": [
+            "#00b500",
+            "#e6e600",
+            "#ca3838"
+        ],
+        "seg1": "",
+        "seg2": "",
+        "diff": false,
+        "className": "",
+        "x": 800,
+        "y": 1340,
+        "wires": []
+    },
+    {
+        "id": "07af31b078b5b3a6",
+        "type": "ui_gauge",
+        "z": "71760c349a0630ea",
+        "name": "",
+        "group": "c2af4e70655a4351",
+        "order": 7,
+        "width": 1,
+        "height": 1,
+        "gtype": "gage",
+        "title": "DS1105",
+        "label": "",
+        "format": "",
+        "min": 0,
+        "max": "1",
+        "colors": [
+            "#00b500",
+            "#e6e600",
+            "#ca3838"
+        ],
+        "seg1": "",
+        "seg2": "",
+        "diff": false,
+        "className": "",
+        "x": 800,
+        "y": 1260,
+        "wires": []
+    },
+    {
+        "id": "d040036cfaf02d7a",
+        "type": "delay",
+        "z": "71760c349a0630ea",
+        "name": "",
+        "pauseType": "rate",
+        "timeout": "5",
+        "timeoutUnits": "seconds",
+        "rate": "1",
+        "nbRateUnits": "1",
+        "rateUnits": "minute",
+        "randomFirst": "1",
+        "randomLast": "5",
+        "randomUnits": "seconds",
+        "drop": true,
+        "allowrate": false,
+        "outputs": 1,
+        "x": 810,
+        "y": 1300,
+        "wires": [
+            [
+                "579c6870422d0bb6"
+            ]
+        ]
+    },
+    {
+        "id": "8ca1dc50f4c93b33",
+        "type": "delay",
+        "z": "71760c349a0630ea",
+        "name": "",
+        "pauseType": "rate",
+        "timeout": "5",
+        "timeoutUnits": "seconds",
+        "rate": "1",
+        "nbRateUnits": "1",
+        "rateUnits": "minute",
+        "randomFirst": "1",
+        "randomLast": "5",
+        "randomUnits": "seconds",
+        "drop": true,
+        "allowrate": false,
+        "outputs": 1,
+        "x": 810,
+        "y": 1380,
+        "wires": [
+            [
+                "a61fd07011211e6f"
+            ]
+        ]
+    },
+    {
+        "id": "579c6870422d0bb6",
+        "type": "change",
+        "z": "71760c349a0630ea",
+        "name": "",
+        "rules": [
+            {
+                "t": "change",
+                "p": "payload",
+                "pt": "msg",
+                "from": "1",
+                "fromt": "num",
+                "to": "true",
+                "tot": "bool"
+            },
+            {
+                "t": "change",
+                "p": "payload",
+                "pt": "msg",
+                "from": "0",
+                "fromt": "num",
+                "to": "false",
+                "tot": "bool"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 1000,
+        "y": 1300,
+        "wires": [
+            [
+                "6c3fcf56dbed08b6"
+            ]
+        ]
+    },
+    {
+        "id": "a61fd07011211e6f",
+        "type": "change",
+        "z": "71760c349a0630ea",
+        "name": "",
+        "rules": [
+            {
+                "t": "change",
+                "p": "payload",
+                "pt": "msg",
+                "from": "1",
+                "fromt": "num",
+                "to": "true",
+                "tot": "bool"
+            },
+            {
+                "t": "change",
+                "p": "payload",
+                "pt": "msg",
+                "from": "0",
+                "fromt": "num",
+                "to": "false",
+                "tot": "bool"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 1000,
+        "y": 1380,
+        "wires": [
+            [
+                "2e1806324658484c"
+            ]
+        ]
+    },
+    {
+        "id": "058e70ae3d7e49b3",
+        "type": "ui_dropdown",
+        "z": "305fbdd33ef007ec",
+        "name": "",
+        "label": "HTR1 SP",
+        "tooltip": "",
+        "place": "Select option",
+        "group": "",
+        "order": 3,
+        "width": 4,
+        "height": 1,
+        "passthru": true,
+        "multiple": false,
+        "options": [
+            {
+                "label": "CONST",
+                "value": "0",
+                "type": "str"
+            },
+            {
+                "label": "RTD1",
+                "value": "1",
+                "type": "str"
+            },
+            {
+                "label": "RTD2",
+                "value": "2",
+                "type": "str"
+            },
+            {
+                "label": "RTD3",
+                "value": "3",
+                "type": "str"
+            },
+            {
+                "label": "RTD4",
+                "value": "4",
+                "type": "str"
+            }
+        ],
+        "payload": "",
+        "topic": "topic",
+        "topicType": "msg",
+        "className": "",
+        "x": 500,
+        "y": 220,
+        "wires": [
+            [
+                "c2bc400c6689c6a8",
+                "8b3e8e7f3cefaddd"
+            ]
+        ]
+    },
+    {
+        "id": "c2bc400c6689c6a8",
+        "type": "debug",
+        "z": "305fbdd33ef007ec",
+        "name": "debug 2",
+        "active": true,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "false",
+        "statusVal": "",
+        "statusType": "auto",
+        "x": 1420,
+        "y": 220,
+        "wires": []
+    },
+    {
+        "id": "6fbf147d78088ea2",
+        "type": "ui_text_input",
+        "z": "305fbdd33ef007ec",
+        "name": "",
+        "label": "CONST Temperature (K)",
+        "tooltip": "",
+        "group": "",
+        "order": 1,
+        "width": "4",
+        "height": 1,
+        "passthru": true,
+        "mode": "text",
+        "delay": "0",
+        "topic": "topic",
+        "sendOnBlur": true,
+        "className": "",
+        "topicType": "msg",
+        "x": 1130,
+        "y": 80,
+        "wires": [
+            [
+                "c2bc400c6689c6a8"
+            ]
+        ]
+    },
+    {
+        "id": "8b3e8e7f3cefaddd",
+        "type": "change",
+        "z": "305fbdd33ef007ec",
+        "name": "",
+        "rules": [
+            {
+                "t": "change",
+                "p": "payload",
+                "pt": "msg",
+                "from": "0",
+                "fromt": "str",
+                "to": "df100",
+                "tot": "global"
+            },
+            {
+                "t": "change",
+                "p": "payload",
+                "pt": "msg",
+                "from": "1",
+                "fromt": "str",
+                "to": "df001",
+                "tot": "global"
+            },
+            {
+                "t": "change",
+                "p": "payload",
+                "pt": "msg",
+                "from": "2",
+                "fromt": "str",
+                "to": "df002",
+                "tot": "str"
+            },
+            {
+                "t": "change",
+                "p": "payload",
+                "pt": "msg",
+                "from": "3",
+                "fromt": "str",
+                "to": "df003",
+                "tot": "str"
+            },
+            {
+                "t": "change",
+                "p": "payload",
+                "pt": "msg",
+                "from": "4",
+                "fromt": "str",
+                "to": "df004",
+                "tot": "str"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 800,
+        "y": 160,
+        "wires": [
+            [
+                "c2bc400c6689c6a8"
+            ]
+        ]
+    },
+    {
+        "id": "8164a4ecb1718711",
+        "type": "ui_text_input",
+        "z": "305fbdd33ef007ec",
+        "name": "",
+        "label": "Offset (K)",
+        "tooltip": "",
+        "group": "",
+        "order": 4,
+        "width": 2,
+        "height": 1,
+        "passthru": true,
+        "mode": "number",
+        "delay": "0",
+        "topic": "topic",
+        "sendOnBlur": true,
+        "className": "",
+        "topicType": "msg",
+        "x": 1080,
+        "y": 280,
+        "wires": [
+            [
+                "c2bc400c6689c6a8"
+            ]
+        ]
+    },
+    {
+        "id": "3d4a802b0da588a6",
+        "type": "inject",
+        "z": "27548fe472b0cb9e",
+        "name": "",
+        "props": [
+            {
+                "p": "payload"
+            },
+            {
+                "p": "topic",
+                "vt": "str"
+            }
+        ],
+        "repeat": "1",
+        "crontab": "",
+        "once": true,
+        "onceDelay": 0.1,
+        "topic": "",
+        "payload": "",
+        "payloadType": "date",
+        "x": 290,
+        "y": 140,
+        "wires": [
+            [
+                "30d1a73da34020b9",
+                "e30c71f0d7e7335c"
+            ]
+        ]
+    },
+    {
+        "id": "e30c71f0d7e7335c",
+        "type": "debug",
+        "z": "27548fe472b0cb9e",
+        "name": "debug 5",
+        "active": true,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "false",
+        "statusVal": "",
+        "statusType": "auto",
+        "x": 880,
+        "y": 140,
+        "wires": []
+    },
+    {
+        "id": "30d1a73da34020b9",
+        "type": "function",
+        "z": "27548fe472b0cb9e",
+        "name": "function 1",
+        "func": "// Get stored start time\nlet t0 = context.get(\"t0\");\n\n// If first run, set start time\nif (!t0) {\n    t0 = Date.now();\n    context.set(\"t0\", t0);\n}\n\n// Compute elapsed time in seconds\nconst t = (Date.now() - t0) / 1000;\n\n// Parameters\nconst rate = 1;   // K/s\n\n// Linear cooldown\nconst cooldown = -rate * t;\n\nmsg.payload = cooldown;\nmsg.elapsed_s = t;\n\nreturn msg;\n",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 580,
+        "y": 240,
+        "wires": [
+            [
+                "e30c71f0d7e7335c"
+            ]
+        ]
+    },
+    {
+        "id": "a0ace1b5aa2fa4a9",
+        "type": "mqtt in",
+        "z": "27548fe472b0cb9e",
+        "name": "PLC RTD",
+        "topic": "PLC RTD",
+        "qos": "2",
+        "datatype": "auto-detect",
+        "broker": "ce01d54b36ea5d40",
+        "nl": false,
+        "rap": true,
+        "rh": 0,
+        "inputs": 0,
+        "x": 300,
+        "y": 320,
+        "wires": [
+            [
+                "1a9947f1a295e463"
+            ]
+        ]
+    },
+    {
+        "id": "1a9947f1a295e463",
+        "type": "function",
+        "z": "27548fe472b0cb9e",
+        "name": "Parse RTD",
+        "func": "const C2K = 273.15;\n\nconst rtd3_K = Math.round(100 * (parseFloat(msg.payload.RTD3) + C2K))/100;\nconst rtd4_K = Math.round(100 * (parseFloat(msg.payload.RTD4) + C2K))/100;\n\n// store latest values so other nodes can read them\nflow.set(\"RTD3_K\", rtd3_K );\nflow.set(\"RTD4_K\", rtd4_K);\n\nmsg.payload = { RTD3_K: rtd3_K, RTD4_K: rtd4_K}\nreturn msg;\n",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 490,
+        "y": 320,
+        "wires": [
+            [
+                "e30c71f0d7e7335c"
+            ]
+        ]
+    }
+]
