@@ -97,18 +97,22 @@ def _ds(n: int) -> int:
 
 
 # --- RTD inputs (read-only, DF, from the CLICK RTD module) ---
-# Three RTDs are wired to the CLICK (DF1/DF2/DF3); DF4 is no longer used.
+# Three RTDs are wired to the CLICK (DF1/DF2/DF3); DF4 is unused.
+# Global RTD numbering: 1-3 are on the LabJack, 4-6 are on the PLC.
+#   PLC RTD 4 = LN2-vessel base   (DF1)
+#   PLC RTD 5 = top clamp         (DF2)
+#   PLC RTD 6 = bottom clamp      (DF3)
 REG_RTD = {
-    "rtd_cube_top":    _df(1),   # DF1  Xe cube top RTD (Pt100, °C)
-    "rtd_cube_bottom": _df(2),   # DF2  Xe cube bottom RTD (Pt100, °C)
-    "rtd_cube_nozzle": _df(3),   # DF3  Xe cube nozzle RTD (Pt100, °C)
+    "rtd_base":         _df(1),   # DF1  RTD 4  LN2 vessel base (°C)
+    "rtd_top_clamp":    _df(2),   # DF2  RTD 5  top clamp        (°C)
+    "rtd_bottom_clamp": _df(3),   # DF3  RTD 6  bottom clamp     (°C)
 }
 
-# MQTT sub-topics for RTD channels (matches topic schema)
+# MQTT sub-topics for RTD channels (matches topic schema: temperature/{src}/{type}/{ch})
 RTD_MQTT_PATH = {
-    "rtd_cube_top":    ("plc", "rtd", "1"),
-    "rtd_cube_bottom": ("plc", "rtd", "2"),
-    "rtd_cube_nozzle": ("plc", "rtd", "3"),
+    "rtd_base":         ("plc", "rtd", "4"),
+    "rtd_top_clamp":    ("plc", "rtd", "5"),
+    "rtd_bottom_clamp": ("plc", "rtd", "6"),
 }
 
 # --- Level sensor inputs (read-only, DF, from C2-08D2-6V analog module) ---
