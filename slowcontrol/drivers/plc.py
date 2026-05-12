@@ -145,7 +145,9 @@ LEVEL_SOURCE_TOPICS = {
 # The LabJack publishes its RTD/TC values over MQTT; we forward them into these
 # DF registers (°C, 32-bit float) so the CLICK ladder / display can use them.
 #   RTD (absolute °C):   DF210 = rtd1 nozzle, DF211 = rtd2 top cube, DF212 = rtd3 bottom cube
-#   TC (gradient ΔT °C): DF213 = tc1, DF214 = tc2, DF215 = tc3, DF216 = tc4
+#   TC (gradient ΔT °C): DF213 = tc1 cube L/R, DF214 = tc2 LN↔base, DF215 = tc3 nipple, DF216 = tc4 cube F/B
+# (mapped by channel number — see the `labjack:` block in config.yaml for the
+#  channel→AIN→label/reference assignment.)
 REG_LABJACK_RTD_WRITE = {1: _df(210), 2: _df(211), 3: _df(212)}
 REG_LABJACK_TC_WRITE  = {1: _df(213), 2: _df(214), 3: _df(215), 4: _df(216)}
 
