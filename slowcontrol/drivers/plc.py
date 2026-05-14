@@ -570,6 +570,7 @@ class PlcDriver(SensorDriver):
         """Cache a LabJack RTD — value_c (°C) for the PLC mirror DF210-212 and
         value_k (K) as the `rtd<n>` alias usable in setpoint/pv expressions.
         Topic: xsphere/sensors/temperature/labjack/rtd/<n>"""
+        log.debug("[plc] labjack rtd callback: %s", topic)
         if not isinstance(payload, dict):
             return
         try:
@@ -642,20 +643,25 @@ class PlcDriver(SensorDriver):
     def _on_pid_mode(self, topic: str, payload: dict) -> None:
         """xsphere/commands/pid/{zone}/mode  → {"mode": "manual"|"auto"}.
 
-        Sets the corresponding "request" coil (Cxxx5/6) high; the CLICK ladder
-        clears the opposite bit as it changes mode."""
+        The CLICK exposes Manual and Auto as two separate coils (C115/116,
+        C155/156, C195/196).  The ladder does *not* clear the opposite bit
+        on its own, so we have to set the target and clear the opposite in
+        the same command — otherwise both bits stay high and `_publish_pid_status`
+        sees "manual" forever (since it reads the Manual bit first)."""
         zone = topic.split("/")[-2]
         if zone not in _PID_BLOCKS:
             return
         mode = str(payload.get("mode", "")).lower()
         if mode == "manual":
-            ok = self._write_coil(REG_PID_MODE_MANUAL[zone], True)
+            ok1 = self._write_coil(REG_PID_MODE_AUTO[zone],   False)
+            ok2 = self._write_coil(REG_PID_MODE_MANUAL[zone], True)
         elif mode == "auto":
-            ok = self._write_coil(REG_PID_MODE_AUTO[zone], True)
+            ok1 = self._write_coil(REG_PID_MODE_MANUAL[zone], False)
+            ok2 = self._write_coil(REG_PID_MODE_AUTO[zone],   True)
         else:
             log.warning("[plc] PID %s mode bad payload: %r", zone, payload)
             return
-        log.info("[plc] PID %s mode → %s: %s", zone, mode, "OK" if ok else "FAIL")
+        log.info("[plc] PID %s mode → %s: %s", zone, mode, "OK" if (ok1 and ok2) else "FAIL")
 
     def _on_pid_output(self, topic: str, payload: dict) -> None:
         """xsphere/commands/pid/{zone}/output  → {"value_pct": X}.
