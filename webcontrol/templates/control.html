@@ -72,24 +72,12 @@
   <section class="card">
     <h2>Heaters — PID loops</h2>
     <div id="pid"></div>
-    <small class="hint">A per-zone setpoint here only takes effect when gradient mode = <em>absolute</em>; in <em>gradient</em> mode the Gradient card owns the per-zone SP.
-      Expression fields accept arithmetic over the aliases <code>rtd1..rtd6</code>, <code>tc1..tc4</code> (each = the latest <code>value_c</code> in °C),
-      plus direct register refs <code>DF&lt;n&gt;</code> / <code>DS&lt;n&gt;</code> / <code>C&lt;n&gt;</code> — e.g. <code>rtd1 + DF3 - 4</code>.
-      An expression is re-evaluated each poll and writes the corresponding DF in °C.</small>
+    <small class="hint">Expression fields accept arithmetic over the aliases <code>rtd1..rtd6</code>, <code>tc1..tc4</code>
+      (each = the latest <code>value_c</code> in °C), plus direct register refs <code>DF&lt;n&gt;</code> /
+      <code>DS&lt;n&gt;</code> / <code>C&lt;n&gt;</code> — e.g. <code>rtd1 + DF3 - 4</code>. An expression is
+      re-evaluated each poll and writes the corresponding DF in °C.</small>
   </section>
 
-  <!-- Gradient -->
-  <section class="card">
-    <h2>Gradient</h2>
-    <div class="row"><span class="lbl">mode</span>
-      <button id="gm-gradient" onclick="ctl('gradient_mode','gradient')">gradient</button>
-      <button id="gm-absolute" onclick="ctl('gradient_mode','absolute')">absolute</button>
-      <span id="gm-cur" class="cur"></span></div>
-    <div class="row"><span class="lbl">base (top, K)</span><input type="number" step="0.5" id="g-base"><button onclick="ctlNum('gradient_base','g-base')">set</button><span id="g-base-cur" class="cur"></span></div>
-    <div class="row"><span class="lbl">Δvertical (b−t, K)</span><input type="number" step="0.5" id="g-dv"><button onclick="ctlNum('gradient_dv','g-dv')">set</button><span id="g-dv-cur" class="cur"></span></div>
-    <div class="row"><span class="lbl">Δlongitud. (n−t, K)</span><input type="number" step="0.5" id="g-dl"><button onclick="ctlNum('gradient_dl','g-dl')">set</button><span id="g-dl-cur" class="cur"></span></div>
-    <div id="g-sp" class="cur" style="margin-top:.3rem"></div>
-  </section>
 
 </main>
 
@@ -233,18 +221,6 @@ function update(d){
     const speEl = $("spe-"+z); if (spe && document.activeElement!==speEl && speEl.value==="") speEl.placeholder = spe.value || "e.g. rtd1 + 4";
     const pveEl = $("pve-"+z); if (pve && document.activeElement!==pveEl && pveEl.value==="") pveEl.placeholder = pve.value || "e.g. rtd2";
   });
-
-  // gradient
-  const gm=st.gradient_mode, gb=st.gradient_base, gdv=st.gradient_dv, gdl=st.gradient_dl;
-  const dvm=st.dt_vertical_meas, dlm=st.dt_longitudinal_meas;
-  $("gm-gradient").className = gm && gm.value==="gradient" ? "on" : "";
-  $("gm-absolute").className = gm && gm.value==="absolute" ? "on" : "";
-  setCur("gm-cur", "current: "+ (gm && gm.value!==null ? gm.value : "?"), gm);
-  setPlaceholder("g-base", gb && gb.value); setCur("g-base-cur", "current "+fmtNum(gb&&gb.value)+" K", gb);
-  setPlaceholder("g-dv", gdv && gdv.value); setCur("g-dv-cur", "current "+fmtNum(gdv&&gdv.value)+" K · measured "+fmtNum(dvm&&dvm.value)+" K", gdv);
-  setPlaceholder("g-dl", gdl && gdl.value); setCur("g-dl-cur", "current "+fmtNum(gdl&&gdl.value)+" K · measured "+fmtNum(dlm&&dlm.value)+" K", gdl);
-  const spt=st.pid_top_setpoint, spb=st.pid_bottom_setpoint, spn=st.pid_nozzle_setpoint;
-  $("g-sp").textContent = `→ setpoints:  top ${fmtNum(spt&&spt.value)} · bottom ${fmtNum(spb&&spb.value)} · nozzle ${fmtNum(spn&&spn.value)}  K`;
 
 }
 
