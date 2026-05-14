@@ -329,8 +329,30 @@ class PlcDriver(SensorDriver):
     # Poll loop
     # ------------------------------------------------------------------
 
+    def _ensure_modbus(self) -> bool:
+        """Make sure the Modbus TCP socket is alive; reconnect if it dropped."""
+        c = self._client
+        if c is not None and getattr(c, "connected", False):
+            return True
+        if c is not None:
+            try: c.close()
+            except Exception: pass
+        cfg = self._config.plc
+        self._client = ModbusTcpClient(host=cfg.host, port=cfg.port, timeout=cfg.timeout)
+        try:
+            ok = self._client.connect()
+        except Exception as exc:
+            log.warning("[plc] Modbus reconnect failed: %s", exc)
+            self._client = None
+            return False
+        if not ok:
+            self._client = None
+            return False
+        log.info("[plc] Modbus reconnected to %s:%d", cfg.host, cfg.port)
+        return True
+
     def poll(self) -> None:
-        if self._client is None:
+        if not self._ensure_modbus():
             return
         try:
             self._publish_rtds()
@@ -340,8 +362,13 @@ class PlcDriver(SensorDriver):
             self._write_level_to_plc()
             self._write_labjack_to_plc()
             self._write_pid_expressions()
-        except ModbusException as exc:
-            log.warning("[plc] Modbus error during poll: %s", exc)
+        except (BrokenPipeError, ConnectionResetError, ConnectionError, OSError, ModbusException) as exc:
+            log.warning("[plc] Modbus poll error — will reconnect: %s", exc)
+            try:
+                if self._client is not None:
+                    self._client.close()
+            except Exception: pass
+            self._client = None
         except Exception:
             log.exception("[plc] unexpected error during poll")
 
@@ -411,8 +438,8 @@ class PlcDriver(SensorDriver):
             val_k = val_c + CELSIUS_TO_KELVIN
             path = RTD_MQTT_PATH[name]
             # Cache the value under the alias "rtd<channel>" so setpoint/pv
-            # expressions can reference it (no MQTT round-trip).
-            self._sensor_c[f"rtd{path[-1]}"] = val_c
+            # expressions can reference it (no MQTT round-trip). Kelvin.
+            self._sensor_c[f"rtd{path[-1]}"] = val_k
             self._mqtt.publish_sensor(
                 "temperature", *path,
                 payload={"value_c": round(val_c, 3),
@@ -540,24 +567,29 @@ class PlcDriver(SensorDriver):
                 pass
 
     def _on_labjack_rtd(self, topic: str, payload: dict) -> None:
-        """Cache a LabJack RTD absolute temperature (°C) — for the PLC mirror
-        (DF210-212) and as the `rtd<n>` alias usable in setpoint/pv expressions.
-        Topic: xsphere/sensors/temperature/labjack/rtd/<n>  payload {"value_c": ...}"""
+        """Cache a LabJack RTD — value_c (°C) for the PLC mirror DF210-212 and
+        value_k (K) as the `rtd<n>` alias usable in setpoint/pv expressions.
+        Topic: xsphere/sensors/temperature/labjack/rtd/<n>"""
         if not isinstance(payload, dict):
-            return
-        val = payload.get("value_c")
-        if val is None:
             return
         try:
             ch = int(topic.rsplit("/", 1)[-1])
-            val = float(val)
         except (TypeError, ValueError):
             return
-        self._labjack_rtd_c[ch] = val
-        self._sensor_c[f"rtd{ch}"] = val
+        val_c = payload.get("value_c")
+        val_k = payload.get("value_k")
+        if val_k is None and val_c is not None:
+            try: val_k = float(val_c) + CELSIUS_TO_KELVIN
+            except (TypeError, ValueError): pass
+        if val_c is not None:
+            try: self._labjack_rtd_c[ch] = float(val_c)
+            except (TypeError, ValueError): pass
+        if val_k is not None:
+            try: self._sensor_c[f"rtd{ch}"] = float(val_k)
+            except (TypeError, ValueError): pass
 
     def _on_labjack_tc(self, topic: str, payload: dict) -> None:
-        """Cache a LabJack thermocouple absolute temperature (°C) under the
+        """Cache a LabJack thermocouple absolute temperature (K) under the
         `tc<n>` alias for expressions, and its gradient (ΔT, °C) to mirror into
         the PLC (DF213-216).
         Topic: xsphere/sensors/temperature/labjack/tc/<n>"""
@@ -569,16 +601,15 @@ class PlcDriver(SensorDriver):
             return
         delta_c = payload.get("delta_c")
         if delta_c is not None:
-            try:
-                self._labjack_tc_delta_c[ch] = float(delta_c)
-            except (TypeError, ValueError):
-                pass
-        val_c = payload.get("value_c")
-        if val_c is not None:
-            try:
-                self._sensor_c[f"tc{ch}"] = float(val_c)
-            except (TypeError, ValueError):
-                pass
+            try: self._labjack_tc_delta_c[ch] = float(delta_c)
+            except (TypeError, ValueError): pass
+        val_k = payload.get("value_k")
+        if val_k is None and payload.get("value_c") is not None:
+            try: val_k = float(payload["value_c"]) + CELSIUS_TO_KELVIN
+            except (TypeError, ValueError): pass
+        if val_k is not None:
+            try: self._sensor_c[f"tc{ch}"] = float(val_k)
+            except (TypeError, ValueError): pass
 
     def _on_pid_setpoint(self, topic: str, payload: dict) -> None:
         """xsphere/commands/pid/{zone}/setpoint  → {"value_k": X}"""
@@ -762,18 +793,19 @@ class PlcDriver(SensorDriver):
     def _write_pid_expressions(self) -> None:
         """Evaluate any active setpoint/pv expressions and write the PID block.
 
-        Result is in °C (matching the underlying register convention)."""
+        Expressions are in Kelvin (matching the sensor aliases rtd<n>/tc<n>);
+        we subtract 273.15 before writing the DF, which is stored in °C."""
         for zone in ("top", "bottom", "nozzle"):
             for kind, slot in (("sp_expr", "sp"), ("pv_expr", "pv_raw")):
                 expr = (self._pid_sp_expr if kind == "sp_expr" else self._pid_pv_expr).get(zone, "")
                 if not expr:
                     continue
-                v = self._eval_expr(expr)
-                if v is None:
+                v_k = self._eval_expr(expr)
+                if v_k is None:
                     log.debug("[plc] PID %s %s eval(%r) → None (missing alias / read error)",
                               zone, kind, expr)
                     continue
-                self._write_float(_pid_reg(zone, slot), float(v))
+                self._write_float(_pid_reg(zone, slot), float(v_k) - CELSIUS_TO_KELVIN)
 
     def _on_valve_state(self, topic: str, payload: dict) -> None:
         """xsphere/commands/valve/{vessel}/state  → {"state": 0|1}"""
