@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>xsphere — temperature &amp; valve control</title>
+<style>
+  :root { --bg:#11151c; --panel:#1b2230; --panel2:#232c3d; --fg:#dde3ee; --mut:#8a93a6;
+          --ok:#3fb950; --warn:#d29922; --bad:#f85149; --acc:#58a6ff; --line:#2d3648; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:14px/1.45 -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif; }
+  header { display:flex; align-items:center; gap:.8rem; flex-wrap:wrap; padding:.6rem 1rem;
+           background:var(--panel); border-bottom:1px solid var(--line); position:sticky; top:0; z-index:5; }
+  header h1 { font-size:1.1rem; margin:0 .4rem 0 0; font-weight:600; letter-spacing:.3px; }
+  .pill { padding:.15rem .55rem; border-radius:999px; font-size:.78rem; font-weight:600; white-space:nowrap; }
+  .pill.ok{background:rgba(63,185,80,.18);color:var(--ok)} .pill.bad{background:rgba(248,81,73,.18);color:var(--bad)}
+  .pill.warn{background:rgba(210,153,34,.18);color:var(--warn)} .pill.mut{background:rgba(138,147,166,.15);color:var(--mut)}
+  a.nav { color:var(--acc); font-size:.85rem; text-decoration:none; padding:.18rem .5rem; border:1px solid var(--line); border-radius:6px; }
+  a.nav:hover { border-color:var(--acc); }
+  main { display:grid; grid-template-columns:repeat(auto-fit,minmax(380px,1fr)); gap:.6rem; padding:.6rem; align-items:start; }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:.5rem .85rem .7rem; }
+  .card h2 { font-size:.92rem; margin:.05rem 0 .35rem; color:var(--acc); font-weight:600; letter-spacing:.3px; }
+  .row { display:flex; gap:.4rem; align-items:center; flex-wrap:wrap; margin:.18rem 0; }
+  .row .lbl { color:var(--mut); min-width:6.6rem; font-size:.84rem; }
+  .blk { border-top:1px solid var(--line); padding:.32rem 0 .18rem; }
+  .blk:first-of-type { border-top:0; padding-top:0; }
+  .blk .title { font-weight:600; }
+  .num { font-variant-numeric:tabular-nums; }
+  .cur { color:var(--mut); font-size:.82rem; }
+  .cur.stale { color:var(--warn); } .cur.invalid { color:var(--mut); opacity:.6; }
+  input[type=number],input[type=text],textarea {
+    background:var(--panel2); color:var(--fg); border:1px solid var(--line); border-radius:6px; padding:.26rem .4rem; font:inherit; }
+  input[type=number] { width:6rem; text-align:right; }
+  textarea { width:100%; min-height:5rem; resize:vertical; font-family:ui-monospace,Menlo,Consolas,monospace; font-size:.82rem; }
+  button { background:var(--panel2); color:var(--fg); border:1px solid var(--line); border-radius:6px; padding:.28rem .65rem; cursor:pointer; font:inherit; }
+  button:hover { border-color:var(--acc); }
+  button.act { background:var(--acc); color:#08111f; border-color:var(--acc); font-weight:600; }
+  button.danger { border-color:var(--bad); color:var(--bad); }
+  button.on { background:var(--ok); color:#08120a; border-color:var(--ok); font-weight:600; }
+  .dot { width:.62rem; height:.62rem; border-radius:50%; background:#444b5a; display:inline-block; vertical-align:middle; margin-right:.25rem; }
+  .dot.on{background:var(--ok)}
+  .kv { display:inline-block; margin-right:1rem; }
+  .kv .k { color:var(--mut); margin-right:.25rem; }
+  .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:.4rem 1rem; }
+  small.hint { color:var(--mut); display:block; margin-top:.3rem; }
+</style>
+</head>
+<body>
+<header>
+  <h1>xsphere&nbsp;·&nbsp;control</h1>
+  <span id="p-svc" class="pill mut">service …</span>
+  <span id="p-ilk" class="pill mut">interlocks …</span>
+  <span id="p-lj"  class="pill mut">labjack …</span>
+  <span id="p-mq"  class="pill mut">mqtt …</span>
+  <span style="flex:1"></span>
+  <a class="nav" href="/">Register ↗</a>
+  <a class="nav" href="/sequencer">Sequencer ↗</a>
+  <a class="nav" href="/readme">README ↗</a>
+  <a class="nav" href="http://192.168.8.116:3000/d/xsphere-slowcontrol" target="_blank">Grafana ↗</a>
+</header>
+
+<main>
+
+  <!-- Valves -->
+  <section class="card">
+    <h2>Solenoid valves — LN₂ manifold</h2>
+    <div id="valves"></div>
+    <small class="hint">“actual” is the energised state read back from the PLC; “desired” is the last command sent. Auto-open / auto-close arm the PLC ladder’s autofill enables for that vessel.</small>
+  </section>
+
+  <!-- Heaters / PID -->
+  <section class="card">
+    <h2>Heaters — PID loops</h2>
+    <div id="pid"></div>
+    <small class="hint">A per-zone setpoint here only takes effect when gradient mode = <em>absolute</em>; in <em>gradient</em> mode the Gradient card owns the per-zone SP.
+      Expression fields accept arithmetic over the aliases <code>rtd1..rtd6</code>, <code>tc1..tc4</code> (each = the latest <code>value_c</code> in °C),
+      plus direct register refs <code>DF&lt;n&gt;</code> / <code>DS&lt;n&gt;</code> / <code>C&lt;n&gt;</code> — e.g. <code>rtd1 + DF3 - 4</code>.
+      An expression is re-evaluated each poll and writes the corresponding DF in °C.</small>
+  </section>
+
+  <!-- Gradient -->
+  <section class="card">
+    <h2>Gradient</h2>
+    <div class="row"><span class="lbl">mode</span>
+      <button id="gm-gradient" onclick="ctl('gradient_mode','gradient')">gradient</button>
+      <button id="gm-absolute" onclick="ctl('gradient_mode','absolute')">absolute</button>
+      <span id="gm-cur" class="cur"></span></div>
+    <div class="row"><span class="lbl">base (top, K)</span><input type="number" step="0.5" id="g-base"><button onclick="ctlNum('gradient_base','g-base')">set</button><span id="g-base-cur" class="cur"></span></div>
+    <div class="row"><span class="lbl">Δvertical (b−t, K)</span><input type="number" step="0.5" id="g-dv"><button onclick="ctlNum('gradient_dv','g-dv')">set</button><span id="g-dv-cur" class="cur"></span></div>
+    <div class="row"><span class="lbl">Δlongitud. (n−t, K)</span><input type="number" step="0.5" id="g-dl"><button onclick="ctlNum('gradient_dl','g-dl')">set</button><span id="g-dl-cur" class="cur"></span></div>
+    <div id="g-sp" class="cur" style="margin-top:.3rem"></div>
+  </section>
+
+</main>
+
+<script>
+const $ = id => document.getElementById(id);
+const numv = id => { const v = parseFloat($(id).value); return isNaN(v) ? 0 : v; };
+function fmtNum(v){
+  if (v === null || v === undefined || v === "") return "–";
+  if (typeof v !== "number") return String(v);
+  const a = Math.abs(v);
+  if (a === 0) return "0";
+  if (a >= 1000) return v.toFixed(1);
+  if (a >= 1)   return v.toFixed(2);
+  if (a >= 0.01) return v.toFixed(3);
+  return v.toExponential(2);
+}
+
+// ---- command helpers -------------------------------------------------------
+let SNAP = {states:{}};                       // last snapshot.states
+function S(id){ return SNAP.states[id] || null; }
+async function cmd(topic, payload){
+  try { await fetch("/api/cmd",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({topic,payload})}); }
+  catch(e){ console.error(e); }
+}
+function buildPayload(tmpl, value){
+  const out = {};
+  for (const [k,v] of Object.entries(tmpl)){
+    out[k] = (v === "$value") ? value : (v === "$value01") ? (value ? 1 : 0) : v;
+  }
+  return out;
+}
+function ctl(stateId, value){                 // send the control for a state with an explicit value
+  const st = S(stateId); if (!st || !st.control){ console.warn("no control for", stateId); return; }
+  cmd(st.control.topic, buildPayload(st.control.payload, value));
+}
+function ctlToggle(stateId){ const st = S(stateId); if (st) ctl(stateId, !st.value); }
+function ctlNum(stateId, inputId){ ctl(stateId, numv(inputId)); }
+
+// ---- static structure: valves & PID (built once) ---------------------------
+const VESSELS = [["cryostat","XV3 — cryostat LN₂ vessel"],["primary_xe","XV2 — primary Xe bottle"],["ballast","XV1 — ballast bottle"]];
+const ZONES   = [["top","Zone 1 — top clamp"],["bottom","Zone 2 — bottom clamp"],["nozzle","Zone 3 — nozzle / disk"]];
+let built = false;
+function build(){
+  $("valves").innerHTML = VESSELS.map(([v,name])=>`
+    <div class="blk">
+      <div class="row"><span class="title">${name}</span></div>
+      <div class="row">
+        <span class="kv"><span class="k">actual</span><span class="dot" id="vd-${v}"></span><span id="va-${v}" class="num">–</span></span>
+        <span class="kv"><span class="k">desired</span><span id="vw-${v}" class="num cur">–</span></span>
+      </div>
+      <div class="row">
+        <button id="vo-${v}" onclick="ctl('valve_${v}',true)">open</button>
+        <button id="vc-${v}" onclick="ctl('valve_${v}',false)">close</button>
+        <span class="lbl" style="min-width:auto;margin-left:.5rem">auto-open</span><button id="vao-${v}" onclick="ctlToggle('valve_${v}_auto_open')">—</button>
+        <span class="lbl" style="min-width:auto">auto-close</span><button id="vac-${v}" onclick="ctlToggle('valve_${v}_auto_close')">—</button>
+      </div>
+    </div>`).join("");
+
+  $("pid").innerHTML = ZONES.map(([z,name])=>`
+    <div class="blk" data-z="${z}">
+      <div class="row"><span class="title">${name}</span><span id="ps-${z}" style="flex:1;color:var(--mut);font-size:.82rem;text-align:right"></span></div>
+      <div class="row"><span class="lbl">mode</span>
+        <button id="mo-${z}-auto"   onclick="ctl('pid_${z}_mode','auto')">Auto</button>
+        <button id="mo-${z}-manual" onclick="ctl('pid_${z}_mode','manual')">Manual</button>
+        <button onclick="cmd('xsphere/commands/pid/${z}/autotune',{})">autotune</button>
+        <span id="mo-${z}-cur" class="cur"></span></div>
+      <div class="row"><span class="lbl">manual out (%)</span><input type="number" step="1" id="mo-${z}-out"><button onclick="ctlNum('pid_${z}_output','mo-${z}-out')">set out</button><span id="mo-${z}-out-cur" class="cur"></span></div>
+      <div class="row"><span class="lbl">setpoint (K)</span><input type="number" step="0.5" id="sp-${z}"><button onclick="ctlNum('pid_${z}_setpoint','sp-${z}')">set SP</button><span id="sp-${z}-cur" class="cur"></span></div>
+      <div class="row"><span class="lbl">SP expr (°C)</span><input type="text" id="spe-${z}" placeholder="e.g. rtd1 + 4" style="flex:1;min-width:10rem"><button onclick="ctl('pid_${z}_setpoint_expr',$('spe-${z}').value)">set expr</button><button onclick="$('spe-${z}').value='';ctl('pid_${z}_setpoint_expr','')">clear</button></div>
+      <div class="row"><span class="lbl">PV expr (°C)</span><input type="text" id="pve-${z}" placeholder="e.g. rtd2" style="flex:1;min-width:10rem"><button onclick="ctl('pid_${z}_pv_expr',$('pve-${z}').value)">set expr</button><button onclick="$('pve-${z}').value='';ctl('pid_${z}_pv_expr','')">clear</button></div>
+      <div class="row"><span class="lbl">Kp / Ki / Kd</span>
+        <input type="number" step="0.1" id="kp-${z}" style="width:4.4rem">
+        <input type="number" step="0.1" id="ki-${z}" style="width:4.4rem">
+        <input type="number" step="0.1" id="kd-${z}" style="width:4.4rem">
+        <button onclick="cmd('xsphere/commands/pid/${z}/gains',{kp:numv('kp-${z}'),ki:numv('ki-${z}'),kd:numv('kd-${z}')})">set gains</button>
+        <span id="g-${z}-cur" class="cur"></span></div>
+    </div>`).join("");
+  built = true;
+}
+
+// ---- per-tick updates ------------------------------------------------------
+function curClass(st){ return st ? ("cur "+st.freshness) : "cur invalid"; }
+function setCur(id, text, st){ const e=$(id); if(!e) return; e.textContent = text; e.className = curClass(st); }
+function setPlaceholder(id, val){ const e=$(id); if(e && document.activeElement!==e && e.value==="") e.placeholder = (val==null?"":fmtNum(val)); }
+function boolText(st, t, f){ if(!st || st.value===null) return "–"; return st.value ? t : f; }
+
+function update(d){
+  SNAP = d.snapshot || {states:{}};
+  if (!built) build();
+  const st = SNAP.states;
+
+  // header pills
+  const sp=(el,s,lab,ok)=>{ if(!s){ $(el).textContent=lab+" …"; $(el).className="pill mut"; return; }
+    if(s.value===null||s.freshness==="invalid"){ $(el).textContent=lab+": ?"; $(el).className="pill bad"; return; }
+    const o=!!s.value; $(el).textContent=lab+": "+(o?ok:"DOWN"); $(el).className="pill "+(o?(s.freshness==="stale"?"warn":"ok"):"bad"); };
+  sp("p-svc", st.service_alive, "service", "alive");
+  const ilk=st.interlocks_ok;
+  if(ilk && ilk.value!==null && ilk.freshness!=="invalid"){ const o=!!ilk.value; $("p-ilk").textContent="interlocks: "+(o?"OK":"ALERT"); $("p-ilk").className="pill "+(o?"ok":"bad"); }
+  else { $("p-ilk").textContent="interlocks: ?"; $("p-ilk").className="pill mut"; }
+  sp("p-lj", st.labjack_connected, "labjack", "ok");
+  $("p-mq").textContent="mqtt: "+(d.mqtt_connected?"connected":"DOWN"); $("p-mq").className="pill "+(d.mqtt_connected?"ok":"bad");
+
+  // valves
+  VESSELS.forEach(([v])=>{
+    const act=st["valve_"+v], des=st["valve_"+v+"_desired"], ao=st["valve_"+v+"_auto_open"], ac=st["valve_"+v+"_auto_close"];
+    const on = act && act.value===true;
+    $("vd-"+v).className = "dot"+(on?" on":"");
+    const ae=$("va-"+v); ae.textContent = boolText(act,"OPEN","CLOSED"); ae.className = "num"+(act&&act.freshness!=="fresh"?" cur "+(act?act.freshness:""):"");
+    setCur("vw-"+v, boolText(des,"OPEN","CLOSED"), des);
+    const dOpen = des && des.value===true;
+    $("vo-"+v).className = dOpen ? "on" : "";
+    $("vc-"+v).className = (des && des.value===false) ? "on" : "";
+    const aoOn = ao && ao.value===true, acOn = ac && ac.value===true;
+    $("vao-"+v).textContent = ao && ao.value!==null ? (aoOn?"armed":"disarmed") : "—"; $("vao-"+v).className = aoOn?"on":"";
+    $("vac-"+v).textContent = ac && ac.value!==null ? (acOn?"armed":"disarmed") : "—"; $("vac-"+v).className = acOn?"on":"";
+  });
+
+  // PID zones
+  ZONES.forEach(([z])=>{
+    const pv=st["pid_"+z+"_pv"], setp=st["pid_"+z+"_setpoint"], out=st["pid_"+z+"_output"], err=st["pid_"+z+"_error"];
+    const kp=st["pid_"+z+"_kp"], ki=st["pid_"+z+"_ki"], kd=st["pid_"+z+"_kd"];
+    const mode=st["pid_"+z+"_mode"], spe=st["pid_"+z+"_setpoint_expr"], pve=st["pid_"+z+"_pv_expr"];
+    const worst = [pv,setp,out].reduce((w,s)=> s && s.freshness==="invalid"?"invalid":(w==="invalid"?"invalid":(s&&s.freshness==="stale"?"stale":w)), "fresh");
+    const row = $("ps-"+z);
+    row.innerHTML = `<span class="kv"><span class="k">PV</span><span class="num">${fmtNum(pv&&pv.value)}</span> K</span>`
+      + `<span class="kv"><span class="k">SET</span><span class="num">${fmtNum(setp&&setp.value)}</span> K</span>`
+      + `<span class="kv"><span class="k">OUT</span><span class="num">${fmtNum(out&&out.value)}</span> %</span>`
+      + `<span class="kv"><span class="k">err</span><span class="num">${fmtNum(err&&err.value)}</span> K</span>`;
+    row.style.color = worst==="invalid" ? "var(--mut)" : worst==="stale" ? "var(--warn)" : "var(--mut)";
+    setPlaceholder("sp-"+z, setp && setp.value);
+    setCur("sp-"+z+"-cur", "current "+fmtNum(setp&&setp.value)+" K", setp);
+    setPlaceholder("kp-"+z, kp && kp.value); setPlaceholder("ki-"+z, ki && ki.value); setPlaceholder("kd-"+z, kd && kd.value);
+    setCur("g-"+z+"-cur", "current "+fmtNum(kp&&kp.value)+" / "+fmtNum(ki&&ki.value)+" / "+fmtNum(kd&&kd.value), kp);
+    // mode + manual output
+    $("mo-"+z+"-auto").className   = mode && mode.value==="auto"   ? "on" : "";
+    $("mo-"+z+"-manual").className = mode && mode.value==="manual" ? "on" : "";
+    setCur("mo-"+z+"-cur", "current: "+(mode && mode.value!=null ? mode.value : "?"), mode);
+    setPlaceholder("mo-"+z+"-out", out && out.value);
+    setCur("mo-"+z+"-out-cur", "current "+fmtNum(out&&out.value)+" %", out);
+    // active expressions (placeholder only when empty so the user can edit)
+    const speEl = $("spe-"+z); if (spe && document.activeElement!==speEl && speEl.value==="") speEl.placeholder = spe.value || "e.g. rtd1 + 4";
+    const pveEl = $("pve-"+z); if (pve && document.activeElement!==pveEl && pveEl.value==="") pveEl.placeholder = pve.value || "e.g. rtd2";
+  });
+
+  // gradient
+  const gm=st.gradient_mode, gb=st.gradient_base, gdv=st.gradient_dv, gdl=st.gradient_dl;
+  const dvm=st.dt_vertical_meas, dlm=st.dt_longitudinal_meas;
+  $("gm-gradient").className = gm && gm.value==="gradient" ? "on" : "";
+  $("gm-absolute").className = gm && gm.value==="absolute" ? "on" : "";
+  setCur("gm-cur", "current: "+ (gm && gm.value!==null ? gm.value : "?"), gm);
+  setPlaceholder("g-base", gb && gb.value); setCur("g-base-cur", "current "+fmtNum(gb&&gb.value)+" K", gb);
+  setPlaceholder("g-dv", gdv && gdv.value); setCur("g-dv-cur", "current "+fmtNum(gdv&&gdv.value)+" K · measured "+fmtNum(dvm&&dvm.value)+" K", gdv);
+  setPlaceholder("g-dl", gdl && gdl.value); setCur("g-dl-cur", "current "+fmtNum(gdl&&gdl.value)+" K · measured "+fmtNum(dlm&&dlm.value)+" K", gdl);
+  const spt=st.pid_top_setpoint, spb=st.pid_bottom_setpoint, spn=st.pid_nozzle_setpoint;
+  $("g-sp").textContent = `→ setpoints:  top ${fmtNum(spt&&spt.value)} · bottom ${fmtNum(spb&&spb.value)} · nozzle ${fmtNum(spn&&spn.value)}  K`;
+
+}
+
+async function tick(){
+  let d;
+  try { d = await (await fetch("/api/state")).json(); }
+  catch(e){ $("p-mq").textContent="mqtt: page can't reach server"; $("p-mq").className="pill bad"; return; }
+  update(d);
+}
+tick(); setInterval(tick, 1500);
+</script>
+</body>
+</html>

@@ -1,0 +1,460 @@
+# xsphere slow-control — state registry ("proprioception layer")
+#
+# Single source of truth for *what states the system has*.  The StateStore
+# (slowcontrol/state/store.py) reads this file, subscribes to the `source`
+# topics, computes per-state freshness, keeps moving averages for the analog
+# states, evaluates the `derived` expressions, and republishes the whole thing
+# (retained) on  xsphere/state/snapshot.  The webcontrol GUI renders its
+# read-out and — where `control:` is present — its control widgets from here.
+#
+# See slowcontrol/STATE_LAYER_PLAN.md for the design and full field reference.
+#
+# ── per-entry fields ─────────────────────────────────────────────────────
+#   kind           analog | binary | enum | text
+#   label          human-readable name shown in the GUI            (default: id)
+#   unit           display unit (free text); analog only
+#   source         where the value comes from — one of:
+#                    {topic: <mqtt>, key: <json key>}        read that key
+#                    {topic: <mqtt>, keys: [<k1>, <k2>]}     first present key wins
+#                    {topic: <mqtt>}                         payload IS the scalar
+#                    {topic: <mqtt>, presence: true}         binary; true iff a
+#                                                            message arrived within
+#                                                            period_s  (heartbeats)
+#                  derived states use `expr:` instead — see the `derived:` block.
+#   period_s       expected update interval (s), used for freshness.  null ⇒ the
+#                  state never goes stale on its own (retained status that only
+#                  changes on an event).
+#   stale_factor   FRESH while age < stale_factor * period_s                (1.5)
+#   invalid_factor STALE until age = invalid_factor * period_s, then INVALID (5.0)
+#   avg_windows_s  list of moving-average windows (s); analog only
+#   values         allowed values; enum only
+#   control        if present, the state is actuable:
+#                    {topic: <command topic>, payload: {<key>: $value, ...}}
+#                  in the payload template, "$value" is replaced with the
+#                  operator's input and "$value01" with int(bool(input)).
+
+defaults:
+  analog: {period_s: 1.0, stale_factor: 1.5, invalid_factor: 5.0, avg_windows_s: [60]}
+  binary: {period_s: 5.0}
+  enum:   {period_s: 5.0}
+  text:   {period_s: 5.0}
+
+groups:
+
+  # ── Temperatures ────────────────────────────────────────────────────────
+  # RTDs read absolute K; the type-K channels are differential gradiometers,
+  # so the useful quantity is `delta_c` (this-end − reference-end), in K-equiv.
+  temperature:
+    t_cube_top:
+      kind: analog
+      unit: K
+      label: "Xe cube top (LJ RTD2)"
+      source: {topic: xsphere/sensors/temperature/labjack/rtd/2, key: value_k}
+    t_cube_bottom:
+      kind: analog
+      unit: K
+      label: "Xe cube bottom (LJ RTD3)"
+      source: {topic: xsphere/sensors/temperature/labjack/rtd/3, key: value_k}
+    t_cube_nozzle:
+      kind: analog
+      unit: K
+      label: "Xe cube nozzle region (LJ RTD1)"
+      source: {topic: xsphere/sensors/temperature/labjack/rtd/1, key: value_k}
+    t_lnvessel_base:
+      kind: analog
+      unit: K
+      label: "LN₂ vessel base (PLC RTD4)"
+      source: {topic: xsphere/sensors/temperature/plc/rtd/4, key: value_k}
+    t_top_clamp:
+      kind: analog
+      unit: K
+      label: "top clamp (PLC RTD5)"
+      source: {topic: xsphere/sensors/temperature/plc/rtd/5, key: value_k}
+    t_bottom_clamp:
+      kind: analog
+      unit: K
+      label: "bottom clamp (PLC RTD6)"
+      source: {topic: xsphere/sensors/temperature/plc/rtd/6, key: value_k}
+    dt_cube_lr:
+      kind: analog
+      unit: K
+      label: "cube L↔R gradiometer ΔT (LJ TC1)"
+      source: {topic: xsphere/sensors/temperature/labjack/tc/1, key: delta_c}
+    dt_lnvessel_base:
+      kind: analog
+      unit: K
+      label: "LN₂ vessel ↔ base gradiometer ΔT (LJ TC2)"
+      source: {topic: xsphere/sensors/temperature/labjack/tc/2, key: delta_c}
+    dt_nipple:
+      kind: analog
+      unit: K
+      label: "along-nipple gradiometer ΔT (LJ TC3)"
+      source: {topic: xsphere/sensors/temperature/labjack/tc/3, key: delta_c}
+    dt_cube_fb:
+      kind: analog
+      unit: K
+      label: "cube F↔B gradiometer ΔT (LJ TC4)"
+      source: {topic: xsphere/sensors/temperature/labjack/tc/4, key: delta_c}
+
+  # ── LN₂ levels (FDC1004 coaxial probes; 0–10 scaled) ────────────────────
+  # `filtered` is the PLC/autovalve exponential filter; fall back to `raw` when
+  # the autovalve controller is disabled (the ESP32 only publishes `raw`).
+  level:
+    level_cryostat:
+      kind: analog
+      unit: "0–10"
+      label: "cryostat LN₂ vessel"
+      source: {topic: xsphere/sensors/level/cryostat, keys: [filtered, raw]}
+      period_s: 2.0
+      avg_windows_s: [300]
+    level_ballast:
+      kind: analog
+      unit: "0–10"
+      label: "ballast bottle cryoflask"
+      source: {topic: xsphere/sensors/level/ballast, keys: [filtered, raw]}
+      period_s: 5.0
+      avg_windows_s: [300]
+    level_primary_xe:
+      kind: analog
+      unit: "0–10"
+      label: "primary Xe bottle cryoflask"
+      source: {topic: xsphere/sensors/level/primary_xe, keys: [filtered, raw]}
+      period_s: 5.0
+      avg_windows_s: [300]
+
+  # ── Gas-handling pressures (Setra 225 manometers, GHS ESP32) ────────────
+  pressure:
+    p_xe_cube:
+      kind: analog
+      unit: mbar
+      label: "Xe cube pressure (Setra 225 #1)"
+      source: {topic: xsphere/sensors/pressure/ghs/setra/1, key: value}
+      period_s: 10.0
+    p_primary_bottle:
+      kind: analog
+      unit: mbar
+      label: "primary Xe bottle (Setra 225 #2)"
+      source: {topic: xsphere/sensors/pressure/ghs/setra/2, key: value}
+      period_s: 10.0
+    p_backup_bottle:
+      kind: analog
+      unit: mbar
+      label: "backup Xe bottle (Setra 225 #3)"
+      source: {topic: xsphere/sensors/pressure/ghs/setra/3, key: value}
+      period_s: 10.0
+
+  # ── Vacuum (PenningVAC full-range gauges, GHS ESP32) ────────────────────
+  vacuum:
+    vac_ghs:
+      kind: analog
+      unit: mbar
+      label: "gas-handling vacuum (PenningVAC #1)"
+      source: {topic: xsphere/sensors/vacuum/ghs/1, key: value}
+      period_s: 10.0
+    vac_outer:
+      kind: analog
+      unit: mbar
+      label: "outer chamber vacuum (PenningVAC #2)"
+      source: {topic: xsphere/sensors/vacuum/ghs/2, key: value}
+      period_s: 10.0
+
+  # ── Ambient on the GHS panel (DHT11 + BMP3XX) ───────────────────────────
+  environment:
+    env_ghs_temp:
+      kind: analog
+      unit: "°C"
+      label: "GHS panel air temperature"
+      source: {topic: xsphere/sensors/environment/ghs/temperature, key: value}
+      period_s: 10.0
+    env_ghs_humidity:
+      kind: analog
+      unit: "%"
+      label: "GHS panel humidity"
+      source: {topic: xsphere/sensors/environment/ghs/humidity, key: value}
+      period_s: 10.0
+      avg_windows_s: []
+    env_ghs_baro:
+      kind: analog
+      unit: hPa
+      label: "GHS panel barometric pressure"
+      source: {topic: xsphere/sensors/environment/ghs/baro_pressure, key: value}
+      period_s: 10.0
+      avg_windows_s: []
+
+  # ── Solenoid valves — LN₂ manifold (state read from the CLICK PLC ladder) ─
+  valve:
+    valve_cryostat:
+      kind: binary
+      label: "XV3 — cryostat LN₂ fill (open)"
+      source:  {topic: xsphere/status/valve/cryostat, key: state}
+      control: {topic: xsphere/commands/valve/cryostat/state, payload: {state: $value01}}
+    valve_cryostat_desired:
+      kind: binary
+      label: "XV3 commanded state (signal sent)"
+      source: {topic: xsphere/status/valve/cryostat, key: desired}
+    valve_cryostat_auto_open:
+      kind: binary
+      label: "XV3 auto-open armed"
+      source:  {topic: xsphere/status/valve/cryostat, key: auto_open}
+      control: {topic: xsphere/commands/valve/cryostat/auto_open, payload: {enabled: $value}}
+    valve_cryostat_auto_close:
+      kind: binary
+      label: "XV3 auto-close armed"
+      source:  {topic: xsphere/status/valve/cryostat, key: auto_close}
+      control: {topic: xsphere/commands/valve/cryostat/auto_close, payload: {enabled: $value}}
+    valve_primary_xe:
+      kind: binary
+      label: "XV2 — primary Xe bottle LN₂ fill (open)"
+      source:  {topic: xsphere/status/valve/primary_xe, key: state}
+      control: {topic: xsphere/commands/valve/primary_xe/state, payload: {state: $value01}}
+    valve_primary_xe_desired:
+      kind: binary
+      label: "XV2 commanded state (signal sent)"
+      source: {topic: xsphere/status/valve/primary_xe, key: desired}
+    valve_primary_xe_auto_open:
+      kind: binary
+      label: "XV2 auto-open armed"
+      source:  {topic: xsphere/status/valve/primary_xe, key: auto_open}
+      control: {topic: xsphere/commands/valve/primary_xe/auto_open, payload: {enabled: $value}}
+    valve_primary_xe_auto_close:
+      kind: binary
+      label: "XV2 auto-close armed"
+      source:  {topic: xsphere/status/valve/primary_xe, key: auto_close}
+      control: {topic: xsphere/commands/valve/primary_xe/auto_close, payload: {enabled: $value}}
+    valve_ballast:
+      kind: binary
+      label: "XV1 — ballast bottle LN₂ fill (open)"
+      source:  {topic: xsphere/status/valve/ballast, key: state}
+      control: {topic: xsphere/commands/valve/ballast/state, payload: {state: $value01}}
+    valve_ballast_desired:
+      kind: binary
+      label: "XV1 commanded state (signal sent)"
+      source: {topic: xsphere/status/valve/ballast, key: desired}
+    valve_ballast_auto_open:
+      kind: binary
+      label: "XV1 auto-open armed"
+      source:  {topic: xsphere/status/valve/ballast, key: auto_open}
+      control: {topic: xsphere/commands/valve/ballast/auto_open, payload: {enabled: $value}}
+    valve_ballast_auto_close:
+      kind: binary
+      label: "XV1 auto-close armed"
+      source:  {topic: xsphere/status/valve/ballast, key: auto_close}
+      control: {topic: xsphere/commands/valve/ballast/auto_close, payload: {enabled: $value}}
+
+  # ── Heater PID loops (run on the CLICK PLC; temps in K at this boundary) ─
+  # Zone 1 = top clamp (Y004), Zone 2 = bottom clamp (Y003), Zone 3 = nozzle/disk (Y002).
+  # NB: directly setting pid_*_setpoint only "sticks" in gradient mode = absolute;
+  # in gradient mode the gradient_* controls below own the per-zone setpoints.
+  pid:
+    pid_top_pv:
+      kind: analog
+      unit: K
+      label: "Zone 1 (top) process temp"
+      source: {topic: xsphere/status/pid/top, key: pv_k}
+    pid_top_output:
+      kind: analog
+      unit: "%"
+      label: "Zone 1 (top) heater output"
+      source:  {topic: xsphere/status/pid/top, key: output_pct}
+      control: {topic: xsphere/commands/pid/top/output, payload: {value_pct: $value}}
+    pid_top_mode:
+      kind: enum
+      values: [auto, manual]
+      label: "Zone 1 (top) PID mode"
+      source:  {topic: xsphere/status/pid/top, key: mode}
+      control: {topic: xsphere/commands/pid/top/mode, payload: {mode: $value}}
+      period_s: null
+    pid_top_pv_expr:
+      kind: text
+      label: "Zone 1 (top) PV expression (°C)"
+      source:  {topic: xsphere/status/pid/top, key: pv_expr}
+      control: {topic: xsphere/commands/pid/top/pv_expr, payload: {expr: $value}}
+      period_s: null
+    pid_top_setpoint_expr:
+      kind: text
+      label: "Zone 1 (top) setpoint expression (°C)"
+      source:  {topic: xsphere/status/pid/top, key: setpoint_expr}
+      control: {topic: xsphere/commands/pid/top/setpoint_expr, payload: {expr: $value}}
+      period_s: null
+    pid_top_setpoint:
+      kind: analog
+      unit: K
+      label: "Zone 1 (top) setpoint"
+      source:  {topic: xsphere/status/pid/top, key: setpoint_k}
+      control: {topic: xsphere/commands/pid/top/setpoint, payload: {value_k: $value}}
+      avg_windows_s: []
+    pid_top_kp: {kind: analog, label: "Zone 1 (top) Kp", source: {topic: xsphere/status/pid/top, key: kp}, avg_windows_s: []}
+    pid_top_ki: {kind: analog, label: "Zone 1 (top) Ki", source: {topic: xsphere/status/pid/top, key: ki}, avg_windows_s: []}
+    pid_top_kd: {kind: analog, label: "Zone 1 (top) Kd", source: {topic: xsphere/status/pid/top, key: kd}, avg_windows_s: []}
+    pid_bottom_pv:
+      kind: analog
+      unit: K
+      label: "Zone 2 (bottom) process temp"
+      source: {topic: xsphere/status/pid/bottom, key: pv_k}
+    pid_bottom_output:
+      kind: analog
+      unit: "%"
+      label: "Zone 2 (bottom) heater output"
+      source:  {topic: xsphere/status/pid/bottom, key: output_pct}
+      control: {topic: xsphere/commands/pid/bottom/output, payload: {value_pct: $value}}
+    pid_bottom_mode:
+      kind: enum
+      values: [auto, manual]
+      label: "Zone 2 (bottom) PID mode"
+      source:  {topic: xsphere/status/pid/bottom, key: mode}
+      control: {topic: xsphere/commands/pid/bottom/mode, payload: {mode: $value}}
+      period_s: null
+    pid_bottom_pv_expr:
+      kind: text
+      label: "Zone 2 (bottom) PV expression (°C)"
+      source:  {topic: xsphere/status/pid/bottom, key: pv_expr}
+      control: {topic: xsphere/commands/pid/bottom/pv_expr, payload: {expr: $value}}
+      period_s: null
+    pid_bottom_setpoint_expr:
+      kind: text
+      label: "Zone 2 (bottom) setpoint expression (°C)"
+      source:  {topic: xsphere/status/pid/bottom, key: setpoint_expr}
+      control: {topic: xsphere/commands/pid/bottom/setpoint_expr, payload: {expr: $value}}
+      period_s: null
+    pid_bottom_setpoint:
+      kind: analog
+      unit: K
+      label: "Zone 2 (bottom) setpoint"
+      source:  {topic: xsphere/status/pid/bottom, key: setpoint_k}
+      control: {topic: xsphere/commands/pid/bottom/setpoint, payload: {value_k: $value}}
+      avg_windows_s: []
+    pid_bottom_kp: {kind: analog, label: "Zone 2 (bottom) Kp", source: {topic: xsphere/status/pid/bottom, key: kp}, avg_windows_s: []}
+    pid_bottom_ki: {kind: analog, label: "Zone 2 (bottom) Ki", source: {topic: xsphere/status/pid/bottom, key: ki}, avg_windows_s: []}
+    pid_bottom_kd: {kind: analog, label: "Zone 2 (bottom) Kd", source: {topic: xsphere/status/pid/bottom, key: kd}, avg_windows_s: []}
+    pid_nozzle_pv:
+      kind: analog
+      unit: K
+      label: "Zone 3 (nozzle) process temp"
+      source: {topic: xsphere/status/pid/nozzle, key: pv_k}
+    pid_nozzle_output:
+      kind: analog
+      unit: "%"
+      label: "Zone 3 (nozzle) heater output"
+      source:  {topic: xsphere/status/pid/nozzle, key: output_pct}
+      control: {topic: xsphere/commands/pid/nozzle/output, payload: {value_pct: $value}}
+    pid_nozzle_mode:
+      kind: enum
+      values: [auto, manual]
+      label: "Zone 3 (nozzle) PID mode"
+      source:  {topic: xsphere/status/pid/nozzle, key: mode}
+      control: {topic: xsphere/commands/pid/nozzle/mode, payload: {mode: $value}}
+      period_s: null
+    pid_nozzle_pv_expr:
+      kind: text
+      label: "Zone 3 (nozzle) PV expression (°C)"
+      source:  {topic: xsphere/status/pid/nozzle, key: pv_expr}
+      control: {topic: xsphere/commands/pid/nozzle/pv_expr, payload: {expr: $value}}
+      period_s: null
+    pid_nozzle_setpoint_expr:
+      kind: text
+      label: "Zone 3 (nozzle) setpoint expression (°C)"
+      source:  {topic: xsphere/status/pid/nozzle, key: setpoint_expr}
+      control: {topic: xsphere/commands/pid/nozzle/setpoint_expr, payload: {expr: $value}}
+      period_s: null
+    pid_nozzle_setpoint:
+      kind: analog
+      unit: K
+      label: "Zone 3 (nozzle) setpoint"
+      source:  {topic: xsphere/status/pid/nozzle, key: setpoint_k}
+      control: {topic: xsphere/commands/pid/nozzle/setpoint, payload: {value_k: $value}}
+      avg_windows_s: []
+    pid_nozzle_kp: {kind: analog, label: "Zone 3 (nozzle) Kp", source: {topic: xsphere/status/pid/nozzle, key: kp}, avg_windows_s: []}
+    pid_nozzle_ki: {kind: analog, label: "Zone 3 (nozzle) Ki", source: {topic: xsphere/status/pid/nozzle, key: ki}, avg_windows_s: []}
+    pid_nozzle_kd: {kind: analog, label: "Zone 3 (nozzle) Kd", source: {topic: xsphere/status/pid/nozzle, key: kd}, avg_windows_s: []}
+
+  # ── Gradient abstraction (setpoint coupling, slow-control service) ──────
+  gradient:
+    gradient_mode:
+      kind: enum
+      values: [gradient, absolute]
+      label: "gradient mode"
+      source:  {topic: xsphere/status/gradient, key: mode}
+      control: {topic: xsphere/commands/gradient/mode, payload: {mode: $value}}
+      period_s: null
+    gradient_base:
+      kind: analog
+      unit: K
+      label: "gradient base setpoint (top zone)"
+      source:  {topic: xsphere/status/gradient, key: base_k}
+      control: {topic: xsphere/commands/gradient/base, payload: {value_k: $value}}
+      period_s: null
+      avg_windows_s: []
+    gradient_dv:
+      kind: analog
+      unit: K
+      label: "ΔT vertical setpoint (bottom − top)"
+      source:  {topic: xsphere/status/gradient, key: delta_v_k}
+      control: {topic: xsphere/commands/gradient/vertical, payload: {delta_k: $value}}
+      period_s: null
+      avg_windows_s: []
+    gradient_dl:
+      kind: analog
+      unit: K
+      label: "ΔT longitudinal setpoint (nozzle − top)"
+      source:  {topic: xsphere/status/gradient, key: delta_l_k}
+      control: {topic: xsphere/commands/gradient/longitudinal, payload: {delta_k: $value}}
+      period_s: null
+      avg_windows_s: []
+
+  # ── Service / subsystem health ─────────────────────────────────────────
+  service:
+    service_alive:
+      kind: binary
+      label: "slow-control service heartbeat"
+      source: {topic: xsphere/status/service/heartbeat, presence: true}
+      period_s: 15.0          # heartbeat_interval is 10 s; allow 1.5×
+    interlocks_ok:
+      kind: binary
+      label: "interlocks OK"
+      source: {topic: xsphere/status/interlocks, key: ok}
+      period_s: 30.0          # interlocks watchdog republishes every ~15 s
+    labjack_connected:
+      kind: binary
+      label: "LabJack T7 connected"
+      source: {topic: xsphere/status/labjack_t7, key: connected}
+      period_s: 10.0
+    ghs_esp32_alive:
+      kind: binary
+      label: "GHS ESP32 heartbeat"
+      source: {topic: xsphere/status/ghs_esp32, presence: true}
+      period_s: 30.0
+# ── Derived states (computed by the StateStore each tick from the above) ──
+# `expr` is restricted arithmetic over other state ids: + - * /, parentheses,
+# unary minus, numeric literals, and bare ids.  Re-evaluated every tick; a
+# derived state inherits the worst freshness of its inputs.
+derived:
+  dt_vertical_meas:
+    kind: analog
+    unit: K
+    label: "measured ΔT vertical (cube bottom − top)"
+    expr: "t_cube_bottom - t_cube_top"
+    avg_windows_s: [60]
+  dt_longitudinal_meas:
+    kind: analog
+    unit: K
+    label: "measured ΔT longitudinal (cube nozzle − top)"
+    expr: "t_cube_nozzle - t_cube_top"
+    avg_windows_s: [60]
+  pid_top_error:
+    kind: analog
+    unit: K
+    label: "Zone 1 (top) tracking error (PV − SP)"
+    expr: "pid_top_pv - pid_top_setpoint"
+    avg_windows_s: []
+  pid_bottom_error:
+    kind: analog
+    unit: K
+    label: "Zone 2 (bottom) tracking error (PV − SP)"
+    expr: "pid_bottom_pv - pid_bottom_setpoint"
+    avg_windows_s: []
+  pid_nozzle_error:
+    kind: analog
+    unit: K
+    label: "Zone 3 (nozzle) tracking error (PV − SP)"
+    expr: "pid_nozzle_pv - pid_nozzle_setpoint"
+    avg_windows_s: []

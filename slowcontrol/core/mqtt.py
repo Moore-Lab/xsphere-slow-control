@@ -159,7 +159,11 @@ class MqttClient:
             except Exception:
                 log.exception("Error in MQTT callback for %s", topic)
 
-    def _on_disconnect(self, client, userdata, rc, properties=None):
-        if rc != 0:
-            log.warning("MQTT disconnected unexpectedly (rc=%d), "
+    def _on_disconnect(self, client, userdata, rc, properties=None, reason_code=None):
+        # paho-mqtt v5 / callback-API v2 may pass None for `rc` and put the
+        # actual code in a later positional / keyword arg; use %s so logging
+        # never crashes on an unexpected type.
+        if rc not in (0, None):
+            log.warning("MQTT disconnected unexpectedly (rc=%s), "
                         "paho will attempt reconnect", rc)
+        self._connected.clear()

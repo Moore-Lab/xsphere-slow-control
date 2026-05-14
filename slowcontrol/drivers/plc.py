@@ -57,6 +57,7 @@ Also accepts write commands for:
 
 from __future__ import annotations
 
+import ast
 import logging
 import struct
 import time
@@ -150,6 +151,19 @@ LEVEL_SOURCE_TOPICS = {
 #  channel→AIN→label/reference assignment.)
 REG_LABJACK_RTD_WRITE = {1: _df(210), 2: _df(211), 3: _df(212)}
 REG_LABJACK_TC_WRITE  = {1: _df(213), 2: _df(214), 3: _df(215), 4: _df(216)}
+
+
+# --- PID per-zone control coils (CLICK "C" relays) ---
+# Read off the PID Monitor pages for HTR1/2/3.  Each PID has Manual/Auto mode
+# bits, an "autotune start" trigger and a PI-vs-PID control type bit.
+def _c(n: int) -> int:
+    """Coil address for control relay C<n>."""
+    return C_BASE + (n - 1)
+
+REG_PID_MODE_MANUAL    = {"top": _c(115), "bottom": _c(155), "nozzle": _c(195)}
+REG_PID_MODE_AUTO      = {"top": _c(116), "bottom": _c(156), "nozzle": _c(196)}
+REG_PID_AUTOTUNE_START = {"top": _c(117), "bottom": _c(157), "nozzle": _c(197)}
+REG_PID_CONTROLLER_PID = {"top": _c(107), "bottom": _c(147), "nozzle": _c(187)}  # 1 = PID, 0 = PI
 
 # --- PID registers (DF, read setpoint/PV/output; write setpoint/gains) ---
 #
@@ -245,6 +259,17 @@ class PlcDriver(SensorDriver):
         # channel number — RTD absolute, TC gradient (ΔT) — to mirror into the PLC
         self._labjack_rtd_c: Dict[int, float] = {}
         self._labjack_tc_delta_c: Dict[int, float] = {}
+        # Per-PID-zone expressions (free-form, evaluated each poll, result in °C).
+        # "setpoint" expression writes the PID's SP register (DF100/125/150);
+        # "pv" expression writes the RawPV register (DF111/136/161 — the PID's
+        # Process Variable parameter is configured to point at the in-block
+        # RawPV slot, so writing it is what sets the PV).
+        # Empty string = no active expression for that zone.
+        self._pid_sp_expr: Dict[str, str] = {"top": "", "bottom": "", "nozzle": ""}
+        self._pid_pv_expr: Dict[str, str] = {"top": "", "bottom": "", "nozzle": ""}
+        # Most-recent value_c per sensor alias (rtd1..rtd6, tc1..tc4) for use
+        # as identifiers in those expressions.
+        self._sensor_c: Dict[str, float] = {}
 
     @property
     def poll_interval(self) -> float:
@@ -279,26 +304,21 @@ class PlcDriver(SensorDriver):
 
         # Subscribe to command topics
         from slowcontrol.core.mqtt import command_topic
-        self._mqtt.subscribe(
-            command_topic("pid", "+", "setpoint"),
-            self._on_pid_setpoint,
-        )
-        self._mqtt.subscribe(
-            command_topic("pid", "+", "gains"),
-            self._on_pid_gains,
-        )
-        self._mqtt.subscribe(
-            command_topic("valve", "+", "state"),
-            self._on_valve_state,
-        )
-        self._mqtt.subscribe(
-            command_topic("valve", "+", "auto_close"),
-            self._on_valve_auto,
-        )
-        self._mqtt.subscribe(
-            command_topic("valve", "+", "auto_open"),
-            self._on_valve_auto,
-        )
+        self._mqtt.subscribe(command_topic("pid", "+", "setpoint"),        self._on_pid_setpoint)
+        self._mqtt.subscribe(command_topic("pid", "+", "gains"),           self._on_pid_gains)
+        self._mqtt.subscribe(command_topic("pid", "+", "mode"),            self._on_pid_mode)
+        self._mqtt.subscribe(command_topic("pid", "+", "output"),          self._on_pid_output)
+        self._mqtt.subscribe(command_topic("pid", "+", "autotune"),        self._on_pid_autotune)
+        self._mqtt.subscribe(command_topic("pid", "+", "controller_type"), self._on_pid_controller_type)
+        self._mqtt.subscribe(command_topic("pid", "+", "pv"),              self._on_pid_pv_write)
+        self._mqtt.subscribe(command_topic("pid", "+", "setpoint_expr"),   self._on_pid_setpoint_expr)
+        self._mqtt.subscribe(command_topic("pid", "+", "pv_expr"),         self._on_pid_pv_expr_set)
+        self._mqtt.subscribe(command_topic("valve", "+", "state"),         self._on_valve_state)
+        self._mqtt.subscribe(command_topic("valve", "+", "auto_close"),    self._on_valve_auto)
+        self._mqtt.subscribe(command_topic("valve", "+", "auto_open"),     self._on_valve_auto)
+        # (Sensor aliases for setpoint/pv expressions — rtd1..6, tc1..4 — are
+        # populated directly when the PlcDriver reads the PLC RTDs and when
+        # the LabJack callbacks fire, avoiding any MQTT round-trip race.)
 
     def disconnect(self) -> None:
         if self._client:
@@ -319,6 +339,7 @@ class PlcDriver(SensorDriver):
             self._publish_valve_status()
             self._write_level_to_plc()
             self._write_labjack_to_plc()
+            self._write_pid_expressions()
         except ModbusException as exc:
             log.warning("[plc] Modbus error during poll: %s", exc)
         except Exception:
@@ -366,6 +387,18 @@ class PlcDriver(SensorDriver):
         result = self._client.write_register(address, value)
         return not result.isError()
 
+    def _read_coil(self, address: int) -> Optional[bool]:
+        """Read a single coil/discrete control relay."""
+        rr = self._client.read_coils(address, count=1)
+        if rr.isError():
+            return None
+        return bool(rr.bits[0])
+
+    def _write_coil(self, address: int, value: bool) -> bool:
+        """Set or clear a single coil/control relay."""
+        result = self._client.write_coil(address, bool(value))
+        return not result.isError()
+
     # ------------------------------------------------------------------
     # Publish: RTDs
     # ------------------------------------------------------------------
@@ -377,6 +410,9 @@ class PlcDriver(SensorDriver):
                 continue
             val_k = val_c + CELSIUS_TO_KELVIN
             path = RTD_MQTT_PATH[name]
+            # Cache the value under the alias "rtd<channel>" so setpoint/pv
+            # expressions can reference it (no MQTT round-trip).
+            self._sensor_c[f"rtd{path[-1]}"] = val_c
             self._mqtt.publish_sensor(
                 "temperature", *path,
                 payload={"value_c": round(val_c, 3),
@@ -435,8 +471,13 @@ class PlcDriver(SensorDriver):
             kp    = self._read_float(_pid_reg(zone, "kp"))
             ki    = self._read_float(_pid_reg(zone, "ki"))
             kd    = self._read_float(_pid_reg(zone, "kd"))
+            manual_bit = self._read_coil(REG_PID_MODE_MANUAL[zone])
+            auto_bit   = self._read_coil(REG_PID_MODE_AUTO[zone])
+            ctrl_bit   = self._read_coil(REG_PID_CONTROLLER_PID[zone])
             if sp_c is None or pv_c is None:
                 continue
+            mode = "manual" if manual_bit else ("auto" if auto_bit else "unknown")
+            controller = "pid" if ctrl_bit else ("pi" if ctrl_bit is False else "unknown")
             self._mqtt.publish_status(
                 "pid", zone,
                 payload={
@@ -446,6 +487,10 @@ class PlcDriver(SensorDriver):
                     "pv_k":        round(pv_c + CELSIUS_TO_KELVIN, 3),
                     "output_pct":  round(out, 2) if out is not None else None,
                     "kp": kp, "ki": ki, "kd": kd,
+                    "mode": mode,
+                    "controller_type": controller,
+                    "setpoint_expr": self._pid_sp_expr.get(zone, ""),
+                    "pv_expr":       self._pid_pv_expr.get(zone, ""),
                 },
             )
 
@@ -495,26 +540,43 @@ class PlcDriver(SensorDriver):
                 pass
 
     def _on_labjack_rtd(self, topic: str, payload: dict) -> None:
-        """Cache a LabJack RTD absolute temperature (°C) to mirror into the PLC.
+        """Cache a LabJack RTD absolute temperature (°C) — for the PLC mirror
+        (DF210-212) and as the `rtd<n>` alias usable in setpoint/pv expressions.
         Topic: xsphere/sensors/temperature/labjack/rtd/<n>  payload {"value_c": ...}"""
         if not isinstance(payload, dict):
             return
         val = payload.get("value_c")
-        if val is not None:
-            try:
-                self._labjack_rtd_c[int(topic.rsplit("/", 1)[-1])] = float(val)
-            except (TypeError, ValueError):
-                pass
+        if val is None:
+            return
+        try:
+            ch = int(topic.rsplit("/", 1)[-1])
+            val = float(val)
+        except (TypeError, ValueError):
+            return
+        self._labjack_rtd_c[ch] = val
+        self._sensor_c[f"rtd{ch}"] = val
 
     def _on_labjack_tc(self, topic: str, payload: dict) -> None:
-        """Cache a LabJack thermocouple gradient (ΔT, °C) to mirror into the PLC.
-        Topic: xsphere/sensors/temperature/labjack/tc/<n>  payload {"delta_c": ...}"""
+        """Cache a LabJack thermocouple absolute temperature (°C) under the
+        `tc<n>` alias for expressions, and its gradient (ΔT, °C) to mirror into
+        the PLC (DF213-216).
+        Topic: xsphere/sensors/temperature/labjack/tc/<n>"""
         if not isinstance(payload, dict):
             return
-        val = payload.get("delta_c")
-        if val is not None:
+        try:
+            ch = int(topic.rsplit("/", 1)[-1])
+        except (TypeError, ValueError):
+            return
+        delta_c = payload.get("delta_c")
+        if delta_c is not None:
             try:
-                self._labjack_tc_delta_c[int(topic.rsplit("/", 1)[-1])] = float(val)
+                self._labjack_tc_delta_c[ch] = float(delta_c)
+            except (TypeError, ValueError):
+                pass
+        val_c = payload.get("value_c")
+        if val_c is not None:
+            try:
+                self._sensor_c[f"tc{ch}"] = float(val_c)
             except (TypeError, ValueError):
                 pass
 
@@ -545,6 +607,173 @@ class PlcDriver(SensorDriver):
             if val is not None:
                 self._write_float(_pid_reg(zone, field_name), float(val))
         log.info("[plc] PID %s gains updated: %s", zone, payload)
+
+    def _on_pid_mode(self, topic: str, payload: dict) -> None:
+        """xsphere/commands/pid/{zone}/mode  → {"mode": "manual"|"auto"}.
+
+        Sets the corresponding "request" coil (Cxxx5/6) high; the CLICK ladder
+        clears the opposite bit as it changes mode."""
+        zone = topic.split("/")[-2]
+        if zone not in _PID_BLOCKS:
+            return
+        mode = str(payload.get("mode", "")).lower()
+        if mode == "manual":
+            ok = self._write_coil(REG_PID_MODE_MANUAL[zone], True)
+        elif mode == "auto":
+            ok = self._write_coil(REG_PID_MODE_AUTO[zone], True)
+        else:
+            log.warning("[plc] PID %s mode bad payload: %r", zone, payload)
+            return
+        log.info("[plc] PID %s mode → %s: %s", zone, mode, "OK" if ok else "FAIL")
+
+    def _on_pid_output(self, topic: str, payload: dict) -> None:
+        """xsphere/commands/pid/{zone}/output  → {"value_pct": X}.
+
+        Writes the manual output register.  Effective in Manual mode; in Auto
+        the PID overwrites it next scan."""
+        zone = topic.split("/")[-2]
+        if zone not in _PID_BLOCKS:
+            return
+        val = payload.get("value_pct")
+        if val is None:
+            return
+        ok = self._write_float(_pid_reg(zone, "output"), float(val))
+        log.info("[plc] PID %s manual output → %.2f %%: %s",
+                 zone, float(val), "OK" if ok else "FAIL")
+
+    def _on_pid_autotune(self, topic: str, payload: dict) -> None:
+        """xsphere/commands/pid/{zone}/autotune  → trigger autotune (set coil 1)."""
+        zone = topic.split("/")[-2]
+        if zone not in _PID_BLOCKS:
+            return
+        ok = self._write_coil(REG_PID_AUTOTUNE_START[zone], True)
+        log.info("[plc] PID %s autotune start: %s", zone, "OK" if ok else "FAIL")
+
+    def _on_pid_controller_type(self, topic: str, payload: dict) -> None:
+        """xsphere/commands/pid/{zone}/controller_type  → {"mode": "pi"|"pid"}."""
+        zone = topic.split("/")[-2]
+        if zone not in _PID_BLOCKS:
+            return
+        mode = str(payload.get("mode", "")).lower()
+        if mode not in ("pi", "pid"):
+            return
+        ok = self._write_coil(REG_PID_CONTROLLER_PID[zone], mode == "pid")
+        log.info("[plc] PID %s controller_type → %s: %s",
+                 zone, mode, "OK" if ok else "FAIL")
+
+    def _on_pid_pv_write(self, topic: str, payload: dict) -> None:
+        """xsphere/commands/pid/{zone}/pv  → {"value_c": X} or {"value_k": X}.
+
+        Writes the PID's RawPV register (DF111/136/161 — assumed to be the
+        register the PID instruction's Process Variable parameter points at)."""
+        zone = topic.split("/")[-2]
+        if zone not in _PID_BLOCKS:
+            return
+        if "value_c" in payload:
+            value_c = float(payload["value_c"])
+        elif "value_k" in payload:
+            value_c = float(payload["value_k"]) - CELSIUS_TO_KELVIN
+        else:
+            return
+        ok = self._write_float(_pid_reg(zone, "pv_raw"), value_c)
+        log.info("[plc] PID %s PV ← %.3f °C: %s",
+                 zone, value_c, "OK" if ok else "FAIL")
+
+    # ------------------------------------------------------------------
+    # PID setpoint / PV expressions  (e.g.  "rtd1 + DF3 - 4")
+    #   - identifiers: rtd1..rtd6, tc1..tc4   (most recent value_c, °C)
+    #   - register reads: DF<n>, DS<n>, C<n>  (float / int / 0|1)
+    #   - arithmetic: + - * / parens, numeric literals
+    # The expression result is the °C value to write each poll.
+    # ------------------------------------------------------------------
+
+    def _expr_lookup(self, name: str) -> Optional[float]:
+        """Resolve an identifier inside a setpoint/pv expression."""
+        if name in self._sensor_c:
+            return self._sensor_c[name]
+        # Register references: DF<n>, DS<n>, C<n>
+        if len(name) >= 2 and name[0] in ("D", "C"):
+            try:
+                if name.startswith("DF"):
+                    return self._read_float(_df(int(name[2:])))
+                if name.startswith("DS"):
+                    v = self._read_int(_ds(int(name[1:])))
+                    return float(v) if v is not None else None
+                if name.startswith("C"):
+                    b = self._read_coil(_c(int(name[1:])))
+                    return 1.0 if b else (0.0 if b is False else None)
+            except (ValueError, ModbusException):
+                return None
+        return None
+
+    def _eval_expr(self, expr: str) -> Optional[float]:
+        """Safely evaluate a setpoint/pv expression. Returns None on any error."""
+        try:
+            tree = ast.parse(expr, mode="eval")
+        except SyntaxError:
+            return None
+        try:
+            return self._eval_node(tree.body)
+        except (ValueError, ZeroDivisionError, TypeError):
+            return None
+
+    def _eval_node(self, node) -> float:
+        if isinstance(node, ast.Constant):
+            if isinstance(node.value, (int, float)) and not isinstance(node.value, bool):
+                return float(node.value)
+            raise ValueError("non-numeric literal")
+        if isinstance(node, ast.Name):
+            v = self._expr_lookup(node.id)
+            if v is None:
+                raise ValueError(f"unknown identifier or missing value: {node.id}")
+            return float(v)
+        if isinstance(node, ast.BinOp):
+            l = self._eval_node(node.left); r = self._eval_node(node.right)
+            if isinstance(node.op, ast.Add):  return l + r
+            if isinstance(node.op, ast.Sub):  return l - r
+            if isinstance(node.op, ast.Mult): return l * r
+            if isinstance(node.op, ast.Div):  return l / r
+            raise ValueError("unsupported operator")
+        if isinstance(node, ast.UnaryOp):
+            v = self._eval_node(node.operand)
+            if isinstance(node.op, ast.USub): return -v
+            if isinstance(node.op, ast.UAdd): return +v
+            raise ValueError("unsupported unary op")
+        raise ValueError(f"disallowed node: {type(node).__name__}")
+
+    def _on_pid_setpoint_expr(self, topic: str, payload: dict) -> None:
+        """xsphere/commands/pid/{zone}/setpoint_expr → {"expr": "..."}; empty clears."""
+        zone = topic.split("/")[-2]
+        if zone not in _PID_BLOCKS:
+            return
+        expr = str(payload.get("expr", "")).strip()
+        self._pid_sp_expr[zone] = expr
+        log.info("[plc] PID %s setpoint expr ← %r", zone, expr or "(none)")
+
+    def _on_pid_pv_expr_set(self, topic: str, payload: dict) -> None:
+        """xsphere/commands/pid/{zone}/pv_expr → {"expr": "..."}; empty clears."""
+        zone = topic.split("/")[-2]
+        if zone not in _PID_BLOCKS:
+            return
+        expr = str(payload.get("expr", "")).strip()
+        self._pid_pv_expr[zone] = expr
+        log.info("[plc] PID %s pv expr ← %r", zone, expr or "(none)")
+
+    def _write_pid_expressions(self) -> None:
+        """Evaluate any active setpoint/pv expressions and write the PID block.
+
+        Result is in °C (matching the underlying register convention)."""
+        for zone in ("top", "bottom", "nozzle"):
+            for kind, slot in (("sp_expr", "sp"), ("pv_expr", "pv_raw")):
+                expr = (self._pid_sp_expr if kind == "sp_expr" else self._pid_pv_expr).get(zone, "")
+                if not expr:
+                    continue
+                v = self._eval_expr(expr)
+                if v is None:
+                    log.debug("[plc] PID %s %s eval(%r) → None (missing alias / read error)",
+                              zone, kind, expr)
+                    continue
+                self._write_float(_pid_reg(zone, slot), float(v))
 
     def _on_valve_state(self, topic: str, payload: dict) -> None:
         """xsphere/commands/valve/{vessel}/state  → {"state": 0|1}"""
