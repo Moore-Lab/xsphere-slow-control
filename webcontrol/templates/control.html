@@ -142,12 +142,9 @@ function build(){
   $("pid").innerHTML = ZONES.map(([z,name])=>`
     <div class="blk" data-z="${z}">
       <div class="row"><span class="title">${name}</span><span id="ps-${z}" style="flex:1;color:var(--mut);font-size:.82rem;text-align:right"></span></div>
-      <div class="row"><span class="lbl">mode</span>
-        <button id="mo-${z}-auto"   onclick="ctl('pid_${z}_mode','auto')">Auto</button>
-        <button id="mo-${z}-manual" onclick="ctl('pid_${z}_mode','manual')">Manual</button>
-        <button onclick="cmd('xsphere/commands/pid/${z}/autotune',{})">autotune</button>
-        <span id="mo-${z}-cur" class="cur"></span></div>
-      <div class="row"><span class="lbl">manual out (%)</span><input type="number" step="1" id="mo-${z}-out"><button onclick="ctlNum('pid_${z}_output','mo-${z}-out')">set out</button><span id="mo-${z}-out-cur" class="cur"></span></div>
+      <div class="row"><span class="lbl">autotune</span>
+        <button onclick="cmd('xsphere/commands/pid/${z}/autotune',{})">trigger autotune</button>
+        <small style="color:var(--mut);margin-left:.5rem">Auto/Manual and manual output % live in the CLICK PID Monitor, not here</small></div>
       <div class="row"><span class="lbl">setpoint (K)</span><input type="number" step="0.5" id="sp-${z}"><button onclick="ctlNum('pid_${z}_setpoint','sp-${z}')">set SP</button><span id="sp-${z}-cur" class="cur"></span></div>
       <div class="row"><span class="lbl">SP expr (K)</span><input type="text" id="spe-${z}" placeholder="e.g. rtd1 + 4" style="flex:1;min-width:10rem"><button onclick="ctl('pid_${z}_setpoint_expr',$('spe-${z}').value)">set expr</button><button onclick="$('spe-${z}').value='';ctl('pid_${z}_setpoint_expr','')">clear</button></div>
       <div class="row"><span class="lbl">PV expr (K)</span><input type="text" id="pve-${z}" placeholder="e.g. rtd2" style="flex:1;min-width:10rem"><button onclick="ctl('pid_${z}_pv_expr',$('pve-${z}').value)">set expr</button><button onclick="$('pve-${z}').value='';ctl('pid_${z}_pv_expr','')">clear</button></div>
@@ -202,7 +199,7 @@ function update(d){
   ZONES.forEach(([z])=>{
     const pv=st["pid_"+z+"_pv"], setp=st["pid_"+z+"_setpoint"], out=st["pid_"+z+"_output"], err=st["pid_"+z+"_error"];
     const kp=st["pid_"+z+"_kp"], ki=st["pid_"+z+"_ki"], kd=st["pid_"+z+"_kd"];
-    const mode=st["pid_"+z+"_mode"], spe=st["pid_"+z+"_setpoint_expr"], pve=st["pid_"+z+"_pv_expr"];
+    const spe=st["pid_"+z+"_setpoint_expr"], pve=st["pid_"+z+"_pv_expr"];
     const worst = [pv,setp,out].reduce((w,s)=> s && s.freshness==="invalid"?"invalid":(w==="invalid"?"invalid":(s&&s.freshness==="stale"?"stale":w)), "fresh");
     const row = $("ps-"+z);
     row.innerHTML = `<span class="kv"><span class="k">PV</span><span class="num">${fmtNum(pv&&pv.value)}</span> K</span>`
@@ -214,12 +211,6 @@ function update(d){
     setCur("sp-"+z+"-cur", "current "+fmtNum(setp&&setp.value)+" K", setp);
     setPlaceholder("kp-"+z, kp && kp.value); setPlaceholder("ki-"+z, ki && ki.value); setPlaceholder("kd-"+z, kd && kd.value);
     setCur("g-"+z+"-cur", "current "+fmtNum(kp&&kp.value)+" / "+fmtNum(ki&&ki.value)+" / "+fmtNum(kd&&kd.value), kp);
-    // mode + manual output
-    $("mo-"+z+"-auto").className   = mode && mode.value==="auto"   ? "on" : "";
-    $("mo-"+z+"-manual").className = mode && mode.value==="manual" ? "on" : "";
-    setCur("mo-"+z+"-cur", "current: "+(mode && mode.value!=null ? mode.value : "?"), mode);
-    setPlaceholder("mo-"+z+"-out", out && out.value);
-    setCur("mo-"+z+"-out-cur", "current "+fmtNum(out&&out.value)+" %", out);
     // active expressions (placeholder only when empty so the user can edit)
     const speEl = $("spe-"+z); if (spe && document.activeElement!==speEl && speEl.value==="") speEl.placeholder = spe.value || "e.g. rtd1 + 4";
     const pveEl = $("pve-"+z); if (pve && document.activeElement!==pveEl && pveEl.value==="") pveEl.placeholder = pve.value || "e.g. rtd2";
