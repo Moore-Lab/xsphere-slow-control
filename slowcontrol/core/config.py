@@ -49,14 +49,6 @@ class PlcConfig:
 
 
 @dataclass
-class OmegaConfig:
-    port: str = "/dev/ttyUSB0"
-    baudrate: int = 57600
-    unit_id: int = 1
-    poll_interval: float = 1.0
-
-
-@dataclass
 class VesselAutofillConfig:
     level_high: float = 2.5         # close valve above this (0-10 scale)
     level_low: float = 0.5          # open valve below this (0-10 scale)
@@ -98,7 +90,6 @@ class ServiceConfig:
     mqtt: MqttConfig = field(default_factory=MqttConfig)
     influx: InfluxConfig = field(default_factory=InfluxConfig)
     plc: PlcConfig = field(default_factory=PlcConfig)
-    omega: OmegaConfig = field(default_factory=OmegaConfig)
     autovalve: AutovalveConfig = field(default_factory=AutovalveConfig)
     gradient: GradientConfig = field(default_factory=GradientConfig)
     # Raw `labjack:` block from the YAML, passed through to the LabJack T7
@@ -150,15 +141,6 @@ def load(path: str = "config.yaml") -> ServiceConfig:
             unit_id=p.get("unit_id", cfg.plc.unit_id),
             poll_interval=p.get("poll_interval", cfg.plc.poll_interval),
             timeout=p.get("timeout", cfg.plc.timeout),
-        )
-
-    if "omega" in raw:
-        o = raw["omega"]
-        cfg.omega = OmegaConfig(
-            port=o.get("port", cfg.omega.port),
-            baudrate=o.get("baudrate", cfg.omega.baudrate),
-            unit_id=o.get("unit_id", cfg.omega.unit_id),
-            poll_interval=o.get("poll_interval", cfg.omega.poll_interval),
         )
 
     if "autovalve" in raw:
