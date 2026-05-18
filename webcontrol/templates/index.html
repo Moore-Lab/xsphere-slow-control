@@ -3,305 +3,154 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>xsphere control</title>
+<title>xsphere — register</title>
 <style>
   :root { --bg:#11151c; --panel:#1b2230; --panel2:#232c3d; --fg:#dde3ee; --mut:#8a93a6;
           --ok:#3fb950; --warn:#d29922; --bad:#f85149; --acc:#58a6ff; --line:#2d3648; }
   * { box-sizing:border-box; }
   body { margin:0; background:var(--bg); color:var(--fg); font:14px/1.45 -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif; }
-  header { display:flex; align-items:center; gap:1.2rem; flex-wrap:wrap; padding:.6rem 1rem;
+  header { display:flex; align-items:center; gap:.8rem; flex-wrap:wrap; padding:.6rem 1rem;
            background:var(--panel); border-bottom:1px solid var(--line); position:sticky; top:0; z-index:5; }
-  header h1 { font-size:1.1rem; margin:0; font-weight:600; letter-spacing:.3px; }
-  .pill { padding:.15rem .55rem; border-radius:999px; font-size:.8rem; font-weight:600; }
+  header h1 { font-size:1.1rem; margin:0 .4rem 0 0; font-weight:600; letter-spacing:.3px; }
+  .pill { padding:.15rem .55rem; border-radius:999px; font-size:.78rem; font-weight:600; white-space:nowrap; }
   .pill.ok{background:rgba(63,185,80,.18);color:var(--ok)} .pill.bad{background:rgba(248,81,73,.18);color:var(--bad)}
   .pill.warn{background:rgba(210,153,34,.18);color:var(--warn)} .pill.mut{background:rgba(138,147,166,.15);color:var(--mut)}
-  main { display:grid; grid-template-columns:repeat(auto-fit,minmax(360px,1fr)); gap:1rem; padding:1rem; align-items:start; }
-  .card { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:.85rem 1rem 1rem; }
-  .card h2 { font-size:.95rem; margin:.1rem 0 .7rem; color:var(--acc); font-weight:600; letter-spacing:.3px; }
-  table { width:100%; border-collapse:collapse; font-size:.86rem; }
-  td,th { padding:.22rem .4rem; text-align:right; white-space:nowrap; }
+  a.nav { color:var(--acc); font-size:.85rem; text-decoration:none; padding:.18rem .5rem; border:1px solid var(--line); border-radius:6px; }
+  a.nav:hover { border-color:var(--acc); }
+  main { display:grid; grid-template-columns:repeat(auto-fit,minmax(380px,1fr)); gap:1rem; padding:1rem; align-items:start; }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:.7rem 1rem .9rem; }
+  .card h2 { font-size:.95rem; margin:.1rem 0 .55rem; color:var(--acc); font-weight:600; letter-spacing:.3px; text-transform:capitalize; }
+  table { width:100%; border-collapse:collapse; font-size:.85rem; }
+  td,th { padding:.2rem .35rem; text-align:right; white-space:nowrap; vertical-align:baseline; }
   th { color:var(--mut); font-weight:600; }
   td:first-child,th:first-child { text-align:left; }
   tr+tr td { border-top:1px solid var(--line); }
   .num { font-variant-numeric:tabular-nums; }
-  .stale { color:var(--mut); }
-  .row { display:flex; gap:.4rem; align-items:center; flex-wrap:wrap; margin:.35rem 0; }
-  .row .lbl { color:var(--mut); min-width:6.5rem; }
-  input[type=number],input[type=text],select,textarea {
-    background:var(--panel2); color:var(--fg); border:1px solid var(--line); border-radius:6px; padding:.28rem .4rem; font:inherit; }
-  input[type=number] { width:6.5rem; text-align:right; }
-  textarea { width:100%; min-height:5rem; resize:vertical; font-family:ui-monospace,Menlo,Consolas,monospace; font-size:.82rem; }
-  button { background:var(--panel2); color:var(--fg); border:1px solid var(--line); border-radius:6px; padding:.3rem .7rem; cursor:pointer; font:inherit; }
-  button:hover { border-color:var(--acc); }
-  button.act { background:var(--acc); color:#08111f; border-color:var(--acc); font-weight:600; }
-  button.danger { border-color:var(--bad); color:var(--bad); }
-  button.on { background:var(--ok); color:#08120a; border-color:var(--ok); font-weight:600; }
-  .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:.5rem 1rem; }
-  .valverow { display:flex; align-items:center; gap:.5rem; padding:.35rem 0; border-top:1px solid var(--line); }
-  .valverow:first-of-type { border-top:0; }
-  .valverow .name { flex:1; font-weight:600; }
-  .dot { width:.7rem; height:.7rem; border-radius:50%; background:var(--mut); display:inline-block; }
-  .dot.open{background:var(--ok)} .dot.closed{background:var(--mut)}
+  td.lbl { color:var(--fg); }
+  tr.stale td.lbl, tr.stale td.val { color:var(--warn); }
+  tr.invalid td.lbl, tr.invalid td.val { color:var(--mut); }
+  td.extra { color:var(--mut); font-size:.8rem; }
+  .dot { width:.62rem; height:.62rem; border-radius:50%; background:var(--mut); display:inline-block; vertical-align:middle; margin-right:.3rem; }
+  .dot.on{background:var(--ok)} .dot.off{background:#444b5a}
+  .frq { font-size:.68rem; padding:.05rem .3rem; border-radius:4px; }
+  .frq.fresh{color:var(--ok);background:rgba(63,185,80,.12)} .frq.stale{color:var(--warn);background:rgba(210,153,34,.14)} .frq.invalid{color:var(--mut);background:rgba(138,147,166,.12)}
   small.hint { color:var(--mut); }
-  .full { grid-column:1/-1; }
-  a.legend { color:var(--mut); font-size:.78rem; text-decoration:none; }
 </style>
 </head>
 <body>
 <header>
-  <h1>xsphere&nbsp;control</h1>
-  <span id="hb" class="pill mut">…</span>
-  <span id="ilk" class="pill mut">interlocks: …</span>
-  <span id="lj" class="pill mut">labjack: …</span>
-  <span id="mq" class="pill mut">mqtt: …</span>
-  <span id="age" class="pill mut" title="data age"></span>
+  <h1>xsphere&nbsp;·&nbsp;register</h1>
+  <span id="p-svc" class="pill mut">service …</span>
+  <span id="p-ilk" class="pill mut">interlocks …</span>
+  <span id="p-lj"  class="pill mut">labjack …</span>
+  <span id="p-ghs" class="pill mut">ghs …</span>
+  <span id="p-mq"  class="pill mut">mqtt …</span>
+  <span id="p-cnt" class="pill mut">…</span>
+  <span id="p-age" class="pill mut" title="age of the last snapshot"></span>
   <span style="flex:1"></span>
-  <a class="legend" href="http://192.168.8.116:3000/d/xsphere-slowcontrol" target="_blank">Grafana ↗</a>
+  <a class="nav" href="/control">Control ↗</a>
+  <a class="nav" href="/sequencer">Sequencer ↗</a>
+  <a class="nav" href="/readme">README ↗</a>
+  <a class="nav" href="http://192.168.8.116:3000/d/xsphere-slowcontrol" target="_blank">Grafana ↗</a>
 </header>
 
-<main>
-
-  <!-- Temperatures -->
-  <section class="card">
-    <h2>Temperatures</h2>
-    <table>
-      <thead><tr><th>sensor</th><th>°C</th><th>K</th><th>extra</th></tr></thead>
-      <tbody id="temps"></tbody>
-    </table>
-  </section>
-
-  <!-- Levels / GHS -->
-  <section class="card">
-    <h2>LN₂ levels &amp; gas handling</h2>
-    <table>
-      <thead><tr><th></th><th>value</th><th>(filtered)</th></tr></thead>
-      <tbody id="levels"></tbody>
-    </table>
-    <table style="margin-top:.6rem">
-      <thead><tr><th>gauge</th><th>value</th></tr></thead>
-      <tbody id="ghs"></tbody>
-    </table>
-  </section>
-
-  <!-- Valves -->
-  <section class="card">
-    <h2>Valves</h2>
-    <div id="valves"></div>
-    <small class="hint">“Auto-open / Auto-close” arm the PLC ladder’s autofill enables.</small>
-  </section>
-
-  <!-- Heaters / PID -->
-  <section class="card">
-    <h2>Heaters — PID</h2>
-    <div id="pid"></div>
-  </section>
-
-  <!-- Gradient -->
-  <section class="card">
-    <h2>Gradient</h2>
-    <div class="row"><span class="lbl">mode</span>
-      <button id="grad-mode-grad" onclick="cmd('xsphere/commands/gradient/mode',{mode:'gradient'})">gradient</button>
-      <button id="grad-mode-abs"  onclick="cmd('xsphere/commands/gradient/mode',{mode:'absolute'})">absolute</button>
-      <span id="grad-mode-now" class="pill mut"></span></div>
-    <div class="row"><span class="lbl">base (K)</span><input type="number" step="0.5" id="grad-base"><button onclick="cmd('xsphere/commands/gradient/base',{value_k:numv('grad-base')})">set</button>
-      <span id="grad-base-now" class="num"></span></div>
-    <div class="row"><span class="lbl">Δvertical (K)</span><input type="number" step="0.5" id="grad-dv"><button onclick="cmd('xsphere/commands/gradient/vertical',{delta_k:numv('grad-dv')})">set</button>
-      <span id="grad-dv-now" class="num"></span></div>
-    <div class="row"><span class="lbl">Δlong. (K)</span><input type="number" step="0.5" id="grad-dl"><button onclick="cmd('xsphere/commands/gradient/longitudinal',{delta_k:numv('grad-dl')})">set</button>
-      <span id="grad-dl-now" class="num"></span></div>
-    <div id="grad-sp" class="num" style="color:var(--mut);margin-top:.3rem"></div>
-  </section>
-
-  <!-- Follow a sensor -->
-  <section class="card">
-    <h2>Follow a sensor → zone setpoint</h2>
-    <div class="row"><span class="lbl">zone</span>
-      <select id="fz"><option>top</option><option>bottom</option><option>nozzle</option></select>
-      <span class="lbl">source</span><select id="fsrc"></select></div>
-    <div class="row">
-      <button id="fbtn" class="act" onclick="toggleFollow()">enable follow</button>
-      <span id="fstat" class="pill mut">off</span></div>
-    <small class="hint">When on, the chosen RTD’s reading is continuously published as that zone’s setpoint.</small>
-  </section>
-
-  <!-- Gradient scan -->
-  <section class="card">
-    <h2>Automated gradient scan</h2>
-    <div class="grid2">
-      <div class="row"><span class="lbl">start (K)</span><input type="number" id="sc-start" value="160"></div>
-      <div class="row"><span class="lbl">end (K)</span><input type="number" id="sc-end" value="200"></div>
-      <div class="row"><span class="lbl">step (K)</span><input type="number" id="sc-step" value="5"></div>
-      <div class="row"><span class="lbl">dwell (min)</span><input type="number" id="sc-dwell" value="10"></div>
-    </div>
-    <div class="row">
-      <button class="act" onclick="cmd('xsphere/commands/gradient_scanner/start',{start_k:numv('sc-start'),end_k:numv('sc-end'),step_k:numv('sc-step'),dwell_s:numv('sc-dwell')*60})">start scan</button>
-      <button class="danger" onclick="cmd('xsphere/commands/gradient_scanner/stop',{})">stop</button>
-      <span id="sc-stat" class="num" style="color:var(--mut)"></span></div>
-  </section>
-
-  <!-- Ramp sequencer -->
-  <section class="card">
-    <h2>Ramp sequencer</h2>
-    <small class="hint">One step per line: <code>ZONE&nbsp;TARGET_K&nbsp;HOLD_MIN</code> &nbsp;(ZONE = top / bottom / nozzle / base).</small>
-    <textarea id="seq-steps" placeholder="base 165 10&#10;base 175 10&#10;top 180 5"></textarea>
-    <div class="row">
-      <button class="act" onclick="seqRun()">run</button>
-      <button class="danger" onclick="seqStop()">stop</button>
-      <span id="seq-stat" class="pill mut">idle</span></div>
-  </section>
-
+<main id="main">
+  <section class="card"><h2>Loading…</h2><small class="hint">waiting for the state snapshot from the slow-control service</small></section>
 </main>
 
 <script>
 const $ = id => document.getElementById(id);
-const numv = id => { const v = parseFloat($(id).value); return isNaN(v) ? 0 : v; };
-const fmt = (v, d=2) => (v===null||v===undefined||v==="") ? "–" : (typeof v==="number" ? v.toFixed(d) : v);
+const GROUP_ORDER = ["temperature","derived","pid","gradient","level","valve","pressure","vacuum","environment","service"];
 
-async function cmd(topic, payload){
-  try { await fetch("/api/cmd",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({topic,payload})}); }
-  catch(e){ console.error(e); }
+function fmtNum(v){
+  if (v === null || v === undefined) return "–";
+  if (typeof v !== "number") return String(v);
+  const a = Math.abs(v);
+  if (a === 0) return "0";
+  if (a >= 1000) return v.toFixed(1);
+  if (a >= 1)   return v.toFixed(2);
+  if (a >= 0.01) return v.toFixed(3);
+  return v.toExponential(2);
 }
-async function seqRun(){ await fetch("/api/seq",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"run",steps:$("seq-steps").value})}); }
-async function seqStop(){ await fetch("/api/seq",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"stop"})}); }
-let followOn=false;
-async function toggleFollow(){
-  followOn=!followOn;
-  await fetch("/api/follow",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({on:followOn,zone:$("fz").value,src:$("fsrc").value})});
-}
+function fmtAge(s){ if(s==null) return ""; if(s<90) return s.toFixed(0)+"s"; if(s<5400) return (s/60).toFixed(0)+"m"; return (s/3600).toFixed(1)+"h"; }
 
-// ---- static structure for valves & PID ----
-const VESSELS = [["cryostat","XV3 cryostat"],["primary_xe","XV2 primary Xe"],["ballast","XV1 ballast"]];
-const ZONES = ["top","bottom","nozzle"];
-function buildValves(){
-  $("valves").innerHTML = VESSELS.map(([v,lbl])=>`
-   <div class="valverow" data-v="${v}">
-     <span class="dot" id="vd-${v}"></span>
-     <span class="name">${lbl}</span>
-     <span id="vs-${v}" class="num stale" style="min-width:11rem"></span>
-     <button onclick="cmd('xsphere/commands/valve/${v}/state',{state:1})">open</button>
-     <button onclick="cmd('xsphere/commands/valve/${v}/state',{state:0})">close</button>
-     <button id="vao-${v}" onclick="toggleAuto('${v}','auto_open')">auto-open</button>
-     <button id="vac-${v}" onclick="toggleAuto('${v}','auto_close')">auto-close</button>
-   </div>`).join("");
-}
-const autoState = {};   // `${v}/${which}` -> bool (last known)
-function toggleAuto(v,which){
-  const k=v+"/"+which, next=!autoState[k];
-  cmd(`xsphere/commands/valve/${v}/${which}`,{enabled:next});
-}
-function buildPID(){
-  $("pid").innerHTML = ZONES.map(z=>`
-   <div style="border-top:1px solid var(--line);padding:.5rem 0" data-z="${z}">
-     <div class="row"><b style="text-transform:capitalize">${z}</b><span id="ps-${z}" class="num stale" style="flex:1;text-align:right"></span></div>
-     <div class="row"><span class="lbl">setpoint (K)</span><input type="number" step="0.5" id="sp-${z}"><button onclick="cmd('xsphere/commands/pid/${z}/setpoint',{value_k:numv('sp-${z}')})">set SP</button></div>
-     <div class="row"><span class="lbl">Kp / Ki / Kd</span>
-       <input type="number" step="0.1" id="kp-${z}" style="width:4.6rem">
-       <input type="number" step="0.1" id="ki-${z}" style="width:4.6rem">
-       <input type="number" step="0.1" id="kd-${z}" style="width:4.6rem">
-       <button onclick="cmd('xsphere/commands/pid/${z}/gains',{kp:numv('kp-${z}'),ki:numv('ki-${z}'),kd:numv('kd-${z}')})">set gains</button></div>
-   </div>`).join("");
-}
-buildValves(); buildPID();
-
-// ---- rendering from /api/state ----
-const SRCS = [];   // sensor topics for the follow dropdown (filled on first state)
-function pl(state, topic){ const e=state[topic]; return e ? e.payload : null; }
-function ageOf(state, topic){ const e=state[topic]; return e ? (Date.now()/1000 - e.ts) : Infinity; }
-
-function render(d){
-  const st = d.state || {};
-  // header
-  const hb = pl(st,"xsphere/status/service/heartbeat");
-  if(hb){ const s=hb.uptime_s||0; $("hb").textContent="uptime "+Math.floor(s/3600)+"h "+Math.floor((s%3600)/60)+"m"; $("hb").className="pill ok"; }
-  const ilk = pl(st,"xsphere/status/interlocks");
-  if(ilk){ const ok=!!ilk.ok; $("ilk").textContent="interlocks: "+(ok?"OK":("ALERT "+((ilk.rules_active||[]).join(", ")))); $("ilk").className="pill "+(ok?"ok":"bad"); }
-  const lj = pl(st,"xsphere/status/labjack_t7");
-  if(lj){ $("lj").textContent="labjack: "+(lj.connected?("ok #"+lj.serial):"DOWN"); $("lj").className="pill "+(lj.connected?"ok":"bad"); }
-  $("mq").textContent = "mqtt: "+(d.mqtt_connected?"connected":"DOWN"); $("mq").className="pill "+(d.mqtt_connected?"ok":"bad");
-  // freshest sensor age
-  let minAge=Infinity; for(const t in st){ const a=Date.now()/1000-st[t].ts; if(a<minAge) minAge=a; }
-  $("age").textContent = isFinite(minAge)? ("data "+minAge.toFixed(1)+"s") : "no data";
-  $("age").className = "pill "+(minAge<5?"mut":"warn");
-
-  // temperatures
-  const trows=[];
-  Object.keys(st).filter(t=>t.startsWith("xsphere/sensors/temperature/")).sort().forEach(t=>{
-    const p=st[t].payload||{}, parts=t.split("/"), src=parts[4], typ=parts[5], ch=parts[6];
-    const name=(p.label?p.label+" ":"")+`(${src} ${typ}${ch})`;
-    let extra="";
-    if(typ==="rtd"&&p.resistance_ohm!=null) extra=fmt(p.resistance_ohm,2)+" Ω";
-    if(typ==="tc") extra="Δ "+fmt(p.delta_c,2)+" °C";
-    const old = (Date.now()/1000-st[t].ts)>10;
-    trows.push(`<tr class="${old?'stale':''}"><td>${name}</td><td class="num">${fmt(p.value_c,2)}</td><td class="num">${fmt(p.value_k,2)}</td><td class="num">${extra}</td></tr>`);
-    if(typ==="rtd" && SRCS.indexOf(t)<0) SRCS.push(t);
-  });
-  $("temps").innerHTML = trows.join("") || `<tr><td colspan="4" class="stale">no temperature data yet</td></tr>`;
-  // follow dropdown
-  if($("fsrc").options.length!==SRCS.length){
-    $("fsrc").innerHTML = SRCS.sort().map(t=>`<option value="${t}">${t.replace("xsphere/sensors/temperature/","")}</option>`).join("");
+function valCell(st){
+  const f = st.freshness;
+  if (st.kind === "binary"){
+    if (st.value === null) return `<span class="dot off"></span><span class="num">–</span>`;
+    const on = !!st.value;
+    return `<span class="dot ${on?'on':'off'}"></span><span class="num">${on?'yes':'no'}</span>`;
   }
-
-  // levels
-  const lrows=[];
-  ["cryostat","ballast","primary_xe"].forEach(v=>{
-    const p=pl(st,"xsphere/sensors/level/"+v);
-    lrows.push(`<tr><td>${v}</td><td class="num">${p?fmt(p.raw,3):"–"}</td><td class="num">${(p&&p.filtered!=null)?fmt(p.filtered,3):""}</td></tr>`);
-  });
-  $("levels").innerHTML = lrows.join("");
-  // ghs gauges
-  const grows=[];
-  Object.keys(st).filter(t=>t.startsWith("xsphere/sensors/pressure/")||t.startsWith("xsphere/sensors/vacuum/")||t.startsWith("xsphere/sensors/environment/")).sort().forEach(t=>{
-    const p=st[t].payload||{}, k=t.replace("xsphere/sensors/","");
-    const v=p.value; grows.push(`<tr><td>${k}</td><td class="num">${typeof v==="number"?(Math.abs(v)<0.01?v.toExponential(3):v.toFixed(3)):fmt(v)}</td></tr>`);
-  });
-  $("ghs").innerHTML = grows.join("") || `<tr><td colspan="2" class="stale">no GHS data</td></tr>`;
-
-  // valves
-  VESSELS.forEach(([v])=>{
-    const p=pl(st,"xsphere/status/valve/"+v);
-    const sEl=$("vs-"+v), dEl=$("vd-"+v);
-    if(p){
-      sEl.textContent = (p.state?"OPEN":"closed")+`  ·  desired ${p.desired?1:0}  ·  AO ${p.auto_open?1:0}  AC ${p.auto_close?1:0}`;
-      sEl.classList.toggle("stale", false);
-      dEl.className = "dot "+(p.state?"open":"closed");
-      autoState[v+"/auto_open"]=!!p.auto_open; autoState[v+"/auto_close"]=!!p.auto_close;
-      $("vao-"+v).className = p.auto_open?"on":""; $("vac-"+v).className = p.auto_close?"on":"";
-    } else { sEl.textContent="(no status)"; sEl.classList.add("stale"); dEl.className="dot"; }
-  });
-
-  // pid
-  ZONES.forEach(z=>{
-    const p=pl(st,"xsphere/status/pid/"+z); const el=$("ps-"+z);
-    if(p){
-      el.textContent = `SP ${fmt(p.setpoint_k,1)} K  |  PV ${fmt(p.pv_k,1)} K  |  out ${fmt(p.output_pct,1)} %  |  Kp/Ki/Kd ${fmt(p.kp,2)}/${fmt(p.ki,1)}/${fmt(p.kd,2)}`;
-      el.classList.remove("stale");
-      if(document.activeElement!==$("sp-"+z) && $("sp-"+z).value==="") $("sp-"+z).placeholder=fmt(p.setpoint_k,1);
-      [["kp",p.kp],["ki",p.ki],["kd",p.kd]].forEach(([k,val])=>{ const e=$(k+"-"+z); if(document.activeElement!==e && e.value==="") e.placeholder=fmt(val,2); });
-    } else { el.textContent="(no status)"; el.classList.add("stale"); }
-  });
-
-  // gradient
-  const g=pl(st,"xsphere/status/gradient");
-  if(g){
-    $("grad-mode-now").textContent=g.mode; $("grad-mode-now").className="pill "+(g.mode==="gradient"?"ok":"mut");
-    $("grad-mode-grad").className=g.mode==="gradient"?"on":""; $("grad-mode-abs").className=g.mode==="absolute"?"on":"";
-    $("grad-base-now").textContent=fmt(g.base_k,2)+" K"; $("grad-dv-now").textContent=fmt(g.delta_v_k,2)+" K"; $("grad-dl-now").textContent=fmt(g.delta_l_k,2)+" K";
-    if($("grad-base").value==="") $("grad-base").placeholder=fmt(g.base_k,1);
-    if($("grad-dv").value==="") $("grad-dv").placeholder=fmt(g.delta_v_k,1);
-    if($("grad-dl").value==="") $("grad-dl").placeholder=fmt(g.delta_l_k,1);
-    const sp=g.setpoints_k||{}; $("grad-sp").textContent=`→ top ${fmt(sp.top,2)} · bottom ${fmt(sp.bottom,2)} · nozzle ${fmt(sp.nozzle,2)} K`;
+  if (st.kind === "analog"){
+    const u = st.unit ? ` <span class="extra">${st.unit}</span>` : "";
+    return `<span class="num">${fmtNum(st.value)}</span>${u}`;
   }
-  // scan + seq + follow
-  const sc=pl(st,"xsphere/status/gradient_scanner");
-  $("sc-stat").textContent = sc? JSON.stringify(sc) : "(no scan status)";
-  $("seq-stat").textContent = (d.seq&&d.seq.status)||"idle"; $("seq-stat").className="pill "+((d.seq&&d.seq.running)?"warn":"mut");
-  if(d.follow){ followOn=!!d.follow.on; $("fbtn").textContent=followOn?"disable follow":"enable follow"; $("fbtn").className=followOn?"on":"act";
-    $("fstat").textContent=followOn?`${d.follow.zone} ← ${d.follow.src.replace("xsphere/sensors/temperature/","")}`:"off"; $("fstat").className="pill "+(followOn?"ok":"mut"); }
+  // enum / text
+  return `<span class="num">${st.value===null?'–':st.value}</span>`;
+}
+function extraCell(st){
+  const bits = [];
+  if (st.avg){ for (const [k,v] of Object.entries(st.avg)){ bits.push(`⌀${k.replace('avg_','')} ${fmtNum(v)}`); } }
+  if (st.kind==="enum" && Array.isArray(st.values)) {/* values are obvious from value */}
+  return bits.join(" · ");
 }
 
+function renderRegister(snap){
+  const states = (snap && snap.states) || {};
+  const byGroup = {};
+  for (const st of Object.values(states)){ (byGroup[st.group] ||= []).push(st); }
+  const groups = [...GROUP_ORDER.filter(g=>byGroup[g]), ...Object.keys(byGroup).filter(g=>!GROUP_ORDER.includes(g))];
+  const main = $("main");
+  main.innerHTML = groups.map(g=>{
+    const rows = byGroup[g].map(st=>`
+      <tr class="${st.freshness}">
+        <td class="lbl">${st.label}</td>
+        <td class="val num">${valCell(st)}</td>
+        <td class="extra">${extraCell(st)}</td>
+        <td><span class="frq ${st.freshness}">${st.freshness}</span></td>
+      </tr>`).join("");
+    return `<section class="card"><h2>${g}</h2><table>
+      <thead><tr><th>state</th><th>value</th><th>avg / unit</th><th></th></tr></thead>
+      <tbody>${rows}</tbody></table></section>`;
+  }).join("") || `<section class="card"><h2>No states</h2><small class="hint">the snapshot is empty — is the slow-control service running?</small></section>`;
+}
+
+function svcPill(el, st, label, okText){
+  if (!st){ el.textContent = label+" …"; el.className = "pill mut"; return; }
+  if (st.value === null || st.freshness === "invalid"){ el.textContent = label+": ?"; el.className = "pill bad"; return; }
+  const ok = !!st.value;
+  el.textContent = label+": "+(ok ? okText : "DOWN");
+  el.className = "pill " + (ok ? (st.freshness==="stale"?"warn":"ok") : "bad");
+}
+
+function header(d){
+  const snap = d.snapshot || {}, st = snap.states || {};
+  svcPill($("p-svc"), st.service_alive, "service", "alive");
+  // interlocks: ok/alert (interlocks_ok is true when OK)
+  const ilk = st.interlocks_ok;
+  if (ilk && ilk.value !== null && ilk.freshness !== "invalid"){
+    const ok = !!ilk.value; $("p-ilk").textContent = "interlocks: "+(ok?"OK":"ALERT"); $("p-ilk").className = "pill "+(ok?"ok":"bad");
+  } else { $("p-ilk").textContent = "interlocks: ?"; $("p-ilk").className = "pill mut"; }
+  svcPill($("p-lj"),  st.labjack_connected, "labjack", "ok");
+  svcPill($("p-ghs"), st.ghs_esp32_alive,  "ghs",     "alive");
+  $("p-mq").textContent = "mqtt: "+(d.mqtt_connected?"connected":"DOWN"); $("p-mq").className = "pill "+(d.mqtt_connected?"ok":"bad");
+  const c = snap.counts || {};
+  $("p-cnt").textContent = `${c.fresh||0} fresh · ${c.stale||0} stale · ${c.invalid||0} invalid`;
+  $("p-cnt").className = "pill " + ((c.invalid||0)>0 ? "warn" : "mut");
+  const age = d.snapshot_age;
+  $("p-age").textContent = (age==null) ? "no snapshot" : ("snapshot "+fmtAge(age));
+  $("p-age").className = "pill " + ((age==null||age>5)?"warn":"mut");
+}
+
+let lastGen = null;
 async function tick(){
-  try { const r=await fetch("/api/state"); render(await r.json()); $("mq").classList.remove("warn"); }
-  catch(e){ $("mq").textContent="mqtt: page can't reach server"; $("mq").className="pill bad"; }
+  let d;
+  try { d = await (await fetch("/api/state")).json(); }
+  catch(e){ $("p-mq").textContent="mqtt: page can't reach server"; $("p-mq").className="pill bad"; return; }
+  header(d);
+  const gen = d.snapshot && d.snapshot.generated_at;
+  // re-render only when the snapshot actually changed (1 Hz from the service)
+  if (gen !== lastGen){ lastGen = gen; renderRegister(d.snapshot); }
 }
 tick(); setInterval(tick, 1500);
 </script>

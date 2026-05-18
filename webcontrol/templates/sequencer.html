@@ -1,0 +1,417 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>xsphere — sequencer</title>
+<style>
+  :root { --bg:#11151c; --panel:#1b2230; --panel2:#232c3d; --fg:#dde3ee; --mut:#8a93a6;
+          --ok:#3fb950; --warn:#d29922; --bad:#f85149; --acc:#58a6ff; --line:#2d3648; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:14px/1.45 -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif; }
+  header { display:flex; align-items:center; gap:.8rem; flex-wrap:wrap; padding:.6rem 1rem;
+           background:var(--panel); border-bottom:1px solid var(--line); position:sticky; top:0; z-index:5; }
+  header h1 { font-size:1.1rem; margin:0 .4rem 0 0; font-weight:600; letter-spacing:.3px; }
+  .pill { padding:.15rem .55rem; border-radius:999px; font-size:.78rem; font-weight:600; white-space:nowrap; }
+  .pill.ok{background:rgba(63,185,80,.18);color:var(--ok)} .pill.bad{background:rgba(248,81,73,.18);color:var(--bad)}
+  .pill.warn{background:rgba(210,153,34,.18);color:var(--warn)} .pill.mut{background:rgba(138,147,166,.15);color:var(--mut)}
+  a.nav { color:var(--acc); font-size:.85rem; text-decoration:none; padding:.18rem .5rem; border:1px solid var(--line); border-radius:6px; }
+  a.nav:hover { border-color:var(--acc); }
+  main { display:grid; grid-template-columns: 1fr 1fr; gap:1rem; padding:1rem; align-items:start; }
+  @media (max-width: 1100px) { main { grid-template-columns: 1fr; } }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:.7rem 1rem 1rem; }
+  .card.full { grid-column: 1 / -1; }
+  .card h2 { font-size:.95rem; margin:.1rem 0 .55rem; color:var(--acc); font-weight:600; letter-spacing:.3px; }
+  .row { display:flex; gap:.45rem; align-items:center; flex-wrap:wrap; margin:.3rem 0; }
+  .row .lbl { color:var(--mut); min-width:5.5rem; }
+  input[type=number],input[type=text],select {
+    background:var(--panel2); color:var(--fg); border:1px solid var(--line); border-radius:6px; padding:.26rem .4rem; font:inherit; }
+  input[type=number] { width:6.5rem; text-align:right; }
+  button { background:var(--panel2); color:var(--fg); border:1px solid var(--line); border-radius:6px; padding:.28rem .65rem; cursor:pointer; font:inherit; }
+  button:hover { border-color:var(--acc); }
+  button.act { background:var(--acc); color:#08111f; border-color:var(--acc); font-weight:600; }
+  button.danger { border-color:var(--bad); color:var(--bad); }
+  button.on { background:var(--ok); color:#08120a; border-color:var(--ok); font-weight:600; }
+  .num { font-variant-numeric:tabular-nums; }
+  small.hint { color:var(--mut); display:block; margin-top:.4rem; }
+  .progress { background:var(--panel2); border:1px solid var(--line); border-radius:6px; height:.6rem; overflow:hidden; flex:1; }
+  .progress .bar { background:var(--acc); height:100%; transition:width .4s ease; }
+  table { width:100%; border-collapse:collapse; font-size:.86rem; }
+  td,th { padding:.22rem .35rem; text-align:left; vertical-align:top; }
+  th { color:var(--mut); font-weight:600; }
+  tr+tr td { border-top:1px solid var(--line); }
+  tr.active td { background:rgba(88,166,255,.08); }
+  code { background:var(--panel2); border:1px solid var(--line); border-radius:4px; padding:0 .25rem; font-family:ui-monospace,Menlo,Consolas,monospace; font-size:.85em; }
+  .actrow { display:flex; gap:.3rem; align-items:center; }
+  .badge { padding:.05rem .35rem; border-radius:4px; font-size:.72rem; }
+  .badge.set   { background:rgba(63,185,80,.14);  color:var(--ok); }
+  .badge.track { background:rgba(88,166,255,.14); color:var(--acc); }
+  .badge.step  { background:rgba(138,147,166,.18); color:var(--mut); }
+  .badge.sweep { background:rgba(210,153,34,.16); color:var(--warn); }
+</style>
+</head>
+<body>
+<header>
+  <h1>xsphere&nbsp;·&nbsp;sequencer</h1>
+  <span id="p-state" class="pill mut">idle</span>
+  <span id="p-step" class="pill mut"></span>
+  <span id="p-mq"  class="pill mut">mqtt …</span>
+  <span style="flex:1"></span>
+  <a class="nav" href="/">Register ↗</a>
+  <a class="nav" href="/control">Control ↗</a>
+  <a class="nav" href="/readme">README ↗</a>
+  <a class="nav" href="http://192.168.8.116:3000/d/xsphere-slowcontrol" target="_blank">Grafana ↗</a>
+</header>
+
+<main>
+
+  <!-- Run controls + progress (always full width) -->
+  <section class="card full">
+    <h2>Run</h2>
+    <div class="row">
+      <button id="r-run"  class="act" onclick="seqCmd('run')">run</button>
+      <button id="r-stop" class="danger" onclick="seqCmd('stop')">stop</button>
+      <button onclick="if(confirm('Clear the entire program?')) seqCmd('clear')">clear program</button>
+      <span style="flex:1; min-width:8rem"></span>
+      <span id="r-msg" class="num" style="color:var(--mut)"></span>
+    </div>
+    <div class="row" style="gap:.6rem; margin-top:.6rem">
+      <span class="lbl" style="min-width:auto">step progress</span>
+      <div class="progress"><div id="r-bar" class="bar" style="width:0"></div></div>
+      <span id="r-rem" class="num" style="min-width:6rem; text-align:right; color:var(--mut)">–</span>
+    </div>
+    <small class="hint">Each program item is either a <em>step</em> (one or more writes / trackers + a hold) or a <em>sweep</em> (compact "scan one target from start→stop in step increments, dwelling at each"). Step actions and sweep writes execute on entry; the item then holds for its duration before advancing. Sequencer-owned trackers (id prefix <code>seq:</code>) are auto-removed when a later step doesn't re-assert them. At end of program the last step's trackers are <em>left in place</em>; manage them on the <a href="/control" style="color:var(--acc)">Control page</a>.</small>
+  </section>
+
+  <!-- Build a new step (staging) -->
+  <section class="card">
+    <h2>Build a step (staging)</h2>
+    <div class="row">
+      <span class="lbl">action</span>
+      <select id="s-mode" onchange="updModeUI()">
+        <option value="set">set constant</option>
+        <option value="track">track source + offset</option>
+      </select>
+    </div>
+    <div class="row">
+      <span class="lbl">target</span>
+      <select id="s-target" style="min-width:15rem"></select>
+    </div>
+    <div class="row" id="s-row-value">
+      <span class="lbl">value</span>
+      <input type="number" step="0.1" id="s-value">
+      <span id="s-value-hint" style="color:var(--mut); font-size:.82rem"></span>
+    </div>
+    <div class="row" id="s-row-source" style="display:none">
+      <span class="lbl">source</span>
+      <select id="s-source" style="min-width:15rem"></select>
+      <span class="lbl" style="min-width:auto">offset</span>
+      <input type="number" step="0.1" id="s-offset" value="0">
+    </div>
+    <div class="row">
+      <button class="act" onclick="addAction()">+ add action</button>
+    </div>
+
+    <div style="border-top:1px solid var(--line); margin-top:.7rem; padding-top:.6rem">
+      <div class="row"><b>actions in this step</b></div>
+      <table id="stage-tbl"><tbody id="stage-body">
+        <tr><td colspan="3" style="color:var(--mut); padding:.3rem 0">(none yet)</td></tr>
+      </tbody></table>
+      <div class="row" style="margin-top:.5rem">
+        <span class="lbl">label</span>
+        <input type="text" id="s-label" placeholder="optional" style="width:14rem">
+        <span class="lbl" style="min-width:auto">hold (min)</span>
+        <input type="number" step="1" id="s-hold" value="10" min="0">
+        <button class="act" onclick="addStepToProgram()">+ add step to program</button>
+      </div>
+      <small class="hint">A hold of <code>0</code> means "do the writes and immediately advance to the next step" — useful for an instantaneous final state at the end of a program.</small>
+    </div>
+  </section>
+
+  <!-- Sweep a target -->
+  <section class="card">
+    <h2>Sweep a target (scan start → stop)</h2>
+    <small class="hint">Compact replacement for the old "Automated gradient scan". Writes <code>target = v</code> for each <code>v</code> in <code>start, start+step, …, stop</code>, holding <code>dwell</code> minutes at each. Persists as <em>one</em> program item.</small>
+    <div class="row">
+      <span class="lbl">target</span>
+      <select id="w-target" style="min-width:15rem"></select>
+      <span id="w-target-hint" style="color:var(--mut); font-size:.82rem"></span>
+    </div>
+    <div class="row">
+      <span class="lbl">start</span><input type="number" step="0.5" id="w-start" value="160">
+      <span class="lbl" style="min-width:auto">stop</span><input type="number" step="0.5" id="w-stop" value="200">
+      <span class="lbl" style="min-width:auto">step</span><input type="number" step="0.5" id="w-step" value="5">
+    </div>
+    <div class="row">
+      <span class="lbl">dwell (min)</span><input type="number" step="1" id="w-dwell" value="10" min="0">
+      <span class="lbl" style="min-width:auto">label</span><input type="text" id="w-label" placeholder="optional" style="width:14rem">
+    </div>
+    <div class="row">
+      <button class="act" onclick="addSweepToProgram()">+ add sweep to program</button>
+      <span id="w-preview" class="cur" style="margin-left:.4rem"></span>
+    </div>
+  </section>
+
+  <!-- Program -->
+  <section class="card full">
+    <h2>Program</h2>
+    <table id="prog-tbl">
+      <thead><tr><th>#</th><th>label</th><th>hold</th><th>actions</th><th></th></tr></thead>
+      <tbody id="prog-body">
+        <tr><td colspan="5" style="color:var(--mut)">(program is empty)</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+</main>
+
+<script>
+const $ = id => document.getElementById(id);
+const numv = id => { const v = parseFloat($(id).value); return isNaN(v) ? 0 : v; };
+function fmtNum(v){
+  if (v === null || v === undefined || v === "") return "–";
+  if (typeof v !== "number") return String(v);
+  const a = Math.abs(v);
+  if (a === 0) return "0";
+  if (a >= 1000) return v.toFixed(1);
+  if (a >= 1)   return v.toFixed(2);
+  if (a >= 0.01) return v.toFixed(3);
+  return v.toExponential(2);
+}
+function fmtClock(s){
+  s = Math.max(0, Math.round(s));
+  const h = Math.floor(s/3600), m = Math.floor((s%3600)/60), ss = s%60;
+  return h ? `${h}:${String(m).padStart(2,"0")}:${String(ss).padStart(2,"0")}`
+           :     `${m}:${String(ss).padStart(2,"0")}`;
+}
+
+// ---- shared state ----------------------------------------------------------
+let SNAP = {states:{}};
+let SEQ  = {running:false, steps:[], current_step:null, step_started_at:null, step_ends_at:null,
+            now:0, last_message:"idle"};
+let STAGE = [];                  // actions queued for the next "add step"
+
+// ---- commands --------------------------------------------------------------
+async function cmd(topic, payload){
+  try { await fetch("/api/cmd",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({topic,payload})}); }
+  catch(e){ console.error(e); }
+}
+function seqCmd(verb, payload={}){ return cmd("xsphere/commands/sequencer/"+verb, payload); }
+
+// ---- staging ---------------------------------------------------------------
+function updModeUI(){
+  const mode = $("s-mode").value;
+  $("s-row-value").style.display  = (mode === "set")   ? "" : "none";
+  $("s-row-source").style.display = (mode === "track") ? "" : "none";
+  updTargetHint();
+}
+function updTargetHint(){
+  const tid = $("s-target").value;
+  const st = SNAP.states[tid];
+  $("s-value-hint").textContent = (st && st.value!=null) ? `current ${fmtNum(st.value)} ${st.unit||""}` : "";
+}
+function fillSelect(id, items, current){
+  const el = $(id);
+  const cur = current ?? el.value;
+  const opts = items.map(v=>`<option value="${v}"${v===cur?" selected":""}>${v}</option>`).join("");
+  if (el.innerHTML !== opts) el.innerHTML = opts;
+}
+function refreshTargetSourceLists(){
+  const targets = [], sources = [];
+  for (const st of Object.values(SNAP.states||{})){
+    if (st.kind === "analog" && st.control) targets.push(st.id);
+    if (st.kind === "analog") sources.push(st.id);
+  }
+  targets.sort(); sources.sort();
+  fillSelect("s-target", targets);
+  fillSelect("s-source", sources);
+  fillSelect("w-target", targets);
+  updTargetHint();
+  updSweepHint();
+}
+
+function updSweepHint(){
+  const tid = $("w-target").value;
+  const st = SNAP.states[tid];
+  $("w-target-hint").textContent = (st && st.value!=null) ? `current ${fmtNum(st.value)} ${st.unit||""}` : "";
+  // preview point count + total runtime
+  const start = parseFloat($("w-start").value), stop = parseFloat($("w-stop").value),
+        step = parseFloat($("w-step").value), dwellMin = parseFloat($("w-dwell").value);
+  if ([start,stop,step,dwellMin].some(Number.isNaN)){ $("w-preview").textContent=""; return; }
+  let n;
+  if (step === 0 || start === stop) n = 1;
+  else if ((step > 0 && stop < start) || (step < 0 && stop > start)) n = 0;
+  else n = Math.floor((stop - start) / step + 1e-9) + 1;
+  const total = n * dwellMin;
+  $("w-preview").textContent = `${n} point${n===1?"":"s"} · total ${total} min (${(total/60).toFixed(1)} h)`;
+}
+function addAction(){
+  const mode = $("s-mode").value;
+  const target = $("s-target").value;
+  if (!target){ alert("Pick a target first."); return; }
+  if (mode === "set"){
+    STAGE.push({type:"set", target, value: numv("s-value")});
+  } else {
+    const source = $("s-source").value;
+    if (!source){ alert("Pick a source first."); return; }
+    STAGE.push({type:"track", target, source, offset: numv("s-offset")});
+  }
+  renderStage();
+}
+function removeStaged(i){ STAGE.splice(i,1); renderStage(); }
+function renderStage(){
+  const tb = $("stage-body");
+  if (STAGE.length === 0){
+    tb.innerHTML = `<tr><td colspan="3" style="color:var(--mut); padding:.3rem 0">(none yet)</td></tr>`;
+    return;
+  }
+  tb.innerHTML = STAGE.map((a,i)=>{
+    const expr = a.type === "set"
+      ? `<code>${a.target}</code> = <span class="num">${fmtNum(a.value)}</span>`
+      : `<code>${a.target}</code> = <code>${a.source}</code> + <span class="num">${fmtNum(a.offset)}</span>`;
+    return `<tr>
+      <td><span class="badge ${a.type}">${a.type}</span></td>
+      <td>${expr}</td>
+      <td style="text-align:right"><button class="danger" onclick="removeStaged(${i})">×</button></td>
+    </tr>`;
+  }).join("");
+}
+function addStepToProgram(){
+  if (STAGE.length === 0){ alert("Stage at least one action first."); return; }
+  const step = {
+    type: "step",
+    label: $("s-label").value.trim(),
+    hold_s: Math.max(0, numv("s-hold")) * 60,
+    actions: STAGE.slice(),
+  };
+  seqCmd("append", {step});
+  STAGE = []; $("s-label").value = "";
+  renderStage();
+}
+
+function addSweepToProgram(){
+  const target = $("w-target").value;
+  if (!target){ alert("Pick a target first."); return; }
+  const start = numv("w-start"), stop = numv("w-stop"), step = numv("w-step");
+  if (step === 0 && start !== stop){ alert("step = 0 with start ≠ stop would never finish."); return; }
+  const dwell_s = Math.max(0, numv("w-dwell")) * 60;
+  const item = {
+    type: "sweep",
+    label: $("w-label").value.trim(),
+    target, start, stop, step, dwell_s,
+  };
+  seqCmd("append", {step: item});
+  $("w-label").value = "";
+}
+
+// ---- program ---------------------------------------------------------------
+function removeStep(idx){
+  const steps = (SEQ.steps || []).slice();
+  steps.splice(idx, 1);
+  seqCmd("set", {steps});
+}
+function actionsHtml(actions){
+  return actions.map(a=>{
+    const txt = a.type === "set"
+      ? `${a.target} = ${fmtNum(a.value)}`
+      : `${a.target} = ${a.source} + ${fmtNum(a.offset)}`;
+    return `<div><span class="badge ${a.type}">${a.type}</span> <code>${txt}</code></div>`;
+  }).join("");
+}
+function sweepPointCount(it){
+  if (it.step === 0 || it.start === it.stop) return 1;
+  if ((it.step > 0 && it.stop < it.start) || (it.step < 0 && it.stop > it.start)) return 0;
+  return Math.floor((it.stop - it.start) / it.step + 1e-9) + 1;
+}
+function renderProgram(){
+  const tb = $("prog-body");
+  const items = SEQ.steps || [];
+  if (items.length === 0){
+    tb.innerHTML = `<tr><td colspan="5" style="color:var(--mut)">(program is empty — build a step or add a sweep on the left)</td></tr>`;
+    return;
+  }
+  tb.innerHTML = items.map((it,i)=>{
+    const type = it.type || "step";
+    const active = (SEQ.running && SEQ.current_step === i) ? "active" : "";
+    const baseLabel = it.label || (type === "sweep" ? `sweep ${it.target}` : `step ${i+1}`);
+    let holdCell, actionsCell, runningTag = active ? ' <span class="pill warn">running</span>' : '';
+    if (type === "sweep"){
+      const n = sweepPointCount(it);
+      const total = n * (it.dwell_s||0);
+      holdCell = `${(it.dwell_s||0)/60}&nbsp;min × ${n} = ${(total/60).toFixed(0)}&nbsp;min`;
+      let subLine = "";
+      if (active && SEQ.sub_step != null){
+        subLine = `<div style="color:var(--warn); font-size:.8rem">point ${SEQ.sub_step+1}/${SEQ.sub_step_total}</div>`;
+      }
+      actionsCell =
+        `<div><span class="badge sweep">sweep</span> <code>${it.target}</code> from <span class="num">${fmtNum(it.start)}</span> to <span class="num">${fmtNum(it.stop)}</span> step <span class="num">${fmtNum(it.step)}</span></div>${subLine}`;
+    } else {
+      holdCell = `${(it.hold_s||0)/60}&nbsp;min`;
+      actionsCell = `<div><span class="badge step">step</span></div>` + actionsHtml(it.actions||[]);
+    }
+    return `<tr class="${active}">
+      <td class="num">${i+1}</td>
+      <td>${baseLabel}${runningTag}</td>
+      <td class="num">${holdCell}</td>
+      <td>${actionsCell}</td>
+      <td style="text-align:right">
+        ${SEQ.running ? "" : `<button class="danger" onclick="removeStep(${i})">remove</button>`}
+      </td>
+    </tr>`;
+  }).join("");
+}
+
+// ---- header & progress -----------------------------------------------------
+function renderHeader(d){
+  $("p-mq").textContent = "mqtt: "+(d.mqtt_connected?"connected":"DOWN");
+  $("p-mq").className = "pill "+(d.mqtt_connected?"ok":"bad");
+  if (SEQ.running){
+    $("p-state").textContent = "running"; $("p-state").className = "pill warn";
+    const idx = (SEQ.current_step ?? 0);
+    const total = (SEQ.steps||[]).length;
+    const it = (SEQ.steps||[])[idx] || {};
+    const lbl = it.label || ((it.type||"step")==="sweep" ? `sweep ${it.target}` : `step ${idx+1}`);
+    const sub = (SEQ.sub_step != null) ? ` · point ${SEQ.sub_step+1}/${SEQ.sub_step_total}` : "";
+    $("p-step").textContent = `${idx+1}/${total} · ${lbl}${sub}`;
+    $("p-step").className = "pill mut";
+  } else {
+    $("p-state").textContent = (SEQ.last_message||"idle"); $("p-state").className = "pill mut";
+    $("p-step").textContent = ""; $("p-step").className = "pill mut";
+  }
+  $("r-msg").textContent = SEQ.last_message || "";
+  if (SEQ.running && SEQ.step_started_at!=null && SEQ.step_ends_at!=null){
+    const total = SEQ.step_ends_at - SEQ.step_started_at;
+    const remain = Math.max(0, SEQ.step_ends_at - (SEQ.now || Date.now()/1000));
+    const frac = total > 0 ? 1 - remain/total : 1;
+    $("r-bar").style.width = (Math.min(1,Math.max(0,frac))*100).toFixed(1)+"%";
+    $("r-rem").textContent = fmtClock(remain) + " left";
+  } else {
+    $("r-bar").style.width = "0";
+    $("r-rem").textContent = "–";
+  }
+}
+
+// ---- main tick -------------------------------------------------------------
+async function tick(){
+  let d;
+  try { d = await (await fetch("/api/state")).json(); }
+  catch(e){ $("p-mq").textContent="mqtt: page can't reach server"; $("p-mq").className="pill bad"; return; }
+  SNAP = d.snapshot || {states:{}};
+  const seqStatus = d.state && d.state["xsphere/status/sequencer"];
+  if (seqStatus && seqStatus.payload && typeof seqStatus.payload === "object"){
+    SEQ = Object.assign({running:false, steps:[], current_step:null, step_started_at:null,
+                         step_ends_at:null, now:0, last_message:""}, seqStatus.payload);
+  }
+  refreshTargetSourceLists();
+  renderStage();
+  renderProgram();
+  renderHeader(d);
+}
+updModeUI();
+$("s-target").addEventListener("change", updTargetHint);
+$("w-target").addEventListener("change", updSweepHint);
+["w-start","w-stop","w-step","w-dwell"].forEach(id => $(id).addEventListener("input", updSweepHint));
+tick(); setInterval(tick, 1500);
+</script>
+</body>
+</html>

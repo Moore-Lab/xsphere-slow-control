@@ -10,6 +10,13 @@ dist/
 .env
 telegraf/.env
 
+# Runtime state of the TrackerController + SequencerController (auto-managed,
+# do not commit — these reflect operator choices, not project config).
+slowcontrol/trackers.json
+slowcontrol/trackers.json.tmp
+slowcontrol/sequencer.json
+slowcontrol/sequencer.json.tmp
+
 # Editor / OS
 *.swp
 .DS_Store

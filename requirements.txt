@@ -11,9 +11,14 @@
 # ── Core service ──────────────────────────────────────────────────────────────
 paho-mqtt>=2.0.0        # MQTT broker client
 pymodbus>=3.6.0         # Modbus TCP (CLICK PLC)
-pyserial>=3.5           # Serial (Omega logger, future devices)
-pyyaml>=6.0             # YAML config loader
+pyserial>=3.5           # Serial (future devices: scale, pumping stands)
+pyyaml>=6.0             # YAML config loader (config.yaml, state.yaml)
 numpy>=1.24.0           # Numerical utilities
+
+# ── Web control panel (webcontrol/) ────────────────────────────────────────────
+flask>=3.0              # the GUI server
+waitress                # production-grade WSGI server (optional; Flask dev otherwise)
+markdown>=3.0           # renders README.md at /readme
 
 # ── LabJack T7 ────────────────────────────────────────────────────────────────
 labjack-ljm             # LJM Python wrapper (requires LJM runtime installed separately)

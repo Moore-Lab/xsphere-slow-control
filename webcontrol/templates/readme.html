@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>xsphere — README</title>
+<style>
+  :root { --bg:#11151c; --panel:#1b2230; --panel2:#232c3d; --fg:#dde3ee; --mut:#8a93a6;
+          --ok:#3fb950; --warn:#d29922; --bad:#f85149; --acc:#58a6ff; --line:#2d3648; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:15px/1.55 -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif; }
+  header { display:flex; align-items:center; gap:.8rem; flex-wrap:wrap; padding:.6rem 1rem;
+           background:var(--panel); border-bottom:1px solid var(--line); position:sticky; top:0; z-index:5; }
+  header h1 { font-size:1.1rem; margin:0 .4rem 0 0; font-weight:600; letter-spacing:.3px; }
+  a.nav { color:var(--acc); font-size:.85rem; text-decoration:none; padding:.18rem .5rem; border:1px solid var(--line); border-radius:6px; }
+  a.nav:hover { border-color:var(--acc); }
+  main { max-width: 920px; margin: 0 auto; padding: 1.2rem 1.4rem 4rem; }
+  main h1,main h2,main h3,main h4 { color:var(--acc); margin-top:1.6rem; margin-bottom:.6rem; line-height:1.25; }
+  main h1 { font-size:1.7rem; border-bottom:1px solid var(--line); padding-bottom:.3rem; }
+  main h2 { font-size:1.3rem; border-bottom:1px solid var(--line); padding-bottom:.25rem; margin-top:2rem; }
+  main h3 { font-size:1.05rem; color:var(--fg); }
+  main h4 { font-size:.95rem; color:var(--mut); text-transform:uppercase; letter-spacing:.06em; }
+  main p { margin:.55rem 0; }
+  main a { color:var(--acc); }
+  main ul,main ol { padding-left:1.4rem; }
+  main li { margin:.15rem 0; }
+  main code { background:var(--panel2); border:1px solid var(--line); border-radius:4px; padding:0 .3rem; font-family:ui-monospace,Menlo,Consolas,monospace; font-size:.86em; }
+  main pre { background:#0d1117; border:1px solid var(--line); border-radius:8px; padding:.7rem 1rem; overflow-x:auto; line-height:1.4; }
+  main pre code { background:transparent; border:0; padding:0; font-size:.85rem; }
+  main table { border-collapse:collapse; margin:.7rem 0; font-size:.92rem; display:block; max-width:100%; overflow-x:auto; }
+  main th,main td { border:1px solid var(--line); padding:.3rem .55rem; text-align:left; vertical-align:top; }
+  main th { background:var(--panel); color:var(--fg); }
+  main blockquote { margin:.6rem 0; padding:.3rem .9rem; border-left:3px solid var(--acc); color:var(--mut); background:rgba(88,166,255,.06); border-radius:0 6px 6px 0; }
+  main hr { border:0; border-top:1px solid var(--line); margin:1.8rem 0; }
+  .toc { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:.4rem .9rem; margin:1rem 0; }
+  .toc > ul { margin:.3rem 0; padding-left:1.2rem; }
+</style>
+</head>
+<body>
+<header>
+  <h1>xsphere&nbsp;·&nbsp;README</h1>
+  <span style="flex:1"></span>
+  <a class="nav" href="/">Register ↗</a>
+  <a class="nav" href="/control">Control ↗</a>
+  <a class="nav" href="/sequencer">Sequencer ↗</a>
+  <a class="nav" href="http://192.168.8.116:3000/d/xsphere-slowcontrol" target="_blank">Grafana ↗</a>
+</header>
+<main>
+{{ body | safe }}
+</main>
+</body>
+</html>

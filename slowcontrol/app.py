@@ -43,7 +43,7 @@ def main() -> None:
         stream=sys.stdout,
     )
 
-    service = SlowControlService(config)
+    service = SlowControlService(config, config_path=args.config)
     service.run()
 
 
