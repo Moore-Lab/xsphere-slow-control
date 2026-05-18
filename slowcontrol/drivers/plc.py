@@ -60,6 +60,7 @@ from __future__ import annotations
 import ast
 import logging
 import struct
+import threading
 import time
 from typing import Dict, Optional, Tuple
 
@@ -253,6 +254,13 @@ class PlcDriver(SensorDriver):
     def __init__(self, config, mqtt):
         super().__init__(config, mqtt)
         self._client: Optional[ModbusTcpClient] = None
+        # pymodbus 3.x sync TCP client is NOT thread-safe — concurrent calls
+        # over the single socket can scramble PDU framing (a read's response
+        # gets matched to a write request and vice versa, returning
+        # silently-wrong values or successful-looking ACKs for ops that
+        # didn't land). The poll thread and the paho-mqtt callback thread
+        # both reach this driver, so every Modbus op is serialized here.
+        self._modbus_lock = threading.Lock()
         # Cache latest level values received from ESP32 MQTT topics
         self._level_raw: Dict[str, float] = {}
         # Cache latest LabJack temperatures received over MQTT (°C), keyed by
@@ -383,7 +391,8 @@ class PlcDriver(SensorDriver):
         order), big-endian byte order within each 16-bit word — i.e. the float
         occupies [low_word @ address, high_word @ address+1].
         """
-        rr = self._client.read_holding_registers(address, count=2)
+        with self._modbus_lock:
+            rr = self._client.read_holding_registers(address, count=2)
         if rr.isError():
             log.debug("[plc] read error at address %d", address)
             return None
@@ -392,7 +401,8 @@ class PlcDriver(SensorDriver):
 
     def _read_int(self, address: int) -> Optional[int]:
         """Read a single 16-bit integer holding register."""
-        rr = self._client.read_holding_registers(address, count=1)
+        with self._modbus_lock:
+            rr = self._client.read_holding_registers(address, count=1)
         if rr.isError():
             return None
         return rr.registers[0]
@@ -406,24 +416,28 @@ class PlcDriver(SensorDriver):
         raw = struct.unpack(">I", packed)[0]
         hi = (raw >> 16) & 0xFFFF
         lo = raw & 0xFFFF
-        result = self._client.write_registers(address, [lo, hi])
+        with self._modbus_lock:
+            result = self._client.write_registers(address, [lo, hi])
         return not result.isError()
 
     def _write_int(self, address: int, value: int) -> bool:
         """Write a single 16-bit integer to a holding register."""
-        result = self._client.write_register(address, value)
+        with self._modbus_lock:
+            result = self._client.write_register(address, value)
         return not result.isError()
 
     def _read_coil(self, address: int) -> Optional[bool]:
         """Read a single coil/discrete control relay."""
-        rr = self._client.read_coils(address, count=1)
+        with self._modbus_lock:
+            rr = self._client.read_coils(address, count=1)
         if rr.isError():
             return None
         return bool(rr.bits[0])
 
     def _write_coil(self, address: int, value: bool) -> bool:
         """Set or clear a single coil/control relay."""
-        result = self._client.write_coil(address, bool(value))
+        with self._modbus_lock:
+            result = self._client.write_coil(address, bool(value))
         return not result.isError()
 
     # ------------------------------------------------------------------
