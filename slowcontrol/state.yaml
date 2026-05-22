@@ -258,13 +258,13 @@ groups:
       source:  {topic: xsphere/status/pid/top, key: output_pct}
     pid_top_pv_expr:
       kind: text
-      label: "Zone 1 (top) PV expression (°C)"
+      label: "Zone 1 (top) PV expression (K)"
       source:  {topic: xsphere/status/pid/top, key: pv_expr}
       control: {topic: xsphere/commands/pid/top/pv_expr, payload: {expr: $value}}
       period_s: null
     pid_top_setpoint_expr:
       kind: text
-      label: "Zone 1 (top) setpoint expression (°C)"
+      label: "Zone 1 (top) setpoint (K)"
       source:  {topic: xsphere/status/pid/top, key: setpoint_expr}
       control: {topic: xsphere/commands/pid/top/setpoint_expr, payload: {expr: $value}}
       period_s: null
@@ -273,7 +273,8 @@ groups:
       unit: K
       label: "Zone 1 (top) setpoint"
       source:  {topic: xsphere/status/pid/top, key: setpoint_k}
-      control: {topic: xsphere/commands/pid/top/setpoint, payload: {value_k: $value}}
+      # Read-only: the setpoint is driven through pid_top_setpoint_expr (a
+      # plain number is a valid expression). One writer = no races.
       avg_windows_s: []
     pid_top_kp: {kind: analog, label: "Zone 1 (top) Kp", source: {topic: xsphere/status/pid/top, key: kp}, avg_windows_s: []}
     pid_top_ki: {kind: analog, label: "Zone 1 (top) Ki", source: {topic: xsphere/status/pid/top, key: ki}, avg_windows_s: []}
@@ -290,13 +291,13 @@ groups:
       source:  {topic: xsphere/status/pid/bottom, key: output_pct}
     pid_bottom_pv_expr:
       kind: text
-      label: "Zone 2 (bottom) PV expression (°C)"
+      label: "Zone 2 (bottom) PV expression (K)"
       source:  {topic: xsphere/status/pid/bottom, key: pv_expr}
       control: {topic: xsphere/commands/pid/bottom/pv_expr, payload: {expr: $value}}
       period_s: null
     pid_bottom_setpoint_expr:
       kind: text
-      label: "Zone 2 (bottom) setpoint expression (°C)"
+      label: "Zone 2 (bottom) setpoint (K)"
       source:  {topic: xsphere/status/pid/bottom, key: setpoint_expr}
       control: {topic: xsphere/commands/pid/bottom/setpoint_expr, payload: {expr: $value}}
       period_s: null
@@ -305,7 +306,7 @@ groups:
       unit: K
       label: "Zone 2 (bottom) setpoint"
       source:  {topic: xsphere/status/pid/bottom, key: setpoint_k}
-      control: {topic: xsphere/commands/pid/bottom/setpoint, payload: {value_k: $value}}
+      # Read-only: driven through pid_bottom_setpoint_expr.
       avg_windows_s: []
     pid_bottom_kp: {kind: analog, label: "Zone 2 (bottom) Kp", source: {topic: xsphere/status/pid/bottom, key: kp}, avg_windows_s: []}
     pid_bottom_ki: {kind: analog, label: "Zone 2 (bottom) Ki", source: {topic: xsphere/status/pid/bottom, key: ki}, avg_windows_s: []}
@@ -322,13 +323,13 @@ groups:
       source:  {topic: xsphere/status/pid/nozzle, key: output_pct}
     pid_nozzle_pv_expr:
       kind: text
-      label: "Zone 3 (nozzle) PV expression (°C)"
+      label: "Zone 3 (nozzle) PV expression (K)"
       source:  {topic: xsphere/status/pid/nozzle, key: pv_expr}
       control: {topic: xsphere/commands/pid/nozzle/pv_expr, payload: {expr: $value}}
       period_s: null
     pid_nozzle_setpoint_expr:
       kind: text
-      label: "Zone 3 (nozzle) setpoint expression (°C)"
+      label: "Zone 3 (nozzle) setpoint (K)"
       source:  {topic: xsphere/status/pid/nozzle, key: setpoint_expr}
       control: {topic: xsphere/commands/pid/nozzle/setpoint_expr, payload: {expr: $value}}
       period_s: null
@@ -337,7 +338,7 @@ groups:
       unit: K
       label: "Zone 3 (nozzle) setpoint"
       source:  {topic: xsphere/status/pid/nozzle, key: setpoint_k}
-      control: {topic: xsphere/commands/pid/nozzle/setpoint, payload: {value_k: $value}}
+      # Read-only: driven through pid_nozzle_setpoint_expr.
       avg_windows_s: []
     pid_nozzle_kp: {kind: analog, label: "Zone 3 (nozzle) Kp", source: {topic: xsphere/status/pid/nozzle, key: kp}, avg_windows_s: []}
     pid_nozzle_ki: {kind: analog, label: "Zone 3 (nozzle) Ki", source: {topic: xsphere/status/pid/nozzle, key: ki}, avg_windows_s: []}

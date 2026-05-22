@@ -627,7 +627,16 @@ class PlcDriver(SensorDriver):
             except (TypeError, ValueError): pass
 
     def _on_pid_setpoint(self, topic: str, payload: dict) -> None:
-        """xsphere/commands/pid/{zone}/setpoint  → {"value_k": X}"""
+        """xsphere/commands/pid/{zone}/setpoint  → {"value_k": X}.
+
+        A plain numeric setpoint is just a constant setpoint expression, so
+        this redirects into the expression mechanism: it stores the value as
+        the zone's setpoint expression and writes the SP register once for
+        instant feedback. `_write_pid_expressions` then re-asserts it every
+        poll. The point is a single per-poll writer of the SP register — a
+        one-shot write here would otherwise be overwritten next poll by any
+        non-empty expression (and the GradientController publishes on this
+        same topic, so it benefits too)."""
         parts = topic.split("/")
         zone = parts[-2]
         if zone not in _PID_BLOCKS:
@@ -636,9 +645,10 @@ class PlcDriver(SensorDriver):
         value_k = payload.get("value_k")
         if value_k is None:
             return
-        value_c = float(value_k) - CELSIUS_TO_KELVIN
-        addr = _pid_reg(zone, "sp")
-        ok = self._write_float(addr, value_c)
+        value_k = float(value_k)
+        value_c = value_k - CELSIUS_TO_KELVIN
+        self._pid_sp_expr[zone] = repr(value_k)
+        ok = self._write_float(_pid_reg(zone, "sp"), value_c)
         log.info("[plc] PID %s setpoint → %.2f K (%.2f °C): %s",
                  zone, value_k, value_c, "OK" if ok else "FAIL")
 

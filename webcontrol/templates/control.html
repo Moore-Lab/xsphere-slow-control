@@ -145,9 +145,8 @@ function build(){
       <div class="row"><span class="lbl">autotune</span>
         <button onclick="cmd('xsphere/commands/pid/${z}/autotune',{})">trigger autotune</button>
         <small style="color:var(--mut);margin-left:.5rem">Auto/Manual and manual output % live in the CLICK PID Monitor, not here</small></div>
-      <div class="row"><span class="lbl">setpoint (K)</span><input type="number" step="0.5" id="sp-${z}"><button onclick="ctlNum('pid_${z}_setpoint','sp-${z}')">set SP</button><span id="sp-${z}-cur" class="cur"></span></div>
-      <div class="row"><span class="lbl">SP expr (K)</span><input type="text" id="spe-${z}" placeholder="e.g. rtd1 + 4" style="flex:1;min-width:10rem"><button onclick="ctl('pid_${z}_setpoint_expr',$('spe-${z}').value)">set expr</button><button onclick="$('spe-${z}').value='';ctl('pid_${z}_setpoint_expr','')">clear</button></div>
-      <div class="row"><span class="lbl">PV expr (K)</span><input type="text" id="pve-${z}" placeholder="e.g. rtd2" style="flex:1;min-width:10rem"><button onclick="ctl('pid_${z}_pv_expr',$('pve-${z}').value)">set expr</button><button onclick="$('pve-${z}').value='';ctl('pid_${z}_pv_expr','')">clear</button></div>
+      <div class="row"><span class="lbl">setpoint (K)</span><input type="text" id="spe-${z}" placeholder="e.g. 170 or rtd1 + 4" style="flex:1;min-width:10rem"><button onclick="ctl('pid_${z}_setpoint_expr',$('spe-${z}').value)">set</button><button onclick="$('spe-${z}').value='';ctl('pid_${z}_setpoint_expr','')">clear</button><span id="sp-${z}-cur" class="cur"></span></div>
+      <div class="row"><span class="lbl">PV expr (K)</span><input type="text" id="pve-${z}" placeholder="e.g. rtd2" style="flex:1;min-width:10rem"><button onclick="ctl('pid_${z}_pv_expr',$('pve-${z}').value)">set</button><button onclick="$('pve-${z}').value='';ctl('pid_${z}_pv_expr','')">clear</button></div>
       <div class="row"><span class="lbl">Kp / Ki / Kd</span>
         <input type="number" step="0.1" id="kp-${z}" style="width:4.4rem">
         <input type="number" step="0.1" id="ki-${z}" style="width:4.4rem">
@@ -207,12 +206,11 @@ function update(d){
       + `<span class="kv"><span class="k">OUT</span><span class="num">${fmtNum(out&&out.value)}</span> %</span>`
       + `<span class="kv"><span class="k">err</span><span class="num">${fmtNum(err&&err.value)}</span> K</span>`;
     row.style.color = worst==="invalid" ? "var(--mut)" : worst==="stale" ? "var(--warn)" : "var(--mut)";
-    setPlaceholder("sp-"+z, setp && setp.value);
     setCur("sp-"+z+"-cur", "current "+fmtNum(setp&&setp.value)+" K", setp);
     setPlaceholder("kp-"+z, kp && kp.value); setPlaceholder("ki-"+z, ki && ki.value); setPlaceholder("kd-"+z, kd && kd.value);
     setCur("g-"+z+"-cur", "current "+fmtNum(kp&&kp.value)+" / "+fmtNum(ki&&ki.value)+" / "+fmtNum(kd&&kd.value), kp);
     // active expressions (placeholder only when empty so the user can edit)
-    const speEl = $("spe-"+z); if (spe && document.activeElement!==speEl && speEl.value==="") speEl.placeholder = spe.value || "e.g. rtd1 + 4";
+    const speEl = $("spe-"+z); if (spe && document.activeElement!==speEl && speEl.value==="") speEl.placeholder = spe.value || "e.g. 170 or rtd1 + 4";
     const pveEl = $("pve-"+z); if (pve && document.activeElement!==pveEl && pveEl.value==="") pveEl.placeholder = pve.value || "e.g. rtd2";
   });
 
