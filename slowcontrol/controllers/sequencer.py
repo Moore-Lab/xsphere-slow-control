@@ -138,7 +138,7 @@ class Step:
 @dataclass
 class Sweep:
     label: str
-    target: str
+    targets: List[str]      # one or more state ids, all swept to the same value
     start: float
     stop: float
     step: float
@@ -148,7 +148,7 @@ class Sweep:
         return {
             "type": "sweep",
             "label": self.label,
-            "target": self.target,
+            "targets": list(self.targets),
             "start": self.start,
             "stop": self.stop,
             "step": self.step,
@@ -157,9 +157,13 @@ class Sweep:
 
     @classmethod
     def from_dict(cls, d: dict) -> "Sweep":
-        target = d.get("target")
-        if not isinstance(target, str) or not target:
-            raise ValueError("sweep: 'target' is required")
+        # Accept `targets` (list) or the legacy single-target `target` (str).
+        raw = d.get("targets")
+        if raw is None and d.get("target"):
+            raw = [d["target"]]
+        if (not isinstance(raw, list) or not raw
+                or not all(isinstance(t, str) and t for t in raw)):
+            raise ValueError("sweep: 'targets' must be a non-empty list of state ids")
         try:
             start = float(d["start"])
             stop = float(d["stop"])
@@ -171,7 +175,7 @@ class Sweep:
             raise ValueError(f"sweep.dwell_s must be >= 0, got {dwell}")
         if step == 0 and start != stop:
             raise ValueError("sweep.step == 0 with start != stop would never finish")
-        return cls(label=str(d.get("label", "")), target=target,
+        return cls(label=str(d.get("label", "")), targets=list(raw),
                    start=start, stop=stop, step=step, dwell_s=dwell)
 
     def values(self) -> List[float]:
@@ -480,8 +484,9 @@ class SequencerController(Controller):
 
     def _run_sweep(self, idx: int, sweep: Sweep) -> None:
         values = sweep.values()
+        tgt_str = " + ".join(sweep.targets)
         label = sweep.label or (
-            f"sweep {sweep.target} {sweep.start}→{sweep.stop} step {sweep.step}")
+            f"sweep {tgt_str} {sweep.start}→{sweep.stop} step {sweep.step}")
         log.info("[sequencer] item %d/%d: %s (%d points, dwell %.0fs)",
                  idx + 1, len(self._items), label, len(values), sweep.dwell_s)
         for sub_idx, v in enumerate(values):
@@ -496,9 +501,11 @@ class SequencerController(Controller):
                 self._step_ends_at = now + sweep.dwell_s
                 self._last_message = (
                     f"item {idx + 1}/{len(self._items) or '?'}: {label} "
-                    f"— point {sub_idx + 1}/{len(values)}: {sweep.target} = {v}")
+                    f"— point {sub_idx + 1}/{len(values)}: {tgt_str} = {v}")
             log.info("[sequencer] %s", self._last_message)
-            self._write_set(sweep.target, v)
+            # All targets in this sweep step to the same value, together.
+            for target in sweep.targets:
+                self._write_set(target, v)
             self._publish_status()
             self._wait_until(self._step_ends_at)
 
