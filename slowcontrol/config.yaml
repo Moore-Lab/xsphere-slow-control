@@ -72,4 +72,9 @@ labjack:
     - {name: tc4, kind: tc, ain: 12, channel: 4, label: "cube front<->back",  reference: "rtd3"}       # bottom cube RTD
 
 heartbeat_interval: 10.0    # seconds between heartbeat MQTT publishes
+# Self-watchdog: if the MQTT client hasn't successfully published in this many
+# seconds (typically because paho is stuck queue-full after a network blip),
+# the service exits non-zero so systemd restarts us with a fresh paho client.
+# Set to 0 to disable. See _heartbeat_loop in slowcontrol/core/service.py.
+watchdog_timeout_s: 60.0
 log_level: INFO

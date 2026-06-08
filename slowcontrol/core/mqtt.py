@@ -50,6 +50,12 @@ class MqttClient:
         # both listen on xsphere/commands/pid/+/setpoint); every matching
         # callback is invoked.
         self._subscriptions: Dict[str, List[Callable]] = {}
+        # Watchdog signal: monotonic time of the last publish that returned
+        # MQTT_ERR_SUCCESS. The service heartbeat loop checks this to detect
+        # a stuck paho client (queue-full rc=15 piling up after a network
+        # blip — observed post power outage on 2026-06-07). seconds_since_publish_ok()
+        # > watchdog_timeout_s is interpreted as a fatal stuck state.
+        self._last_publish_ok_ts: float = time.monotonic()
 
         self._client = mqtt.Client(client_id=client_id,
                                    protocol=mqtt.MQTTv5)
@@ -93,6 +99,17 @@ class MqttClient:
                                           retain=retain)
         if result.rc != mqtt.MQTT_ERR_SUCCESS:
             log.warning("MQTT publish failed on %s: rc=%d", topic, result.rc)
+        else:
+            self._last_publish_ok_ts = time.monotonic()
+
+    def seconds_since_publish_ok(self) -> float:
+        """How long ago the last MQTT publish returned success.
+
+        Used by the service heartbeat loop as a self-watchdog: if this grows
+        large while the service is supposed to be active, paho is stuck and
+        we should exit so systemd can restart us with a fresh client.
+        """
+        return time.monotonic() - self._last_publish_ok_ts
 
     def publish_sensor(self, *path_parts: str, payload: Any,
                        retain: bool = False) -> None:

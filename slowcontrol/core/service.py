@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import logging
 import signal
+import sys
 import threading
 import time
 from typing import List
@@ -147,6 +148,7 @@ class SlowControlService:
 
     def _heartbeat_loop(self) -> None:
         interval = self._config.heartbeat_interval
+        watchdog_timeout = self._config.watchdog_timeout_s
         while not self._stop_event.is_set():
             uptime = int(time.monotonic() - self._start_time)
             self._mqtt.publish_status(
@@ -154,6 +156,21 @@ class SlowControlService:
                 payload={"uptime_s": uptime},
                 retain=True,
             )
+            # Self-watchdog: if no publish has returned MQTT_ERR_SUCCESS in
+            # watchdog_timeout_s, paho is stuck (typically queue-full rc=15
+            # after a network blip — observed post power outage 2026-06-07).
+            # Exit non-zero so systemd's Restart=on-failure brings us back
+            # with a fresh paho client. The exit is intentional and safe:
+            # the LJ→PLC mirror in PlcDriver has the safe-surrogate interlock,
+            # so even with the service down or restarting the PID won't run
+            # away on stale data.
+            since_ok = self._mqtt.seconds_since_publish_ok()
+            if watchdog_timeout > 0 and since_ok > watchdog_timeout:
+                log.error("MQTT watchdog tripped: no successful publish in "
+                          "%.0fs (timeout %.0fs). Exiting so systemd can "
+                          "restart with a fresh client.",
+                          since_ok, watchdog_timeout)
+                sys.exit(1)
             self._stop_event.wait(interval)
 
     def _handle_signal(self, signum, frame) -> None:

@@ -21,7 +21,15 @@ User=xbox
 WorkingDirectory=/home/xbox/xsphere-slow-control
 ExecStart=/home/xbox/miniconda3/envs/slowcontrol/bin/python -u -m slowcontrol.app -c slowcontrol/config.yaml
 Restart=on-failure
-RestartSec=10
+RestartSec=60
+# Cap the restart loop: at most 5 starts per 10 minutes, then go to "failed".
+# This pairs with the MQTT self-watchdog in the service heartbeat loop
+# (slowcontrol/core/service.py): if the watchdog trips, the service exits
+# non-zero, and systemd restarts it 60 s later. If something is genuinely
+# broken (broker hard down, hardware failure) the service goes to "failed"
+# after ~10 minutes of futile retries and a human is paged.
+StartLimitIntervalSec=600
+StartLimitBurst=5
 StandardOutput=journal
 StandardError=journal
 Environment=PYTHONUNBUFFERED=1

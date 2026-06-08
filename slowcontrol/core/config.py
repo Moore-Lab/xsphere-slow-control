@@ -97,6 +97,11 @@ class ServiceConfig:
     # None ⇒ the controller uses its built-in defaults (no channels).
     labjack: Optional[dict] = None
     heartbeat_interval: float = 10.0    # seconds between heartbeat publishes
+    # Self-watchdog: if the MQTT client hasn't successfully published in this
+    # many seconds, the service exits non-zero so systemd restarts it with a
+    # fresh paho client. 0 disables. Failure mode this guards against: paho
+    # stuck post-network-blip, publishes returning rc=15 (queue full).
+    watchdog_timeout_s: float = 60.0
     log_level: str = "INFO"
 
 
@@ -161,6 +166,7 @@ def load(path: str = "config.yaml") -> ServiceConfig:
         cfg.labjack = raw["labjack"]
 
     cfg.heartbeat_interval = raw.get("heartbeat_interval", cfg.heartbeat_interval)
+    cfg.watchdog_timeout_s = float(raw.get("watchdog_timeout_s", cfg.watchdog_timeout_s))
     cfg.log_level = raw.get("log_level", cfg.log_level)
 
     return cfg
