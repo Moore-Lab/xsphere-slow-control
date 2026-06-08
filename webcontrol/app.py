@@ -30,7 +30,7 @@ import time
 
 import markdown as _md
 import paho.mqtt.client as mqtt
-from flask import Flask, jsonify, render_template, request
+from flask import Flask, jsonify, redirect, render_template, request, url_for
 
 MQTT_HOST = os.environ.get("XSPHERE_MQTT_HOST", "localhost")
 MQTT_PORT = int(os.environ.get("XSPHERE_MQTT_PORT", "1883"))
@@ -145,6 +145,13 @@ def api_cmd():
 def sequencer():
     # The sequencer page: build, save and run a multi-step program.
     return render_template("sequencer.html")
+
+
+@app.route("/favicon.ico")
+def favicon_ico():
+    # Some browsers ignore <link rel="icon"> and request the legacy path.
+    # Redirect to the SVG so the tab/bookmark icon shows up consistently.
+    return redirect(url_for("static", filename="favicon.svg"), code=301)
 
 
 # ---- Legacy /api/seq stub (preserved as an explicit 410) ---------------------
