@@ -47,12 +47,21 @@ class PlcConfig:
     poll_interval: float = 1.0      # seconds between register reads
     timeout: float = 3.0            # Modbus connection timeout
     # Safety interlocks on the LabJack → PLC PV mirror (see
-    # PlcDriver._write_labjack_to_plc). The PID's process variable is read
-    # from DF210-212, written by this driver from cached MQTT data. Either
-    # interlock substitutes a "safe high" temperature into those DFs, which
-    # drives the PID output to 0 without us needing to touch the loop.
+    # PlcDriver._write_labjack_to_plc).
+    #
+    # Defaults below are the *initial* values seeded into PlcDriver on first
+    # boot. The driver persists the user's runtime adjustments to
+    # slowcontrol/pv_interlock.json — that file takes precedence over these
+    # defaults on subsequent boots, so a bakeout limit set via the web GUI
+    # survives a restart.
     pv_stale_s:           float = 10.0     # no LJ MQTT update in this many s ⇒ trip
-    pv_over_temp_k:       float = 303.15   # measured PV ≥ this ⇒ trip (30 °C; raise when baking)
+    # Trip if any LJ RTD reads outside the band [pv_min_k, pv_max_k]. Catches
+    # both over-temp (PID windup, runaway heat) AND sensor faults that show
+    # up as wild values (e.g. broken RTD reading -100000 K). Defaults give
+    # room from LN₂ (77 K) up to a hair above room temp (310 K ≈ 37 °C).
+    # Raise pv_max_k via the GUI when intentionally baking.
+    pv_min_k:             float = 77.0
+    pv_max_k:             float = 310.0
     pv_safe_surrogate_k:  float = 500.0    # written to pv_raw when tripped (must exceed any plausible setpoint)
     sp_safe_surrogate_k:  float = 3.0      # written to SP when tripped (must be below any plausible PV — error stays large negative ⇒ output → 0 regardless of where the PID actually sources its PV)
 
@@ -156,7 +165,8 @@ def load(path: str = "config.yaml") -> ServiceConfig:
             poll_interval=p.get("poll_interval", cfg.plc.poll_interval),
             timeout=p.get("timeout", cfg.plc.timeout),
             pv_stale_s=float(p.get("pv_stale_s", cfg.plc.pv_stale_s)),
-            pv_over_temp_k=float(p.get("pv_over_temp_k", cfg.plc.pv_over_temp_k)),
+            pv_min_k=float(p.get("pv_min_k", cfg.plc.pv_min_k)),
+            pv_max_k=float(p.get("pv_max_k", cfg.plc.pv_max_k)),
             pv_safe_surrogate_k=float(p.get("pv_safe_surrogate_k", cfg.plc.pv_safe_surrogate_k)),
             sp_safe_surrogate_k=float(p.get("sp_safe_surrogate_k", cfg.plc.sp_safe_surrogate_k)),
         )

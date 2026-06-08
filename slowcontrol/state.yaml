@@ -400,6 +400,36 @@ groups:
       label: "GHS ESP32 heartbeat"
       source: {topic: xsphere/status/ghs_esp32, presence: true}
       period_s: 30.0
+
+  # ── PV safety interlock ────────────────────────────────────────────────
+  # Three-leg defense against runaway heaters when the LabJack PV is stale
+  # or out of the expected band.  See PlcDriver._write_labjack_to_plc.
+  # The min/max are user-adjustable from the Control page; changes persist
+  # to slowcontrol/pv_interlock.json so a bakeout ceiling survives a
+  # service restart.
+  interlock:
+    pv_interlock_tripped:
+      kind: binary
+      label: "PV safety interlock tripped (heaters forced to 0)"
+      source: {topic: xsphere/status/pv_interlock, key: tripped}
+      period_s: null
+    pv_interlock_min_k:
+      kind: analog
+      unit: K
+      label: "PV interlock band — min (trip below)"
+      source:  {topic: xsphere/status/pv_interlock, key: min_k}
+      control: {topic: xsphere/commands/pv_interlock/limits, payload: {min_k: $value}}
+      period_s: null
+      avg_windows_s: []
+    pv_interlock_max_k:
+      kind: analog
+      unit: K
+      label: "PV interlock band — max (trip above; raise for bakeout)"
+      source:  {topic: xsphere/status/pv_interlock, key: max_k}
+      control: {topic: xsphere/commands/pv_interlock/limits, payload: {max_k: $value}}
+      period_s: null
+      avg_windows_s: []
+
 # ── Derived states (computed by the StateStore each tick from the above) ──
 # `expr` is restricted arithmetic over other state ids: + - * /, parentheses,
 # unary minus, numeric literals, and bare ids.  Re-evaluated every tick; a

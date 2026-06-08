@@ -61,6 +61,30 @@
 
 <main>
 
+  <!-- PV safety interlock -->
+  <section class="card">
+    <h2>PV safety interlock</h2>
+    <div id="interlock" class="blk">
+      <div class="row">
+        <span class="title" id="il-state">…</span>
+        <span style="flex:1;color:var(--mut);font-size:.82rem;text-align:right" id="il-reasons"></span>
+      </div>
+      <div class="row">
+        <span class="lbl">band min (K)</span>
+        <input type="number" step="1" id="il-min">
+        <button onclick="ctlNum('pv_interlock_min_k','il-min')">set min</button>
+        <span id="il-min-cur" class="cur"></span>
+      </div>
+      <div class="row">
+        <span class="lbl">band max (K)</span>
+        <input type="number" step="1" id="il-max">
+        <button onclick="ctlNum('pv_interlock_max_k','il-max')">set max</button>
+        <span id="il-max-cur" class="cur"></span>
+      </div>
+    </div>
+    <small class="hint">If any LabJack RTD reads <b>outside [min, max]</b> or its data is stale, the heater PIDs are driven to 0 % output. The default <code>[77 K, 310 K]</code> covers LN₂ → just above room temp and catches sensor faults (e.g. broken RTD reading -100000 K). To bake out, raise the max to your target. Limits persist across restarts (<code>slowcontrol/pv_interlock.json</code>).</small>
+  </section>
+
   <!-- Valves -->
   <section class="card">
     <h2>Solenoid valves — LN₂ manifold</h2>
@@ -193,6 +217,28 @@ function update(d){
     $("vao-"+v).textContent = ao && ao.value!==null ? (aoOn?"armed":"disarmed") : "—"; $("vao-"+v).className = aoOn?"on":"";
     $("vac-"+v).textContent = ac && ac.value!==null ? (acOn?"armed":"disarmed") : "—"; $("vac-"+v).className = acOn?"on":"";
   });
+
+  // PV safety interlock
+  const ilT = st.pv_interlock_tripped, ilMin = st.pv_interlock_min_k, ilMax = st.pv_interlock_max_k;
+  const ilEl = $("il-state");
+  if (ilT && ilT.value===true){
+    ilEl.textContent = "⚠ TRIPPED — heaters forced off"; ilEl.style.color = "var(--bad)";
+  } else if (ilT && ilT.value===false){
+    ilEl.textContent = "OK — within band"; ilEl.style.color = "var(--ok)";
+  } else {
+    ilEl.textContent = "interlock: ?"; ilEl.style.color = "var(--mut)";
+  }
+  // Reasons aren't a state field (they're in xsphere/status/pv_interlock.reasons),
+  // so pull from the raw cache the webcontrol keeps in d.state.
+  const ilRaw = (d.state||{})["xsphere/status/pv_interlock"];
+  const reasons = ilRaw && ilRaw.payload && ilRaw.payload.reasons || {};
+  $("il-reasons").textContent = Object.keys(reasons).length
+    ? Object.entries(reasons).map(([ch,r])=>"rtd"+ch+": "+r).join(" · ")
+    : "";
+  setPlaceholder("il-min", ilMin && ilMin.value);
+  setCur("il-min-cur", "current "+fmtNum(ilMin && ilMin.value)+" K", ilMin);
+  setPlaceholder("il-max", ilMax && ilMax.value);
+  setCur("il-max-cur", "current "+fmtNum(ilMax && ilMax.value)+" K", ilMax);
 
   // PID zones
   ZONES.forEach(([z])=>{

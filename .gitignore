@@ -16,6 +16,8 @@ slowcontrol/trackers.json
 slowcontrol/trackers.json.tmp
 slowcontrol/sequencer.json
 slowcontrol/sequencer.json.tmp
+slowcontrol/pv_interlock.json
+slowcontrol/pv_interlock.json.tmp
 
 # Editor / OS
 *.swp

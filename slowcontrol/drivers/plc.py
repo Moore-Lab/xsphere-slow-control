@@ -58,11 +58,13 @@ Also accepts write commands for:
 from __future__ import annotations
 
 import ast
+import json
 import logging
+import os
 import struct
 import threading
 import time
-from typing import Dict, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 from pymodbus.client import ModbusTcpClient
 from pymodbus.exceptions import ModbusException
@@ -277,6 +279,20 @@ class PlcDriver(SensorDriver):
         # Per-channel interlock-tripped state (mirror is writing the safe
         # surrogate). Tracked so we only alert on the rising edge.
         self._labjack_rtd_tripped: Dict[int, bool] = {}
+        # Runtime PV-interlock band limits. Initialized from config.yaml and
+        # overridden from disk persistence (slowcontrol/pv_interlock.json) if
+        # present. Runtime changes via xsphere/commands/pv_interlock/limits
+        # update these in-memory and re-save the JSON. Worth a lock since
+        # the MQTT-callback thread writes them and the poll thread reads.
+        self._interlock_lock = threading.Lock()
+        self._pv_min_k: float = config.plc.pv_min_k
+        self._pv_max_k: float = config.plc.pv_max_k
+        self._interlock_path = os.path.normpath(os.path.join(
+            os.path.dirname(os.path.abspath(__file__)), "..", "pv_interlock.json"))
+        self._load_pv_interlock_limits()
+        # Aggregate trip state from last poll; published on edge so the
+        # snapshot's `pv_interlock_tripped` reflects current reality.
+        self._interlock_tripped_was: bool = False
         # Per-PID-zone expressions (free-form, evaluated each poll, result in °C).
         # "setpoint" expression writes the PID's SP register (DF100/125/150);
         # "pv" expression writes the RawPV register (DF111/136/161 — the PID's
@@ -332,6 +348,10 @@ class PlcDriver(SensorDriver):
         self._mqtt.subscribe(command_topic("valve", "+", "state"),         self._on_valve_state)
         self._mqtt.subscribe(command_topic("valve", "+", "auto_close"),    self._on_valve_auto)
         self._mqtt.subscribe(command_topic("valve", "+", "auto_open"),     self._on_valve_auto)
+        self._mqtt.subscribe(command_topic("pv_interlock", "limits"),      self._on_pv_interlock_limits)
+        # Publish the (just-loaded) limits + initial trip state so the
+        # snapshot has a value before the first poll.
+        self._publish_pv_interlock_status(force=True)
         # (Sensor aliases for setpoint/pv expressions — rtd1..6, tc1..4 — are
         # populated directly when the PlcDriver reads the PLC RTDs and when
         # the LabJack callbacks fire, avoiding any MQTT round-trip race.)
@@ -510,49 +530,49 @@ class PlcDriver(SensorDriver):
                                     forwards them to the PID block's pv_raw)
           TC gradient → DF213-216
 
-        Interlock path: when any RTD channel trips (stale or over-temp), we
-        treat it as a system-wide hazard for the cube and write the safe-high
-        surrogate (default 500 K, in °C) to:
-          - all three RTD mirror DFs (so HMI / Grafana also show the trip)
-          - all three PID pv_raw registers DF111/136/161 directly, since the
-            CLICK PID's actual PV input is the in-block RawPV slot, not
-            DF210-212. Writing pv_raw guarantees the surrogate reaches the
-            PID regardless of ladder rung details. The PID then sees PV ≫ SP,
-            error goes large negative, output saturates to 0 — no need to
-            touch SP / gains / mode.
+        Trip rules (per-channel; system-wide response):
+          • stale          : no MQTT update for this channel in `pv_stale_s`
+                             (default 10 s). Guards against the LabJack feed
+                             freezing — the 2026-06-07 incident's mechanism.
+          • outside band   : the measurement is NOT in [pv_min_k, pv_max_k]
+                             (defaults 77 K and 310 K). Catches both runaway
+                             over-temp AND sensor-fault values like a broken
+                             RTD reading -100000 K. The band is runtime-
+                             adjustable from the Control page and persisted
+                             to slowcontrol/pv_interlock.json so a bakeout
+                             ceiling survives a service restart.
 
-        Conservative "any trip ⇒ all heaters off" reasoning:
-          • a stale LJ stream means the MQTT path itself is suspect; other
-            channels may be lagging or also broken in non-obvious ways.
-          • a single cube RTD reading over the over-temp threshold means the
-            cube is hot — running other heaters could make it worse.
+        On trip, three redundant writes drive every PID output to 0%:
+          (1) pv_raw (DF111/136/161) ← pv_safe_surrogate_k (500 K → 226.85 °C).
+              If the PID's PV input is in-block pv_raw, the PID sees PV ≫ SP
+              and computes output → 0.
+          (2) sp     (DF100/125/151) ← sp_safe_surrogate_k (3 K → -270.15 °C).
+              Independent of where the PID actually sources its PV, the error
+              SP − PV stays large negative ⇒ output → 0.
+          (3) output (DF108/133/158) ← 0. The third leg: when the CLICK PID
+              instruction is in a frozen/non-computing state (e.g. autotune
+              hung when PV stopped changing), it stops updating OUT_Control
+              and our external write persists. This is the leg that catches
+              the failure mode where (1) and (2) wouldn't help because the
+              PID isn't recomputing at all.
 
-        Trip rules (per-channel detection, system-wide response):
-          • stale     : no MQTT update for this channel in `pv_stale_s`
-                        (default 10 s). Failure mode this guards against: the
-                        2026-06-07 incident where paho got stuck and the
-                        cached LJ value froze, feeding a constant PV to PIDs.
-          • over-temp : the measurement itself ≥ `pv_over_temp_k` (default
-                        30 °C — bump up when baking). Software lock-out so
-                        the loop can't drive past the grease melt point.
-
-        TC mirrors are gradiometers (signed ΔT, no absolute scale) and are
-        not used as a PID PV on this PLC. Their only check is staleness — if
-        stale, write 0.0 so the displayed gradient doesn't pretend to be
-        live; otherwise write the latest delta_c.
+        TC mirrors (DF213-216) get the stale check only — they're not used
+        as a PID PV on this PLC. Write 0 on stale.
 
         Ordering note: this runs AFTER `_write_pid_expressions` in poll(), so
-        when the interlock trips, the surrogate write to pv_raw overrides
-        anything the user's PV expression would have written that tick.
+        the surrogate writes override any active pv_expr / sp_expr on trip.
         """
         plc_cfg = self._config.plc
         stale_s    = plc_cfg.pv_stale_s
-        over_k     = plc_cfg.pv_over_temp_k
         safe_k     = plc_cfg.pv_safe_surrogate_k
         sp_safe_k  = plc_cfg.sp_safe_surrogate_k
         safe_c     = safe_k - CELSIUS_TO_KELVIN
         sp_safe_c  = sp_safe_k - CELSIUS_TO_KELVIN
-        over_c     = over_k - CELSIUS_TO_KELVIN
+        with self._interlock_lock:
+            pv_min_k = self._pv_min_k
+            pv_max_k = self._pv_max_k
+        pv_min_c   = pv_min_k - CELSIUS_TO_KELVIN
+        pv_max_c   = pv_max_k - CELSIUS_TO_KELVIN
         now = time.monotonic()
 
         # ── Detection: per-channel trip reasons ─────────────────────────
@@ -562,47 +582,45 @@ class PlcDriver(SensorDriver):
             ts    = self._labjack_rtd_ts.get(ch)
             if ts is None or (now - ts) > stale_s:
                 rtd_trip_reason[ch] = "stale"
-            elif val_c is not None and val_c >= over_c:
-                rtd_trip_reason[ch] = f"over-temp ({val_c:.1f} °C)"
+            elif val_c is None:
+                rtd_trip_reason[ch] = "no-value"
+            elif val_c < pv_min_c:
+                rtd_trip_reason[ch] = f"below band ({val_c:.1f} °C < {pv_min_c:.1f} °C)"
+            elif val_c > pv_max_c:
+                rtd_trip_reason[ch] = f"above band ({val_c:.1f} °C > {pv_max_c:.1f} °C)"
 
-        # ── Edge-triggered logging + alerts (per channel) ───────────────
+        # ── Edge-triggered per-channel logging + retained alerts ────────
         for ch in REG_LABJACK_RTD_WRITE:
             reason       = rtd_trip_reason.get(ch)
             was_tripped  = self._labjack_rtd_tripped.get(ch, False)
             if reason and not was_tripped:
                 log.warning("[plc] LJ RTD%d interlock TRIPPED (%s): "
-                            "forcing safe-surrogate (%.1f °C) into LJ mirror "
-                            "and all PID PV inputs", ch, reason, safe_c)
+                            "forcing safe surrogates (PV→%.1f °C, SP→%.1f °C, "
+                            "OUT→0%%) on all three zones",
+                            ch, reason, safe_c, sp_safe_c)
                 self._publish_pv_alert(ch, "rtd", reason,
                                        self._labjack_rtd_c.get(ch), safe_k)
                 self._labjack_rtd_tripped[ch] = True
             elif (not reason) and was_tripped:
                 log.info("[plc] LJ RTD%d interlock CLEARED — "
-                         "value %.1f °C is fresh and below over-temp",
+                         "value %.1f °C is fresh and within band",
                          ch, self._labjack_rtd_c.get(ch, float("nan")))
                 self._clear_pv_alert(ch, "rtd")
                 self._labjack_rtd_tripped[ch] = False
 
         # ── Action: write registers ─────────────────────────────────────
-        if rtd_trip_reason:
-            # Trip — two redundant mechanisms force every PID output to 0:
-            #   (1) Force PV input high (overrides expression writes earlier
-            #       in this poll; reaches the PID if pv_raw is its source).
-            #   (2) Force SP low. The PID's error = SP − PV stays large
-            #       negative regardless of *where* the PID is actually
-            #       sourcing its PV, so output saturates to 0. This is the
-            #       robust leg — works even if the PID's PV input is from
-            #       a register we don't write (e.g. PLC RTDs).
+        tripped_now = bool(rtd_trip_reason)
+        if tripped_now:
             for addr in REG_LABJACK_RTD_WRITE.values():
                 self._write_float(addr, safe_c)
             for zone in ("top", "bottom", "nozzle"):
                 self._write_float(_pid_reg(zone, "pv_raw"), safe_c)
                 self._write_float(_pid_reg(zone, "sp"),     sp_safe_c)
-            # TCs go to 0 — gradient meaningless when source is suspect.
+                self._write_float(_pid_reg(zone, "output"), 0.0)
+            # TC gradients are meaningless when the source is suspect.
             for addr in REG_LABJACK_TC_WRITE.values():
                 self._write_float(addr, 0.0)
         else:
-            # Clear: write the real values.
             for ch, addr in REG_LABJACK_RTD_WRITE.items():
                 val_c = self._labjack_rtd_c.get(ch)
                 if val_c is not None:
@@ -614,6 +632,109 @@ class PlcDriver(SensorDriver):
                     self._write_float(addr, 0.0)
                 elif val is not None:
                     self._write_float(addr, val)
+
+        # Publish the consolidated interlock status whenever the aggregate
+        # trip state changes or the band limits changed (handler does that
+        # explicitly; here we only publish on trip-edge to keep traffic low).
+        if tripped_now != self._interlock_tripped_was:
+            self._interlock_tripped_was = tripped_now
+            self._publish_pv_interlock_status(tripped=tripped_now,
+                                              reasons=rtd_trip_reason)
+
+    # ------------------------------------------------------------------
+    # PV interlock helpers — persistence, command handler, status publish
+    # ------------------------------------------------------------------
+
+    def _load_pv_interlock_limits(self) -> None:
+        """Read user-persisted band limits from slowcontrol/pv_interlock.json.
+
+        Missing or malformed file is fine — we keep the config defaults that
+        __init__ already loaded. The file only stores user adjustments, so
+        a fresh install gets the config values without needing the JSON to
+        exist."""
+        try:
+            with open(self._interlock_path) as fh:
+                d = json.load(fh)
+        except FileNotFoundError:
+            return
+        except (OSError, json.JSONDecodeError) as exc:
+            log.warning("[plc] cannot read %s: %s — keeping config defaults",
+                        self._interlock_path, exc)
+            return
+        try:
+            self._pv_min_k = float(d["pv_min_k"])
+            self._pv_max_k = float(d["pv_max_k"])
+            log.info("[plc] loaded persisted PV interlock band: "
+                     "[%.2f, %.2f] K from %s",
+                     self._pv_min_k, self._pv_max_k, self._interlock_path)
+        except (KeyError, TypeError, ValueError) as exc:
+            log.warning("[plc] %s malformed (%s) — keeping config defaults",
+                        self._interlock_path, exc)
+
+    def _save_pv_interlock_limits(self) -> None:
+        """Atomically persist current band limits to disk."""
+        tmp = self._interlock_path + ".tmp"
+        try:
+            with open(tmp, "w") as fh:
+                json.dump({"pv_min_k": self._pv_min_k,
+                           "pv_max_k": self._pv_max_k}, fh, indent=2)
+                fh.write("\n")
+            os.replace(tmp, self._interlock_path)
+        except OSError as exc:
+            log.warning("[plc] cannot persist PV interlock limits to %s: %s",
+                        self._interlock_path, exc)
+
+    def _on_pv_interlock_limits(self, topic: str, payload: dict) -> None:
+        """xsphere/commands/pv_interlock/limits → {"min_k": X, "max_k": Y}
+        Both keys are optional — update only what's provided. Sanity check
+        that min < max and both are physically reasonable (positive K)."""
+        if not isinstance(payload, dict):
+            return
+        with self._interlock_lock:
+            new_min = self._pv_min_k
+            new_max = self._pv_max_k
+            if "min_k" in payload:
+                try: new_min = float(payload["min_k"])
+                except (TypeError, ValueError):
+                    log.warning("[plc] pv_interlock min_k bad value: %r",
+                                payload["min_k"])
+                    return
+            if "max_k" in payload:
+                try: new_max = float(payload["max_k"])
+                except (TypeError, ValueError):
+                    log.warning("[plc] pv_interlock max_k bad value: %r",
+                                payload["max_k"])
+                    return
+            if not (0.0 < new_min < new_max):
+                log.warning("[plc] pv_interlock limits rejected: "
+                            "need 0 < min < max, got [%.2f, %.2f]",
+                            new_min, new_max)
+                return
+            self._pv_min_k = new_min
+            self._pv_max_k = new_max
+            self._save_pv_interlock_limits()
+        log.info("[plc] PV interlock band updated → [%.2f, %.2f] K",
+                 new_min, new_max)
+        self._publish_pv_interlock_status(force=True)
+
+    def _publish_pv_interlock_status(self, tripped: Optional[bool] = None,
+                                     reasons: Optional[Dict[int, str]] = None,
+                                     force: bool = False) -> None:
+        """Publish retained xsphere/status/pv_interlock with limits and trip
+        state. `force=True` skips the trip-edge guard (used on startup and
+        on limits-change so the snapshot updates immediately)."""
+        with self._interlock_lock:
+            payload = {
+                "min_k": self._pv_min_k,
+                "max_k": self._pv_max_k,
+            }
+        payload["tripped"] = bool(self._interlock_tripped_was) if tripped is None else bool(tripped)
+        if reasons:
+            payload["reasons"] = {str(ch): r for ch, r in reasons.items()}
+        else:
+            payload["reasons"] = {}
+        self._mqtt.publish("xsphere/status/pv_interlock", payload,
+                           qos=1, retain=True)
 
     def _publish_pv_alert(self, ch: int, kind: str, reason: str,
                           last_val_c: Optional[float], safe_k: float) -> None:
