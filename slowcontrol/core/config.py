@@ -46,6 +46,15 @@ class PlcConfig:
     unit_id: int = 1
     poll_interval: float = 1.0      # seconds between register reads
     timeout: float = 3.0            # Modbus connection timeout
+    # Safety interlocks on the LabJack → PLC PV mirror (see
+    # PlcDriver._write_labjack_to_plc). The PID's process variable is read
+    # from DF210-212, written by this driver from cached MQTT data. Either
+    # interlock substitutes a "safe high" temperature into those DFs, which
+    # drives the PID output to 0 without us needing to touch the loop.
+    pv_stale_s:           float = 10.0     # no LJ MQTT update in this many s ⇒ trip
+    pv_over_temp_k:       float = 303.15   # measured PV ≥ this ⇒ trip (30 °C; raise when baking)
+    pv_safe_surrogate_k:  float = 500.0    # written to pv_raw when tripped (must exceed any plausible setpoint)
+    sp_safe_surrogate_k:  float = 3.0      # written to SP when tripped (must be below any plausible PV — error stays large negative ⇒ output → 0 regardless of where the PID actually sources its PV)
 
 
 @dataclass
@@ -146,6 +155,10 @@ def load(path: str = "config.yaml") -> ServiceConfig:
             unit_id=p.get("unit_id", cfg.plc.unit_id),
             poll_interval=p.get("poll_interval", cfg.plc.poll_interval),
             timeout=p.get("timeout", cfg.plc.timeout),
+            pv_stale_s=float(p.get("pv_stale_s", cfg.plc.pv_stale_s)),
+            pv_over_temp_k=float(p.get("pv_over_temp_k", cfg.plc.pv_over_temp_k)),
+            pv_safe_surrogate_k=float(p.get("pv_safe_surrogate_k", cfg.plc.pv_safe_surrogate_k)),
+            sp_safe_surrogate_k=float(p.get("sp_safe_surrogate_k", cfg.plc.sp_safe_surrogate_k)),
         )
 
     if "autovalve" in raw:

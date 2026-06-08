@@ -21,6 +21,16 @@ plc:
   unit_id: 1
   poll_interval: 1.0     # seconds between Modbus reads
   timeout: 3.0
+  # Safety interlocks on the LabJack → PLC PV mirror. The PID's process
+  # variable is read from DF210-212, written by the slow-control service
+  # from cached LabJack MQTT data. If either interlock trips, the driver
+  # writes pv_safe_surrogate_k into the DF, which makes the PID see PV ≫ SP
+  # and saturate output to 0 — no need to touch SP / gains / mode. See
+  # PlcDriver._write_labjack_to_plc.
+  pv_stale_s: 10.0           # no LJ MQTT update for this many seconds ⇒ trip
+  pv_over_temp_k: 303.15     # 30 °C — raise this when intentionally baking
+  pv_safe_surrogate_k: 500.0 # written to pv_raw on trip (must exceed any plausible SP)
+  sp_safe_surrogate_k: 3.0   # written to SP on trip (must be below any plausible PV — belt + suspenders against unknown PID PV source configs)
 
 # Omega logger is no longer in use.
 

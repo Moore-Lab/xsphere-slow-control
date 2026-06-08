@@ -269,6 +269,14 @@ class PlcDriver(SensorDriver):
         # channel number — RTD absolute, TC gradient (ΔT) — to mirror into the PLC
         self._labjack_rtd_c: Dict[int, float] = {}
         self._labjack_tc_delta_c: Dict[int, float] = {}
+        # Monotonic timestamp of the last MQTT update per channel — used by
+        # _write_labjack_to_plc to refuse to mirror stale data into the PLC's
+        # PV registers (Layer 2 safety, see _write_labjack_to_plc for detail).
+        self._labjack_rtd_ts: Dict[int, float] = {}
+        self._labjack_tc_ts:  Dict[int, float] = {}
+        # Per-channel interlock-tripped state (mirror is writing the safe
+        # surrogate). Tracked so we only alert on the rising edge.
+        self._labjack_rtd_tripped: Dict[int, bool] = {}
         # Per-PID-zone expressions (free-form, evaluated each poll, result in °C).
         # "setpoint" expression writes the PID's SP register (DF100/125/150);
         # "pv" expression writes the RawPV register (DF111/136/161 — the PID's
@@ -368,8 +376,11 @@ class PlcDriver(SensorDriver):
             self._publish_pid_status()
             self._publish_valve_status()
             self._write_level_to_plc()
-            self._write_labjack_to_plc()
             self._write_pid_expressions()
+            # MUST run after expressions: when the PV interlock trips, it
+            # writes the safe-surrogate to the PID's pv_raw register, which
+            # must override anything an active pv_expr would have written.
+            self._write_labjack_to_plc()
         except (BrokenPipeError, ConnectionResetError, ConnectionError, OSError, ModbusException) as exc:
             log.warning("[plc] Modbus poll error — will reconnect: %s", exc)
             try:
@@ -489,16 +500,137 @@ class PlcDriver(SensorDriver):
                 self._write_float(addr, val)
 
     def _write_labjack_to_plc(self) -> None:
-        """Mirror the latest LabJack temperatures into PLC DF registers (°C):
-        RTD absolute → DF210-212, TC gradient (ΔT) → DF213-216."""
-        for ch, addr in REG_LABJACK_RTD_WRITE.items():
-            val = self._labjack_rtd_c.get(ch)
-            if val is not None:
-                self._write_float(addr, val)
-        for ch, addr in REG_LABJACK_TC_WRITE.items():
-            val = self._labjack_tc_delta_c.get(ch)
-            if val is not None:
-                self._write_float(addr, val)
+        """Mirror the latest LabJack temperatures into PLC DF registers (°C),
+        AND enforce the PV safety interlocks that neutralize the heater PIDs
+        when input data is bad.
+
+        Normal path:
+          RTD absolute → DF210-212 (the PLC's "LJ mirror" used by display
+                                    and possibly by a ladder rung that
+                                    forwards them to the PID block's pv_raw)
+          TC gradient → DF213-216
+
+        Interlock path: when any RTD channel trips (stale or over-temp), we
+        treat it as a system-wide hazard for the cube and write the safe-high
+        surrogate (default 500 K, in °C) to:
+          - all three RTD mirror DFs (so HMI / Grafana also show the trip)
+          - all three PID pv_raw registers DF111/136/161 directly, since the
+            CLICK PID's actual PV input is the in-block RawPV slot, not
+            DF210-212. Writing pv_raw guarantees the surrogate reaches the
+            PID regardless of ladder rung details. The PID then sees PV ≫ SP,
+            error goes large negative, output saturates to 0 — no need to
+            touch SP / gains / mode.
+
+        Conservative "any trip ⇒ all heaters off" reasoning:
+          • a stale LJ stream means the MQTT path itself is suspect; other
+            channels may be lagging or also broken in non-obvious ways.
+          • a single cube RTD reading over the over-temp threshold means the
+            cube is hot — running other heaters could make it worse.
+
+        Trip rules (per-channel detection, system-wide response):
+          • stale     : no MQTT update for this channel in `pv_stale_s`
+                        (default 10 s). Failure mode this guards against: the
+                        2026-06-07 incident where paho got stuck and the
+                        cached LJ value froze, feeding a constant PV to PIDs.
+          • over-temp : the measurement itself ≥ `pv_over_temp_k` (default
+                        30 °C — bump up when baking). Software lock-out so
+                        the loop can't drive past the grease melt point.
+
+        TC mirrors are gradiometers (signed ΔT, no absolute scale) and are
+        not used as a PID PV on this PLC. Their only check is staleness — if
+        stale, write 0.0 so the displayed gradient doesn't pretend to be
+        live; otherwise write the latest delta_c.
+
+        Ordering note: this runs AFTER `_write_pid_expressions` in poll(), so
+        when the interlock trips, the surrogate write to pv_raw overrides
+        anything the user's PV expression would have written that tick.
+        """
+        plc_cfg = self._config.plc
+        stale_s    = plc_cfg.pv_stale_s
+        over_k     = plc_cfg.pv_over_temp_k
+        safe_k     = plc_cfg.pv_safe_surrogate_k
+        sp_safe_k  = plc_cfg.sp_safe_surrogate_k
+        safe_c     = safe_k - CELSIUS_TO_KELVIN
+        sp_safe_c  = sp_safe_k - CELSIUS_TO_KELVIN
+        over_c     = over_k - CELSIUS_TO_KELVIN
+        now = time.monotonic()
+
+        # ── Detection: per-channel trip reasons ─────────────────────────
+        rtd_trip_reason: Dict[int, str] = {}
+        for ch in REG_LABJACK_RTD_WRITE:
+            val_c = self._labjack_rtd_c.get(ch)
+            ts    = self._labjack_rtd_ts.get(ch)
+            if ts is None or (now - ts) > stale_s:
+                rtd_trip_reason[ch] = "stale"
+            elif val_c is not None and val_c >= over_c:
+                rtd_trip_reason[ch] = f"over-temp ({val_c:.1f} °C)"
+
+        # ── Edge-triggered logging + alerts (per channel) ───────────────
+        for ch in REG_LABJACK_RTD_WRITE:
+            reason       = rtd_trip_reason.get(ch)
+            was_tripped  = self._labjack_rtd_tripped.get(ch, False)
+            if reason and not was_tripped:
+                log.warning("[plc] LJ RTD%d interlock TRIPPED (%s): "
+                            "forcing safe-surrogate (%.1f °C) into LJ mirror "
+                            "and all PID PV inputs", ch, reason, safe_c)
+                self._publish_pv_alert(ch, "rtd", reason,
+                                       self._labjack_rtd_c.get(ch), safe_k)
+                self._labjack_rtd_tripped[ch] = True
+            elif (not reason) and was_tripped:
+                log.info("[plc] LJ RTD%d interlock CLEARED — "
+                         "value %.1f °C is fresh and below over-temp",
+                         ch, self._labjack_rtd_c.get(ch, float("nan")))
+                self._clear_pv_alert(ch, "rtd")
+                self._labjack_rtd_tripped[ch] = False
+
+        # ── Action: write registers ─────────────────────────────────────
+        if rtd_trip_reason:
+            # Trip — two redundant mechanisms force every PID output to 0:
+            #   (1) Force PV input high (overrides expression writes earlier
+            #       in this poll; reaches the PID if pv_raw is its source).
+            #   (2) Force SP low. The PID's error = SP − PV stays large
+            #       negative regardless of *where* the PID is actually
+            #       sourcing its PV, so output saturates to 0. This is the
+            #       robust leg — works even if the PID's PV input is from
+            #       a register we don't write (e.g. PLC RTDs).
+            for addr in REG_LABJACK_RTD_WRITE.values():
+                self._write_float(addr, safe_c)
+            for zone in ("top", "bottom", "nozzle"):
+                self._write_float(_pid_reg(zone, "pv_raw"), safe_c)
+                self._write_float(_pid_reg(zone, "sp"),     sp_safe_c)
+            # TCs go to 0 — gradient meaningless when source is suspect.
+            for addr in REG_LABJACK_TC_WRITE.values():
+                self._write_float(addr, 0.0)
+        else:
+            # Clear: write the real values.
+            for ch, addr in REG_LABJACK_RTD_WRITE.items():
+                val_c = self._labjack_rtd_c.get(ch)
+                if val_c is not None:
+                    self._write_float(addr, val_c)
+            for ch, addr in REG_LABJACK_TC_WRITE.items():
+                val = self._labjack_tc_delta_c.get(ch)
+                ts  = self._labjack_tc_ts.get(ch)
+                if ts is None or (now - ts) > stale_s:
+                    self._write_float(addr, 0.0)
+                elif val is not None:
+                    self._write_float(addr, val)
+
+    def _publish_pv_alert(self, ch: int, kind: str, reason: str,
+                          last_val_c: Optional[float], safe_k: float) -> None:
+        self._mqtt.publish(
+            f"xsphere/alerts/pv_interlock/labjack/{kind}/{ch}",
+            {"rule": "pv_interlock", "channel": f"labjack/{kind}/{ch}",
+             "reason": reason, "last_value_c": last_val_c,
+             "surrogate_k": safe_k, "timestamp": time.time()},
+            qos=1, retain=True,
+        )
+
+    def _clear_pv_alert(self, ch: int, kind: str) -> None:
+        # Empty retained payload clears the alert.
+        self._mqtt.publish(
+            f"xsphere/alerts/pv_interlock/labjack/{kind}/{ch}",
+            "", qos=1, retain=True,
+        )
 
     # ------------------------------------------------------------------
     # Publish: PID status
@@ -597,7 +729,9 @@ class PlcDriver(SensorDriver):
             try: val_k = float(val_c) + CELSIUS_TO_KELVIN
             except (TypeError, ValueError): pass
         if val_c is not None:
-            try: self._labjack_rtd_c[ch] = float(val_c)
+            try:
+                self._labjack_rtd_c[ch] = float(val_c)
+                self._labjack_rtd_ts[ch] = time.monotonic()
             except (TypeError, ValueError): pass
         if val_k is not None:
             try: self._sensor_c[f"rtd{ch}"] = float(val_k)
@@ -616,7 +750,9 @@ class PlcDriver(SensorDriver):
             return
         delta_c = payload.get("delta_c")
         if delta_c is not None:
-            try: self._labjack_tc_delta_c[ch] = float(delta_c)
+            try:
+                self._labjack_tc_delta_c[ch] = float(delta_c)
+                self._labjack_tc_ts[ch] = time.monotonic()
             except (TypeError, ValueError): pass
         val_k = payload.get("value_k")
         if val_k is None and payload.get("value_c") is not None:
