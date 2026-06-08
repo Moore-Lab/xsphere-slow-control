@@ -40,6 +40,7 @@ from slowcontrol.controllers.interlocks import InterlocksController
 from slowcontrol.controllers.sequencer import SequencerController
 from slowcontrol.controllers.trackers import TrackerController
 from slowcontrol.drivers.base import SensorDriver
+from slowcontrol.drivers.omega import OmegaDriver
 from slowcontrol.drivers.plc import PlcDriver
 from slowcontrol.state import SchemaError, default_schema_path, load_state_schema
 from slowcontrol.state.store import StateStore
@@ -89,6 +90,8 @@ class SlowControlService:
             # own MQTT topics; they are *not* drivers in this list.  Add a new
             # driver here only for a polled, in-process device.
         ]
+        if self._config.omega.enabled:
+            self._drivers.append(OmegaDriver(self._config, self._mqtt))
         for driver in self._drivers:
             driver.start()
         log.info("Drivers started")

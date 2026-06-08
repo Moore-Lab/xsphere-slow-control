@@ -95,6 +95,45 @@ groups:
       unit: K
       label: "cube F↔B gradiometer ΔT (LJ TC4)"
       source: {topic: xsphere/sensors/temperature/labjack/tc/4, key: delta_c}
+    # ── Omega RDXL6SD-USB (Modbus RTU over USB-serial; 6 channels) ──
+    # Disconnected channels publish {"fault": true} and the StateStore
+    # surfaces them as stale until the sensor is wired up.
+    t_omega_tc_1:
+      kind: analog
+      unit: K
+      label: "Omega TC-1"
+      source: {topic: xsphere/sensors/temperature/omega/tc/1, key: value_k}
+      period_s: 7.5        # omega.poll_interval_s is 5; allow 1.5×
+    t_omega_tc_2:
+      kind: analog
+      unit: K
+      label: "Omega TC-2"
+      source: {topic: xsphere/sensors/temperature/omega/tc/2, key: value_k}
+      period_s: 7.5
+    t_omega_tc_3:
+      kind: analog
+      unit: K
+      label: "Omega TC-3"
+      source: {topic: xsphere/sensors/temperature/omega/tc/3, key: value_k}
+      period_s: 7.5
+    t_omega_tc_4:
+      kind: analog
+      unit: K
+      label: "Omega TC-4"
+      source: {topic: xsphere/sensors/temperature/omega/tc/4, key: value_k}
+      period_s: 7.5
+    t_omega_rtd_1:
+      kind: analog
+      unit: K
+      label: "Omega RTD-1"
+      source: {topic: xsphere/sensors/temperature/omega/rtd/1, key: value_k}
+      period_s: 7.5
+    t_omega_rtd_2:
+      kind: analog
+      unit: K
+      label: "Omega RTD-2"
+      source: {topic: xsphere/sensors/temperature/omega/rtd/2, key: value_k}
+      period_s: 7.5
 
   # ── LN₂ levels (FDC1004 coaxial probes; 0–10 scaled) ────────────────────
   # `filtered` is the PLC/autovalve exponential filter; fall back to `raw` when

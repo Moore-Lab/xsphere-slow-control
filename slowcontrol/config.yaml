@@ -36,6 +36,39 @@ plc:
 
 # Omega logger is no longer in use.
 
+# Omega RDXL6SD-USB temperature logger — Modbus RTU over USB-serial.
+# 4 type-K thermocouple + 2 PT100 RTD inputs. Currently only one TC is
+# wired; channels still listed below will publish {"fault": true} until
+# their sensor is connected, which makes it obvious from the snapshot
+# which channels are live.
+omega:
+  # DISABLED until we verify the device's USB protocol. Verified 2026-06-08
+  # the RDXL6SD-USB on this Pi is completely silent on /dev/ttyUSB1 — it does
+  # not respond to Modbus RTU reads at any common baud rate, and emits nothing
+  # passively. The device almost certainly needs to be put into "PC LINK" /
+  # real-time-output mode via its front-panel menu (SETUP button). Once it
+  # starts streaming, capture a few bytes off the port and we can update
+  # OmegaDriver._do_poll to parse the actual protocol — the driver framework
+  # below is otherwise complete.
+  #
+  # Re-enable once the device is talking:
+  enabled: false
+  # FTDI bridge inside the RDXL6SD; serial-by-id symlink survives reboots
+  # and USB-port-swaps, unlike /dev/ttyUSB<N> which depends on enumeration
+  # order. If the device's USB serial changes (replacement unit), update
+  # this path — `ls -la /dev/serial/by-id/` will show the new id.
+  port: /dev/serial/by-id/usb-Omega_RDXL6SD-USB_0102-02856-if00-port0
+  baud_rate: 9600
+  modbus_address: 1        # device DIP-switch default (only used if it does turn out to be Modbus RTU)
+  poll_interval_s: 5.0
+  channels:
+    - {ch: 1, kind: tc,  label: "Omega TC-1"}
+    - {ch: 2, kind: tc,  label: "Omega TC-2"}
+    - {ch: 3, kind: tc,  label: "Omega TC-3"}
+    - {ch: 4, kind: tc,  label: "Omega TC-4"}
+    - {ch: 5, kind: rtd, label: "Omega RTD-1"}
+    - {ch: 6, kind: rtd, label: "Omega RTD-2"}
+
 autovalve:
   # LN2 autofill is owned by the PLC ladder (it reads the analog level
   # inputs and decides when/how to open/close XV1/XV2/XV3). The Python

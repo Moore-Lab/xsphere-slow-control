@@ -67,6 +67,27 @@ class PlcConfig:
 
 
 @dataclass
+class OmegaConfig:
+    """Omega RDXL6SD-USB temperature logger (Modbus RTU over USB-serial).
+
+    The device has 4 type-K thermocouple inputs + 2 PT100 RTD inputs in
+    the lab's wiring (device channels 1-4 = TC, 5-6 = RTD by default, but
+    the `channels` list below is authoritative — only listed channels are
+    published, so you can omit ones that aren't wired yet)."""
+    enabled: bool = False
+    port: str = "/dev/ttyUSB0"
+    baud_rate: int = 9600
+    modbus_address: int = 1
+    poll_interval_s: float = 5.0
+    timeout_s: float = 2.0
+    reg_base: int = 0x0000
+    # Each entry: {ch: 1-6, kind: "tc" | "rtd", label: str}.
+    # Operator-friendly subpath numbering (tc/1..4, rtd/1..2) is assigned in
+    # order encountered here, so keep entries sorted by ch.
+    channels: list = field(default_factory=list)
+
+
+@dataclass
 class VesselAutofillConfig:
     level_high: float = 2.5         # close valve above this (0-10 scale)
     level_low: float = 0.5          # open valve below this (0-10 scale)
@@ -108,6 +129,7 @@ class ServiceConfig:
     mqtt: MqttConfig = field(default_factory=MqttConfig)
     influx: InfluxConfig = field(default_factory=InfluxConfig)
     plc: PlcConfig = field(default_factory=PlcConfig)
+    omega: OmegaConfig = field(default_factory=OmegaConfig)
     autovalve: AutovalveConfig = field(default_factory=AutovalveConfig)
     gradient: GradientConfig = field(default_factory=GradientConfig)
     # Raw `labjack:` block from the YAML, passed through to the LabJack T7
@@ -169,6 +191,19 @@ def load(path: str = "config.yaml") -> ServiceConfig:
             pv_max_k=float(p.get("pv_max_k", cfg.plc.pv_max_k)),
             pv_safe_surrogate_k=float(p.get("pv_safe_surrogate_k", cfg.plc.pv_safe_surrogate_k)),
             sp_safe_surrogate_k=float(p.get("sp_safe_surrogate_k", cfg.plc.sp_safe_surrogate_k)),
+        )
+
+    if "omega" in raw:
+        o = raw["omega"]
+        cfg.omega = OmegaConfig(
+            enabled=bool(o.get("enabled", cfg.omega.enabled)),
+            port=str(o.get("port", cfg.omega.port)),
+            baud_rate=int(o.get("baud_rate", cfg.omega.baud_rate)),
+            modbus_address=int(o.get("modbus_address", cfg.omega.modbus_address)),
+            poll_interval_s=float(o.get("poll_interval_s", cfg.omega.poll_interval_s)),
+            timeout_s=float(o.get("timeout_s", cfg.omega.timeout_s)),
+            reg_base=int(o.get("reg_base", cfg.omega.reg_base)),
+            channels=list(o.get("channels", []) or []),
         )
 
     if "autovalve" in raw:
