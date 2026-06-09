@@ -37,10 +37,10 @@ plc:
 # Omega logger is no longer in use.
 
 # Omega RDXL6SD-USB temperature logger — Modbus RTU over USB-serial.
-# 4 type-K thermocouple + 2 PT100 RTD inputs. Currently only one TC is
-# wired; channels still listed below will publish {"fault": true} until
-# their sensor is connected, which makes it obvious from the snapshot
-# which channels are live.
+# Wire type (TC vs RTD) and unit (°C/°F) are read live from the meter's
+# configuration registers, so the operator only sets the channel number
+# and label here.  Disconnected channels publish {"fault": true} every
+# poll — easy to spot in the snapshot.
 omega:
   enabled: true
   # FTDI bridge inside the RDXL6SD; serial-by-id symlink survives reboots
@@ -48,19 +48,18 @@ omega:
   # order. If the device's USB serial changes (replacement unit), update
   # this path — `ls -la /dev/serial/by-id/` will show the new id.
   port: /dev/serial/by-id/usb-Omega_RDXL6SD-USB_0102-02856-if00-port0
-  # Protocol per the working reference logger
-  # (github.com/Moore-Lab/RDXL6SD-temperature-logger):
+  # Per the RDXL6SD-USB Modbus manual (Sept 2025).
   baud_rate: 57600
   stop_bits: 2
   modbus_address: 1
   poll_interval_s: 5.0
   channels:
-    - {ch: 1, kind: tc,  label: "Omega TC-1"}
-    - {ch: 2, kind: tc,  label: "Omega TC-2"}
-    - {ch: 3, kind: tc,  label: "Omega TC-3"}
-    - {ch: 4, kind: tc,  label: "Omega TC-4"}
-    - {ch: 5, kind: rtd, label: "Omega RTD-1"}
-    - {ch: 6, kind: rtd, label: "Omega RTD-2"}
+    - {ch: 1, label: "Omega Ch-1"}
+    - {ch: 2, label: "Omega Ch-2"}
+    - {ch: 3, label: "Omega Ch-3"}
+    - {ch: 4, label: "Omega Ch-4"}
+    - {ch: 5, label: "Omega Ch-5"}
+    - {ch: 6, label: "Omega Ch-6"}
 
 autovalve:
   # LN2 autofill is owned by the PLC ladder (it reads the analog level

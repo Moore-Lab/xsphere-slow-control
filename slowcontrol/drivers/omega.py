@@ -1,17 +1,25 @@
 """
 Omega RDXL6SD-USB temperature logger driver.
 
-Modbus RTU over USB-serial. Protocol cribbed from a working logger
-(github.com/Moore-Lab/RDXL6SD-temperature-logger):
+Modbus RTU over USB-serial.  Protocol per the RDXL6SD-USB Modbus
+programming manual (Omega document, Sept 2025):
 
-  57600 baud, 8N2, slave address 1 by default.
-  Input registers (FC = 4), 12 registers starting at 0x1044, encoded as
-  6 × signed Int32 with little-endian word order, big-endian byte order
-  within each 16-bit word.  raw / 10  = temperature in °C.
+  57600 baud, 8N2, slave address 1, reply delay ≤ 20 ms.
+  Supported function codes: 0x03 (holding) and 0x04 (input registers).
 
-Disconnected channels return implausibly large values; the driver
-treats |°C| > 500 as a fault and publishes ``{"fault": true}`` with no
-temperature.
+Register addresses we use:
+
+  0x1044  Average temperature      Int32  × 6   raw / 10 → temperature
+                                                in the *device's* unit (see 0x106E)
+  0x1068  Channel type             UInt16 × 6   0-6  = thermocouple (K..S)
+                                                7-14 = PT100/200/500/1000 (2/3 wire)
+  0x106E  Units                    UInt16 × 1   0 = °C, 1 = °F
+
+We read the Units and Channel-type registers every poll so the driver
+auto-detects °C↔°F changes made via the meter's front-panel SETUP menu
+and reports the wire type the meter currently has each channel
+configured for.  Disconnected channels return implausibly large values
+which trip |°C| > 500 ⇒ {"fault": true}.
 
 MQTT topics published, matching the xsphere temperature schema:
   xsphere/sensors/temperature/omega/tc/<n>   payload {value_k, value_c,
@@ -54,6 +62,24 @@ _N_CHANNELS = 6
 # is treated as fault. Set generously since the encoding is Int32.
 _FAULT_TEMP_C = 500.0
 
+# Register addresses (see RDXL6SD-USB Modbus manual).
+_REG_AVG_TEMP    = 0x1044   # Int32 × 6
+_REG_CHAN_TYPE   = 0x1068   # UInt16 × 6
+_REG_UNITS       = 0x106E   # UInt16 × 1 (0 = °C, 1 = °F)
+
+# Channel-type codes from the manual.  We collapse them to "tc" or "rtd"
+# (the wire-type detail — K vs T, 2-wire vs 3-wire — is preserved as a
+# label so it appears in the snapshot).
+_CHAN_TYPE_NAMES = {
+    0: ("tc",  "Type K"), 1: ("tc",  "Type J"), 2: ("tc",  "Type T"),
+    3: ("tc",  "Type N"), 4: ("tc",  "Type E"), 5: ("tc",  "Type R"),
+    6: ("tc",  "Type S"),
+    7: ("rtd", "PT100 2-wire"),  8:  ("rtd", "PT200 2-wire"),
+    9: ("rtd", "PT500 2-wire"),  10: ("rtd", "PT1000 2-wire"),
+    11:("rtd", "PT100 3-wire"),  12: ("rtd", "PT200 3-wire"),
+    13:("rtd", "PT500 3-wire"),  14: ("rtd", "PT1000 3-wire"),
+}
+
 
 class OmegaDriver(SensorDriver):
     NAME = "omega"
@@ -67,6 +93,11 @@ class OmegaDriver(SensorDriver):
         self._lock = threading.Lock()
         self._last_read_utc: Optional[str] = None
         self._last_error: Optional[str] = None
+        # Most recent meter configuration as read from 0x106E / 0x1068.
+        # Updated every poll, published in xsphere/status/omega.
+        self._device_units: Optional[str] = None             # "C" or "F"
+        self._device_chan_types: List[str] = []              # per-channel "Type K" / "PT100 3-wire" / "unknown" / "unconfigured"
+        self._device_chan_kinds: List[str] = []              # per-channel "tc" / "rtd" / "unknown"
 
     @property
     def poll_interval(self) -> float:
@@ -140,72 +171,91 @@ class OmegaDriver(SensorDriver):
             log.exception("[omega] unexpected error in poll")
         self._publish_status()
 
-    def _do_poll(self) -> None:
-        # One bulk read of the 6 channels.  Each is a signed Int32 spanning
-        # two consecutive Modbus registers, low-word-first, big-endian byte
-        # order within each word — exactly the encoding of the working
-        # logger at github.com/Moore-Lab/RDXL6SD-temperature-logger.
-        #
-        # pymodbus' slave-id kwarg has churned across 3.x releases (device_id
-        # / slave / unit); try each so we work across versions.
-        n_regs = _N_CHANNELS * 2
+    def _read_input_regs(self, addr: int, count: int) -> List[int]:
+        """Read `count` input registers (FC=4); transparent across pymodbus
+        3.x kwarg variants (device_id / slave / unit)."""
         with self._lock:
-            kw_attempts = [
-                {"count": n_regs, "device_id": self._cfg.modbus_address},
-                {"count": n_regs, "slave":     self._cfg.modbus_address},
-                {"count": n_regs, "unit":      self._cfg.modbus_address},
-            ]
-            rr = None
             last_exc: Optional[Exception] = None
-            for kw in kw_attempts:
+            rr = None
+            for slave_kw in ("device_id", "slave", "unit"):
                 try:
-                    rr = self._client.read_input_registers(self._cfg.reg_base, **kw)
+                    rr = self._client.read_input_registers(
+                        addr, count=count, **{slave_kw: self._cfg.modbus_address})
                     break
                 except TypeError as exc:
                     last_exc = exc
-                    continue
             if rr is None:
-                raise ModbusException(f"no compatible read_input_registers signature ({last_exc})")
+                raise ModbusException(f"no compatible read_input_registers ({last_exc})")
         if rr.isError():
-            raise ModbusException(f"read_input_registers error: {rr}")
-        regs = list(rr.registers)
+            raise ModbusException(f"read_input_registers @ {addr:#06x}: {rr}")
+        return list(rr.registers)
 
-        # Decode 12 × Int16 → 6 × Int32 (low-word-first, signed).
-        temps_c: List[float] = []
+    def _do_poll(self) -> None:
+        # 1) Temperatures — 6 channels × Int32 spanning 12 registers from
+        #    0x1044, low-word-first, big-endian within each word. Raw / 10
+        #    is the temperature in *whatever unit the meter is set to*.
+        regs = self._read_input_regs(_REG_AVG_TEMP, _N_CHANNELS * 2)
+        raw_temps: List[float] = []
         for i in range(_N_CHANNELS):
             lo, hi = regs[2 * i], regs[2 * i + 1]
             raw32 = (hi << 16) | lo
             if raw32 & 0x80000000:                  # sign-extend
                 raw32 -= 0x100000000
-            temps_c.append(raw32 / 10.0)
+            raw_temps.append(raw32 / 10.0)
 
-        # Publish per configured channel.  Operator-friendly subpath indexing
-        # (tc/1..4, rtd/1..2) is assigned in config-order.
+        # 2) Config block — channel types (6 × UInt16 at 0x1068) followed
+        #    immediately by the units register (1 × UInt16 at 0x106E). One
+        #    read of 7 registers covers both.
+        cfg_regs = self._read_input_regs(_REG_CHAN_TYPE, _N_CHANNELS + 1)
+        chan_codes = cfg_regs[:_N_CHANNELS]
+        units_code = cfg_regs[_N_CHANNELS]
+        self._device_units = "F" if units_code == 1 else "C"
+        self._device_chan_kinds = []
+        self._device_chan_types = []
+        for code in chan_codes:
+            kind, name = _CHAN_TYPE_NAMES.get(code, ("unknown", f"unknown ({code})"))
+            self._device_chan_kinds.append(kind)
+            self._device_chan_types.append(name)
+
+        # 3) Convert each raw temperature to °C using whichever unit the
+        #    meter is currently configured in.
+        if self._device_units == "F":
+            temps_c = [(t - 32.0) * 5.0 / 9.0 for t in raw_temps]
+        else:
+            temps_c = list(raw_temps)
+
+        # 4) Publish per configured channel. The MQTT subpath ("tc" / "rtd")
+        #    uses the meter-reported kind, NOT the operator-set config —
+        #    matches reality if someone changes channel type on the device.
         tc_idx, rtd_idx = 0, 0
         for ch_cfg in self._cfg.channels:
             ch    = ch_cfg["ch"]
-            kind  = ch_cfg["kind"].lower()
             label = ch_cfg.get("label", f"ch{ch}")
             if not (1 <= ch <= _N_CHANNELS):
                 log.warning("[omega] channel %r out of range 1-%d, skipping",
                             ch, _N_CHANNELS)
                 continue
+            kind = self._device_chan_kinds[ch - 1]
             if kind == "tc":
                 tc_idx += 1; sub_idx = tc_idx
             elif kind == "rtd":
                 rtd_idx += 1; sub_idx = rtd_idx
             else:
-                log.warning("[omega] channel %d kind %r unknown, skipping",
-                            ch, kind)
+                log.warning("[omega] channel %d device-reported kind %r — skipping",
+                            ch, self._device_chan_types[ch - 1])
                 continue
 
             t_c = temps_c[ch - 1]
-            payload: Dict[str, object] = {"channel": sub_idx, "label": label}
+            payload: Dict[str, object] = {
+                "channel": sub_idx,
+                "label":   label,
+                "device_type": self._device_chan_types[ch - 1],
+            }
             if abs(t_c) > _FAULT_TEMP_C:
                 payload["fault"] = True
             else:
                 payload["fault"]   = False
-                payload["value_c"] = round(t_c, 1)
+                payload["value_c"] = round(t_c, 2)
                 payload["value_k"] = round(t_c + CELSIUS_TO_KELVIN, 2)
             self._mqtt.publish_sensor(
                 "temperature", "omega", kind, str(sub_idx), payload=payload,
@@ -224,5 +274,7 @@ class OmegaDriver(SensorDriver):
                 "error":           self._last_error,
                 "last_read_utc":   self._last_read_utc,
                 "poll_interval_s": self._cfg.poll_interval_s,
+                "device_units":    self._device_units,
+                "channel_types":   list(self._device_chan_types),
             },
         )
