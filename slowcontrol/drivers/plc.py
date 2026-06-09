@@ -301,6 +301,12 @@ class PlcDriver(SensorDriver):
         # Empty string = no active expression for that zone.
         self._pid_sp_expr: Dict[str, str] = {"top": "", "bottom": "", "nozzle": ""}
         self._pid_pv_expr: Dict[str, str] = {"top": "", "bottom": "", "nozzle": ""}
+        # Last successful evaluation of each expression (in K), published in
+        # the PID status so the GUI can show "rtd1 → 313.5 K". None means
+        # either no expression is set or the most recent eval failed
+        # (e.g. an alias wasn't populated yet).
+        self._pid_sp_expr_value_k: Dict[str, Optional[float]] = {"top": None, "bottom": None, "nozzle": None}
+        self._pid_pv_expr_value_k: Dict[str, Optional[float]] = {"top": None, "bottom": None, "nozzle": None}
         # Most-recent value_c per sensor alias (rtd1..rtd6, tc1..tc4) for use
         # as identifiers in those expressions.
         self._sensor_c: Dict[str, float] = {}
@@ -773,6 +779,8 @@ class PlcDriver(SensorDriver):
             if sp_c is None or pv_c is None:
                 continue
             controller = "pid" if ctrl_bit else ("pi" if ctrl_bit is False else "unknown")
+            sp_val = self._pid_sp_expr_value_k.get(zone)
+            pv_val = self._pid_pv_expr_value_k.get(zone)
             self._mqtt.publish_status(
                 "pid", zone,
                 payload={
@@ -783,8 +791,10 @@ class PlcDriver(SensorDriver):
                     "output_pct":  round(out, 2) if out is not None else None,
                     "kp": kp, "ki": ki, "kd": kd,
                     "controller_type": controller,
-                    "setpoint_expr": self._pid_sp_expr.get(zone, ""),
-                    "pv_expr":       self._pid_pv_expr.get(zone, ""),
+                    "setpoint_expr":         self._pid_sp_expr.get(zone, ""),
+                    "pv_expr":               self._pid_pv_expr.get(zone, ""),
+                    "setpoint_expr_value_k": round(sp_val, 3) if sp_val is not None else None,
+                    "pv_expr_value_k":       round(pv_val, 3) if pv_val is not None else None,
                 },
             )
 
@@ -1043,17 +1053,25 @@ class PlcDriver(SensorDriver):
         """Evaluate any active setpoint/pv expressions and write the PID block.
 
         Expressions are in Kelvin (matching the sensor aliases rtd<n>/tc<n>);
-        we subtract 273.15 before writing the DF, which is stored in °C."""
+        we subtract 273.15 before writing the DF, which is stored in °C.
+        The resolved value is cached on `self._pid_{sp,pv}_expr_value_k` so
+        `_publish_pid_status` can surface it to the GUI as a diagnostic
+        ("your expression rtd1 currently evaluates to 313.5 K")."""
         for zone in ("top", "bottom", "nozzle"):
-            for kind, slot in (("sp_expr", "sp"), ("pv_expr", "pv_raw")):
+            for kind, slot, cache in (
+                    ("sp_expr", "sp",     self._pid_sp_expr_value_k),
+                    ("pv_expr", "pv_raw", self._pid_pv_expr_value_k)):
                 expr = (self._pid_sp_expr if kind == "sp_expr" else self._pid_pv_expr).get(zone, "")
                 if not expr:
+                    cache[zone] = None
                     continue
                 v_k = self._eval_expr(expr)
                 if v_k is None:
+                    cache[zone] = None
                     log.debug("[plc] PID %s %s eval(%r) → None (missing alias / read error)",
                               zone, kind, expr)
                     continue
+                cache[zone] = float(v_k)
                 self._write_float(_pid_reg(zone, slot), float(v_k) - CELSIUS_TO_KELVIN)
 
     def _on_valve_state(self, topic: str, payload: dict) -> None:

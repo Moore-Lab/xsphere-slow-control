@@ -301,12 +301,22 @@ groups:
       source:  {topic: xsphere/status/pid/top, key: pv_expr}
       control: {topic: xsphere/commands/pid/top/pv_expr, payload: {expr: $value}}
       period_s: null
+    pid_top_pv_expr_value:
+      kind: analog
+      unit: K
+      label: "Zone 1 (top) PV expression resolved value"
+      source: {topic: xsphere/status/pid/top, key: pv_expr_value_k}
     pid_top_setpoint_expr:
       kind: text
       label: "Zone 1 (top) setpoint (K)"
       source:  {topic: xsphere/status/pid/top, key: setpoint_expr}
       control: {topic: xsphere/commands/pid/top/setpoint_expr, payload: {expr: $value}}
       period_s: null
+    pid_top_setpoint_expr_value:
+      kind: analog
+      unit: K
+      label: "Zone 1 (top) setpoint expression resolved value"
+      source: {topic: xsphere/status/pid/top, key: setpoint_expr_value_k}
     pid_top_setpoint:
       kind: analog
       unit: K
@@ -334,12 +344,22 @@ groups:
       source:  {topic: xsphere/status/pid/bottom, key: pv_expr}
       control: {topic: xsphere/commands/pid/bottom/pv_expr, payload: {expr: $value}}
       period_s: null
+    pid_bottom_pv_expr_value:
+      kind: analog
+      unit: K
+      label: "Zone 2 (bottom) PV expression resolved value"
+      source: {topic: xsphere/status/pid/bottom, key: pv_expr_value_k}
     pid_bottom_setpoint_expr:
       kind: text
       label: "Zone 2 (bottom) setpoint (K)"
       source:  {topic: xsphere/status/pid/bottom, key: setpoint_expr}
       control: {topic: xsphere/commands/pid/bottom/setpoint_expr, payload: {expr: $value}}
       period_s: null
+    pid_bottom_setpoint_expr_value:
+      kind: analog
+      unit: K
+      label: "Zone 2 (bottom) setpoint expression resolved value"
+      source: {topic: xsphere/status/pid/bottom, key: setpoint_expr_value_k}
     pid_bottom_setpoint:
       kind: analog
       unit: K
@@ -366,12 +386,22 @@ groups:
       source:  {topic: xsphere/status/pid/nozzle, key: pv_expr}
       control: {topic: xsphere/commands/pid/nozzle/pv_expr, payload: {expr: $value}}
       period_s: null
+    pid_nozzle_pv_expr_value:
+      kind: analog
+      unit: K
+      label: "Zone 3 (nozzle) PV expression resolved value"
+      source: {topic: xsphere/status/pid/nozzle, key: pv_expr_value_k}
     pid_nozzle_setpoint_expr:
       kind: text
       label: "Zone 3 (nozzle) setpoint (K)"
       source:  {topic: xsphere/status/pid/nozzle, key: setpoint_expr}
       control: {topic: xsphere/commands/pid/nozzle/setpoint_expr, payload: {expr: $value}}
       period_s: null
+    pid_nozzle_setpoint_expr_value:
+      kind: analog
+      unit: K
+      label: "Zone 3 (nozzle) setpoint expression resolved value"
+      source: {topic: xsphere/status/pid/nozzle, key: setpoint_expr_value_k}
     pid_nozzle_setpoint:
       kind: analog
       unit: K
