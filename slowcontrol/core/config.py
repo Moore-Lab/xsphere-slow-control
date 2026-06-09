@@ -74,13 +74,17 @@ class OmegaConfig:
     the lab's wiring (device channels 1-4 = TC, 5-6 = RTD by default, but
     the `channels` list below is authoritative — only listed channels are
     published, so you can omit ones that aren't wired yet)."""
+    # Verified protocol (per github.com/Moore-Lab/RDXL6SD-temperature-logger):
+    # 57600 baud, 8N2, input registers FC=4, base 0x1044, 6 × Int32 with
+    # little-endian word order, big-endian byte order; raw/10 = °C.
     enabled: bool = False
     port: str = "/dev/ttyUSB0"
-    baud_rate: int = 9600
+    baud_rate: int = 57600
+    stop_bits: int = 2
     modbus_address: int = 1
     poll_interval_s: float = 5.0
     timeout_s: float = 2.0
-    reg_base: int = 0x0000
+    reg_base: int = 0x1044
     # Each entry: {ch: 1-6, kind: "tc" | "rtd", label: str}.
     # Operator-friendly subpath numbering (tc/1..4, rtd/1..2) is assigned in
     # order encountered here, so keep entries sorted by ch.
@@ -199,6 +203,7 @@ def load(path: str = "config.yaml") -> ServiceConfig:
             enabled=bool(o.get("enabled", cfg.omega.enabled)),
             port=str(o.get("port", cfg.omega.port)),
             baud_rate=int(o.get("baud_rate", cfg.omega.baud_rate)),
+            stop_bits=int(o.get("stop_bits", cfg.omega.stop_bits)),
             modbus_address=int(o.get("modbus_address", cfg.omega.modbus_address)),
             poll_interval_s=float(o.get("poll_interval_s", cfg.omega.poll_interval_s)),
             timeout_s=float(o.get("timeout_s", cfg.omega.timeout_s)),
