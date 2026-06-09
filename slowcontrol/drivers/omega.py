@@ -9,11 +9,17 @@ programming manual (Omega document, Sept 2025):
 
 Register addresses we use:
 
-  0x1044  Average temperature      Int32  × 6   raw / 10 → temperature
+  0x1000  Unfiltered temperature   Int32  × 6   raw / 10 → temperature
                                                 in the *device's* unit (see 0x106E)
   0x1068  Channel type             UInt16 × 6   0-6  = thermocouple (K..S)
                                                 7-14 = PT100/200/500/1000 (2/3 wire)
   0x106E  Units                    UInt16 × 1   0 = °C, 1 = °F
+
+We use the *unfiltered* register (0x1000), not the Average register
+(0x1044) — the latter is the meter's running average since reset and
+gets pulled by transients (e.g. cold-start spikes), so it doesn't
+match what the meter's display shows.  Unfiltered = instantaneous,
+matches the display, which is what an operator expects.
 
 We read the Units and Channel-type registers every poll so the driver
 auto-detects °C↔°F changes made via the meter's front-panel SETUP menu
@@ -63,7 +69,7 @@ _N_CHANNELS = 6
 _FAULT_TEMP_C = 500.0
 
 # Register addresses (see RDXL6SD-USB Modbus manual).
-_REG_AVG_TEMP    = 0x1044   # Int32 × 6
+_REG_UNFILT_TEMP = 0x1000   # Int32 × 6  (instantaneous, matches the meter's display)
 _REG_CHAN_TYPE   = 0x1068   # UInt16 × 6
 _REG_UNITS       = 0x106E   # UInt16 × 1 (0 = °C, 1 = °F)
 
@@ -192,9 +198,11 @@ class OmegaDriver(SensorDriver):
 
     def _do_poll(self) -> None:
         # 1) Temperatures — 6 channels × Int32 spanning 12 registers from
-        #    0x1044, low-word-first, big-endian within each word. Raw / 10
-        #    is the temperature in *whatever unit the meter is set to*.
-        regs = self._read_input_regs(_REG_AVG_TEMP, _N_CHANNELS * 2)
+        #    0x1000 (Unfiltered = instantaneous, matches the meter's
+        #    display), low-word-first, big-endian within each word.
+        #    Raw / 10 is the temperature in *whatever unit the meter is set
+        #    to* (see 0x106E read below).
+        regs = self._read_input_regs(_REG_UNFILT_TEMP, _N_CHANNELS * 2)
         raw_temps: List[float] = []
         for i in range(_N_CHANNELS):
             lo, hi = regs[2 * i], regs[2 * i + 1]
