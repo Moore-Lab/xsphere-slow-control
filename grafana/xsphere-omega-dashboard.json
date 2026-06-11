@@ -1,0 +1,245 @@
+{
+  "title": "Omega RDXL6SD Temperature Logger",
+  "uid": "xsphere-omega-logger",
+  "tags": ["xsphere", "omega"],
+  "schemaVersion": 39,
+  "version": 1,
+  "time": {"from": "now-6h", "to": "now"},
+  "refresh": "10s",
+  "timepicker": {
+    "refresh_intervals": ["5s", "10s", "30s", "1m", "5m", "15m", "1h", "6h", "1d"]
+  },
+  "templating": {
+    "list": [
+      {
+        "name": "DS_INFLUX",
+        "type": "datasource",
+        "query": "influxdb",
+        "current": {"text": "InfluxDB-xsphere", "value": "InfluxDB-xsphere"},
+        "hide": 0
+      }
+    ]
+  },
+  "annotations": {"list": []},
+  "panels": [
+    {
+      "type": "row",
+      "title": "Overview",
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 0},
+      "collapsed": false
+    },
+    {
+      "type": "timeseries",
+      "title": "All Omega channels (°C)",
+      "datasource": {"type": "influxdb", "uid": "${DS_INFLUX}"},
+      "gridPos": {"h": 9, "w": 24, "x": 0, "y": 1},
+      "fieldConfig": {
+        "defaults": {
+          "unit": "celsius",
+          "custom": {"drawStyle": "line", "showPoints": "never", "lineWidth": 1, "spanNulls": false}
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {"displayMode": "table", "placement": "right", "calcs": ["last", "min", "max"]},
+        "tooltip": {"mode": "multi", "sort": "desc"}
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {"type": "influxdb", "uid": "${DS_INFLUX}"},
+          "query": "from(bucket: \"xsphere\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"temperature\" and r.source == \"omega\" and r._field == \"value_c\")\n  |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false)\n  |> map(fn: (r) => ({ r with series: r.sensor_type + \"/\" + r.channel }))\n  |> keep(columns: [\"_time\", \"_value\", \"series\"])\n  |> group(columns: [\"series\"])"
+        }
+      ]
+    },
+    {
+      "type": "row",
+      "title": "Thermocouples",
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 10},
+      "collapsed": false
+    },
+    {
+      "type": "timeseries",
+      "title": "TC 1 (°C)",
+      "datasource": {"type": "influxdb", "uid": "${DS_INFLUX}"},
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 11},
+      "fieldConfig": {
+        "defaults": {
+          "unit": "celsius",
+          "custom": {"drawStyle": "line", "showPoints": "never", "lineWidth": 1, "spanNulls": false}
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {"displayMode": "list", "placement": "bottom", "calcs": ["last", "min", "max"]},
+        "tooltip": {"mode": "single"}
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {"type": "influxdb", "uid": "${DS_INFLUX}"},
+          "query": "from(bucket: \"xsphere\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"temperature\" and r.source == \"omega\" and r.sensor_type == \"tc\" and r.channel == \"1\" and r._field == \"value_c\")\n  |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false)\n  |> keep(columns: [\"_time\", \"_value\"])"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "TC 2 (°C)",
+      "datasource": {"type": "influxdb", "uid": "${DS_INFLUX}"},
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 11},
+      "fieldConfig": {
+        "defaults": {
+          "unit": "celsius",
+          "custom": {"drawStyle": "line", "showPoints": "never", "lineWidth": 1, "spanNulls": false}
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {"displayMode": "list", "placement": "bottom", "calcs": ["last", "min", "max"]},
+        "tooltip": {"mode": "single"}
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {"type": "influxdb", "uid": "${DS_INFLUX}"},
+          "query": "from(bucket: \"xsphere\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"temperature\" and r.source == \"omega\" and r.sensor_type == \"tc\" and r.channel == \"2\" and r._field == \"value_c\")\n  |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false)\n  |> keep(columns: [\"_time\", \"_value\"])"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "TC 3 (°C)",
+      "datasource": {"type": "influxdb", "uid": "${DS_INFLUX}"},
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 19},
+      "fieldConfig": {
+        "defaults": {
+          "unit": "celsius",
+          "custom": {"drawStyle": "line", "showPoints": "never", "lineWidth": 1, "spanNulls": false}
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {"displayMode": "list", "placement": "bottom", "calcs": ["last", "min", "max"]},
+        "tooltip": {"mode": "single"}
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {"type": "influxdb", "uid": "${DS_INFLUX}"},
+          "query": "from(bucket: \"xsphere\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"temperature\" and r.source == \"omega\" and r.sensor_type == \"tc\" and r.channel == \"3\" and r._field == \"value_c\")\n  |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false)\n  |> keep(columns: [\"_time\", \"_value\"])"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "TC 4 (°C)",
+      "datasource": {"type": "influxdb", "uid": "${DS_INFLUX}"},
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 19},
+      "fieldConfig": {
+        "defaults": {
+          "unit": "celsius",
+          "custom": {"drawStyle": "line", "showPoints": "never", "lineWidth": 1, "spanNulls": false}
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {"displayMode": "list", "placement": "bottom", "calcs": ["last", "min", "max"]},
+        "tooltip": {"mode": "single"}
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {"type": "influxdb", "uid": "${DS_INFLUX}"},
+          "query": "from(bucket: \"xsphere\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"temperature\" and r.source == \"omega\" and r.sensor_type == \"tc\" and r.channel == \"4\" and r._field == \"value_c\")\n  |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false)\n  |> keep(columns: [\"_time\", \"_value\"])"
+        }
+      ]
+    },
+    {
+      "type": "row",
+      "title": "RTDs",
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 27},
+      "collapsed": false
+    },
+    {
+      "type": "timeseries",
+      "title": "RTD 1 (°C)",
+      "datasource": {"type": "influxdb", "uid": "${DS_INFLUX}"},
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 28},
+      "fieldConfig": {
+        "defaults": {
+          "unit": "celsius",
+          "custom": {"drawStyle": "line", "showPoints": "never", "lineWidth": 1, "spanNulls": false}
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {"displayMode": "list", "placement": "bottom", "calcs": ["last", "min", "max"]},
+        "tooltip": {"mode": "single"}
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {"type": "influxdb", "uid": "${DS_INFLUX}"},
+          "query": "from(bucket: \"xsphere\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"temperature\" and r.source == \"omega\" and r.sensor_type == \"rtd\" and r.channel == \"1\" and r._field == \"value_c\")\n  |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false)\n  |> keep(columns: [\"_time\", \"_value\"])"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "RTD 2 (°C)",
+      "datasource": {"type": "influxdb", "uid": "${DS_INFLUX}"},
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 28},
+      "fieldConfig": {
+        "defaults": {
+          "unit": "celsius",
+          "custom": {"drawStyle": "line", "showPoints": "never", "lineWidth": 1, "spanNulls": false}
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {"displayMode": "list", "placement": "bottom", "calcs": ["last", "min", "max"]},
+        "tooltip": {"mode": "single"}
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {"type": "influxdb", "uid": "${DS_INFLUX}"},
+          "query": "from(bucket: \"xsphere\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"temperature\" and r.source == \"omega\" and r.sensor_type == \"rtd\" and r.channel == \"2\" and r._field == \"value_c\")\n  |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false)\n  |> keep(columns: [\"_time\", \"_value\"])"
+        }
+      ]
+    },
+    {
+      "type": "row",
+      "title": "Latest snapshot",
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 36},
+      "collapsed": false
+    },
+    {
+      "type": "table",
+      "title": "Last reading per channel",
+      "datasource": {"type": "influxdb", "uid": "${DS_INFLUX}"},
+      "gridPos": {"h": 7, "w": 24, "x": 0, "y": 37},
+      "fieldConfig": {
+        "defaults": {
+          "custom": {"align": "left"}
+        },
+        "overrides": [
+          {"matcher": {"id": "byName", "options": "value_c"},
+           "properties": [{"id": "unit", "value": "celsius"}]},
+          {"matcher": {"id": "byName", "options": "value_k"},
+           "properties": [{"id": "unit", "value": "kelvin"}]}
+        ]
+      },
+      "options": {
+        "showHeader": true
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {"type": "influxdb", "uid": "${DS_INFLUX}"},
+          "query": "from(bucket: \"xsphere\")\n  |> range(start: -10m)\n  |> filter(fn: (r) => r._measurement == \"temperature\" and r.source == \"omega\" and (r._field == \"value_c\" or r._field == \"value_k\"))\n  |> last()\n  |> keep(columns: [\"sensor_type\", \"channel\", \"_field\", \"_value\"])\n  |> pivot(rowKey: [\"sensor_type\", \"channel\"], columnKey: [\"_field\"], valueColumn: \"_value\")\n  |> sort(columns: [\"sensor_type\", \"channel\"])"
+        }
+      ]
+    }
+  ]
+}
