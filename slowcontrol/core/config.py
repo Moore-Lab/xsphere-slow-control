@@ -146,6 +146,12 @@ class ServiceConfig:
     # fresh paho client. 0 disables. Failure mode this guards against: paho
     # stuck post-network-blip, publishes returning rc=15 (queue full).
     watchdog_timeout_s: float = 60.0
+    # Per-driver poll-thread watchdog. A driver whose thread is alive but
+    # hasn't completed a poll() in this many seconds is treated as stuck;
+    # the service exits so systemd restarts every thread cleanly. 0 disables.
+    # Failure mode: blocked Modbus call post-power-outage where heartbeats
+    # from other threads kept the MQTT watchdog satisfied (observed 2026-06-23).
+    driver_poll_watchdog_s: float = 60.0
     log_level: str = "INFO"
 
 
@@ -229,6 +235,7 @@ def load(path: str = "config.yaml") -> ServiceConfig:
 
     cfg.heartbeat_interval = raw.get("heartbeat_interval", cfg.heartbeat_interval)
     cfg.watchdog_timeout_s = float(raw.get("watchdog_timeout_s", cfg.watchdog_timeout_s))
+    cfg.driver_poll_watchdog_s = float(raw.get("driver_poll_watchdog_s", cfg.driver_poll_watchdog_s))
     cfg.log_level = raw.get("log_level", cfg.log_level)
 
     return cfg

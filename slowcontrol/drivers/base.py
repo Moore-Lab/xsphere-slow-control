@@ -40,6 +40,14 @@ class SensorDriver(ABC):
         self._stop_event = threading.Event()
         self._thread: threading.Thread | None = None
         self._connected = False
+        # Monotonic timestamp of the last poll() call that returned without
+        # raising. The service heartbeat loop uses this as a poll-thread
+        # liveness signal: if the thread is alive but this stamp is too old,
+        # the poll is stuck (typically on a half-open Modbus socket post-
+        # power-outage — observed 2026-06-23) and we exit so systemd can
+        # restart with a fresh thread. Seeded at start() so a freshly
+        # spawned driver doesn't immediately look stuck.
+        self._last_poll_ok_ts: float = time.monotonic()
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -56,6 +64,7 @@ class SensorDriver(ABC):
             return
 
         self._stop_event.clear()
+        self._last_poll_ok_ts = time.monotonic()
         self._thread = threading.Thread(target=self._loop,
                                         name=f"driver-{self.NAME}",
                                         daemon=True)
@@ -101,8 +110,27 @@ class SensorDriver(ABC):
             t0 = time.monotonic()
             try:
                 self.poll()
+                self._last_poll_ok_ts = t0
             except Exception:
                 log.exception("[%s] error during poll", self.NAME)
             elapsed = time.monotonic() - t0
             wait = max(0.0, self.poll_interval - elapsed)
             self._stop_event.wait(wait)
+
+    # ------------------------------------------------------------------
+    # Watchdog hooks (read by the service heartbeat loop)
+    # ------------------------------------------------------------------
+
+    @property
+    def is_polling(self) -> bool:
+        """True iff the poll thread is alive (i.e. supposed to be working).
+        A driver whose start() failed and whose thread never began isn't
+        eligible for the poll-watchdog — that's a different failure mode
+        (no recovery available without operator action)."""
+        return self._thread is not None and self._thread.is_alive()
+
+    def seconds_since_poll_ok(self) -> float:
+        """How long since poll() last returned without raising. Combined
+        with `is_polling`, this is the per-driver liveness signal the
+        service uses to detect a stuck poll thread."""
+        return time.monotonic() - self._last_poll_ok_ts

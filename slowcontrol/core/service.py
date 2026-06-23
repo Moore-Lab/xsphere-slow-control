@@ -152,6 +152,7 @@ class SlowControlService:
     def _heartbeat_loop(self) -> None:
         interval = self._config.heartbeat_interval
         watchdog_timeout = self._config.watchdog_timeout_s
+        driver_watchdog_s = self._config.driver_poll_watchdog_s
         while not self._stop_event.is_set():
             uptime = int(time.monotonic() - self._start_time)
             self._mqtt.publish_status(
@@ -159,14 +160,12 @@ class SlowControlService:
                 payload={"uptime_s": uptime},
                 retain=True,
             )
-            # Self-watchdog: if no publish has returned MQTT_ERR_SUCCESS in
-            # watchdog_timeout_s, paho is stuck (typically queue-full rc=15
-            # after a network blip — observed post power outage 2026-06-07).
-            # Exit non-zero so systemd's Restart=on-failure brings us back
-            # with a fresh paho client. The exit is intentional and safe:
-            # the LJ→PLC mirror in PlcDriver has the safe-surrogate interlock,
-            # so even with the service down or restarting the PID won't run
-            # away on stale data.
+
+            # Layer 1 — MQTT self-watchdog: if no publish has returned
+            # MQTT_ERR_SUCCESS in watchdog_timeout_s, paho is stuck
+            # (queue-full rc=15 after a network blip — observed post power
+            # outage 2026-06-07). Exit so systemd restarts with a fresh
+            # paho client.
             since_ok = self._mqtt.seconds_since_publish_ok()
             if watchdog_timeout > 0 and since_ok > watchdog_timeout:
                 log.error("MQTT watchdog tripped: no successful publish in "
@@ -174,6 +173,31 @@ class SlowControlService:
                           "restart with a fresh client.",
                           since_ok, watchdog_timeout)
                 sys.exit(1)
+
+            # Layer 1.5 — per-driver poll-thread liveness: a driver whose
+            # thread is alive but hasn't completed a poll() in
+            # driver_poll_watchdog_s is stuck (typically blocked on a
+            # half-open Modbus socket post-power-outage — observed
+            # 2026-06-23). The MQTT watchdog above doesn't catch this
+            # because heartbeats from other threads keep flowing. Exit so
+            # systemd restarts every thread fresh.
+            #
+            # Both exit paths are safe: the LJ→PLC mirror interlock in
+            # PlcDriver writes safe surrogates on each poll, so a service
+            # restart can't release a runaway heater (the interlock trips
+            # immediately on startup because no LJ data has arrived yet).
+            if driver_watchdog_s > 0:
+                for driver in self._drivers:
+                    if not driver.is_polling:
+                        continue
+                    since_poll = driver.seconds_since_poll_ok()
+                    if since_poll > driver_watchdog_s:
+                        log.error("Driver-poll watchdog tripped: %s has not "
+                                  "completed a poll in %.0fs (timeout %.0fs). "
+                                  "Exiting so systemd restarts the thread.",
+                                  driver.NAME, since_poll, driver_watchdog_s)
+                        sys.exit(1)
+
             self._stop_event.wait(interval)
 
     def _handle_signal(self, signum, frame) -> None:

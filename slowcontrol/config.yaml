@@ -109,9 +109,16 @@ labjack:
     - {name: tc4, kind: tc, ain: 12, channel: 4, label: "cube front<->back",  reference: "rtd3"}       # bottom cube RTD
 
 heartbeat_interval: 10.0    # seconds between heartbeat MQTT publishes
-# Self-watchdog: if the MQTT client hasn't successfully published in this many
-# seconds (typically because paho is stuck queue-full after a network blip),
-# the service exits non-zero so systemd restarts us with a fresh paho client.
-# Set to 0 to disable. See _heartbeat_loop in slowcontrol/core/service.py.
+# Layer 1 — MQTT self-watchdog: if the MQTT client hasn't successfully
+# published in this many seconds (typically because paho is stuck queue-full
+# after a network blip), the service exits non-zero so systemd restarts us
+# with a fresh paho client. Set to 0 to disable.
 watchdog_timeout_s: 60.0
+# Layer 1.5 — per-driver poll-thread watchdog: a driver whose thread is alive
+# but hasn't completed a poll() in this many seconds (typical cause: blocked
+# Modbus call post-power-outage) is treated as stuck. Other threads' heart-
+# beats keep the MQTT watchdog above satisfied, so this catches the half-
+# dead state where the service looks alive but one driver isn't actually
+# reading. Set to 0 to disable. See _heartbeat_loop in core/service.py.
+driver_poll_watchdog_s: 60.0
 log_level: INFO
