@@ -93,7 +93,7 @@ autovalve:
 # the PLC.  Topics: xsphere/sensors/temperature/labjack/{rtd|tc}/<channel>.
 labjack:
   connection_type: ETHERNET
-  device_identifier: "192.168.8.194"   # T7 serial 470037304
+  device_identifier: "192.168.8.195"   # T7 serial 470037304 (DHCP)
   poll_interval_s: 1.0
   read_internal_temp: false            # the board temp is reported as each TC's cjc_k
   thermometry_channels:
