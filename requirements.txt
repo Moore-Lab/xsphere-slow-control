@@ -22,3 +22,7 @@ markdown>=3.0           # renders README.md at /readme
 
 # ── LabJack T7 ────────────────────────────────────────────────────────────────
 labjack-ljm             # LJM Python wrapper (requires LJM runtime installed separately)
+
+# ── Diagnostic tools (slowcontrol/tools/) — OPTIONAL, only needed if you run
+#    a tool that imports it. Not loaded by the slow-control service itself.
+matplotlib>=3.5         # labjack_thermometry_diag (live plotting window)
