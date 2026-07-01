@@ -443,6 +443,24 @@ def diag_status():
         })
 
 
+@app.route("/diag/config")
+def diag_config():
+    """Return the LabJack thermometry channel list from config.yaml.
+    Used by the page to populate the show/hide checkboxes before the
+    operator clicks Start — no LJ session required."""
+    try:
+        lj_cfg = _diag_load_lj_cfg()
+    except Exception as exc:
+        return jsonify({"error": str(exc), "channels": []}), 500
+    return jsonify({
+        "channels": [
+            {"name": c.get("name"), "kind": c.get("kind"),
+             "label": c.get("label", ""), "ain": c.get("ain")}
+            for c in (lj_cfg.get("thermometry_channels") or [])
+        ]
+    })
+
+
 @app.route("/diag/data")
 def diag_data():
     """Snapshot + downsample + histogram, return JSON.

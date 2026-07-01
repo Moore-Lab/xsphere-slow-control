@@ -67,6 +67,12 @@
       <span class="lbl">refresh (ms)</span>  <input type="number" id="in-refresh"  value="500" min="100" max="5000" step="100">
       <span class="lbl">bins</span>          <input type="number" id="in-bins"     value="80"  min="10" max="400"  step="10">
     </div>
+    <div class="row" id="channel-row" style="display:none">
+      <span class="lbl">show channels</span>
+      <span id="channel-checkboxes" style="display:flex; gap:.8rem; flex-wrap:wrap; align-items:center"></span>
+      <button onclick="showAllChannels()" style="margin-left:.3rem">All</button>
+      <button onclick="showNoChannels()">None</button>
+    </div>
     <div class="row">
       <button id="btn-start" onclick="startDiag()">Start diagnostic</button>
       <button id="btn-stop"  onclick="stopDiag()" class="danger" disabled>Stop diagnostic</button>
@@ -112,6 +118,62 @@ const COLORS = ['#1f77b4','#ff7f0e','#2ca02c','#d62728','#9467bd','#8c564b','#e3
 
 let refreshTimer = null;
 let active = false;
+
+// Which channels the operator wants visible in the plots.  null until we've
+// fetched the channel list from /diag/config for the first time; after that
+// it's a Set<string> keyed by channel name (rtd1, rtd2, ..., tc4).
+let visibleChannels = null;
+let currentChannels = [];   // last-known channel list, for the All button
+
+function channelColor(idx){ return COLORS[idx % COLORS.length]; }
+
+function buildChannelCheckboxes(channels){
+  currentChannels = channels;
+  if (visibleChannels === null){
+    visibleChannels = new Set(channels.map(c => c.name));
+  } else {
+    // Reconcile against latest config — drop names that no longer exist,
+    // keep the rest.  New channels appear checked by default.
+    const names = new Set(channels.map(c => c.name));
+    visibleChannels = new Set([...visibleChannels].filter(n => names.has(n)));
+    for (const c of channels) if (!names.has(c.name)) visibleChannels.add(c.name);
+    for (const c of channels) if (!visibleChannels.has(c.name)) {/* keep unchecked */}
+    // If a *new* channel appeared while unset, tick it on.
+    for (const c of channels){
+      if (![...visibleChannels].includes(c.name) && !document.querySelector(`.ch-tog[data-name="${c.name}"]`)){
+        visibleChannels.add(c.name);
+      }
+    }
+  }
+  const box = $('channel-checkboxes');
+  box.innerHTML = channels.map((c, i) => {
+    const on = visibleChannels.has(c.name) ? 'checked' : '';
+    const col = channelColor(i);
+    const kindTag = (c.kind || '').toUpperCase();
+    return `<label style="display:flex; align-items:center; gap:.3rem; cursor:pointer; font-weight:400; user-select:none">
+      <span style="display:inline-block; width:.85rem; height:.85rem; background:${col}; border:1px solid var(--line); border-radius:2px"></span>
+      <input type="checkbox" class="ch-tog" data-name="${c.name}" ${on}
+             onchange="toggleChannel('${c.name}', this.checked)">
+      <span style="font-weight:600">${c.name}</span>
+      <small style="color:var(--mut)">${kindTag}${c.label ? ' · ' + c.label : ''}</small>
+    </label>`;
+  }).join('');
+  $('channel-row').style.display = 'flex';
+}
+function toggleChannel(name, on){
+  if (on) visibleChannels.add(name); else visibleChannels.delete(name);
+  if (active) refresh();      // instant feedback
+}
+function showAllChannels(){
+  visibleChannels = new Set(currentChannels.map(c => c.name));
+  document.querySelectorAll('.ch-tog').forEach(cb => cb.checked = true);
+  if (active) refresh();
+}
+function showNoChannels(){
+  visibleChannels = new Set();
+  document.querySelectorAll('.ch-tog').forEach(cb => cb.checked = false);
+  if (active) refresh();
+}
 
 const baseLayout = {
   paper_bgcolor: '#232c3d', plot_bgcolor: '#232c3d',
@@ -228,10 +290,22 @@ async function refresh(){
     };
   }
 
-  const vTs   = d.channels.map((c, i) => tsTrace(i, c, d.time_series.v[i]));
-  const tTs   = d.channels.map((c, i) => tsTrace(i, c, d.time_series.t[i]));
-  const vH    = d.channels.map((c, i) => histTrace(i, c, d.v_hist[i]));
-  const tH    = d.channels.map((c, i) => histTrace(i, c, d.t_hist[i]));
+  // Rebuild the checkbox row if the channel list has shifted since last time
+  // (e.g. a config edit + service restart mid-session).
+  const namesNow = d.channels.map(c => c.name).join(',');
+  const namesPrev = currentChannels.map(c => c.name).join(',');
+  if (namesNow !== namesPrev) buildChannelCheckboxes(d.channels);
+
+  // Filter to selected channels only — same index into d.channels /
+  // time_series arrays so colours stay consistent with the checkbox swatches.
+  const showIdx = d.channels
+    .map((c, i) => (visibleChannels === null || visibleChannels.has(c.name)) ? i : -1)
+    .filter(i => i >= 0);
+
+  const vTs   = showIdx.map(i => tsTrace(i, d.channels[i], d.time_series.v[i]));
+  const tTs   = showIdx.map(i => tsTrace(i, d.channels[i], d.time_series.t[i]));
+  const vH    = showIdx.map(i => histTrace(i, d.channels[i], d.v_hist[i]));
+  const tH    = showIdx.map(i => histTrace(i, d.channels[i], d.t_hist[i]));
 
   Plotly.react('plot-v-ts',   vTs, layout('Voltage — time series',     's ago', 'V', { xaxis: Object.assign({}, baseLayout.xaxis, {title:'s ago', range:[-d.window_s, 0]}) }), {responsive:true, displaylogo:false});
   Plotly.react('plot-t-ts',   tTs, layout('Temperature — time series', 's ago', 'K', { xaxis: Object.assign({}, baseLayout.xaxis, {title:'s ago', range:[-d.window_s, 0]}) }), {responsive:true, displaylogo:false});
@@ -243,6 +317,13 @@ async function refresh(){
 // the diag in another tab; the polling thread runs in the webcontrol process).
 async function init(){
   ensureInitPlots();
+  // Pull channel list from config so the show/hide checkboxes are ready
+  // BEFORE the operator clicks Start. Independent of whether the diag is
+  // currently running.
+  try {
+    const cfg = await (await fetch('/diag/config')).json();
+    if (cfg.channels && cfg.channels.length) buildChannelCheckboxes(cfg.channels);
+  } catch (e) { /* non-fatal; will populate from first /diag/data instead */ }
   try {
     const r = await fetch('/diag/status');
     const d = await r.json();
