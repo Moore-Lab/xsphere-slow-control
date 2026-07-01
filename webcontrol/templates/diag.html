@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>xsphere — thermometry diagnostic</title>
+<link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='favicon.svg') }}">
+<!--
+  Plotly.js basic bundle from the official CDN.  ~1 MB, cached after first load.
+  If the lab is air-gapped: download the same file once and place at
+  webcontrol/static/plotly-basic.min.js, then change the src below.
+-->
+<script src="https://cdn.plot.ly/plotly-basic-2.35.2.min.js"></script>
+<style>
+  :root { --bg:#11151c; --panel:#1b2230; --panel2:#232c3d; --fg:#dde3ee; --mut:#8a93a6;
+          --ok:#3fb950; --warn:#d29922; --bad:#f85149; --acc:#58a6ff; --line:#2d3648; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:14px/1.45 -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif; }
+  header { display:flex; align-items:center; gap:.8rem; flex-wrap:wrap; padding:.6rem 1rem;
+           background:var(--panel); border-bottom:1px solid var(--line); position:sticky; top:0; z-index:5; }
+  header h1 { font-size:1.1rem; margin:0 .4rem 0 0; font-weight:600; letter-spacing:.3px; }
+  .pill { padding:.15rem .55rem; border-radius:999px; font-size:.78rem; font-weight:600; white-space:nowrap; }
+  .pill.ok{background:rgba(63,185,80,.18);color:var(--ok)} .pill.bad{background:rgba(248,81,73,.18);color:var(--bad)}
+  .pill.warn{background:rgba(210,153,34,.18);color:var(--warn)} .pill.mut{background:rgba(138,147,166,.15);color:var(--mut)}
+  a.nav { color:var(--acc); font-size:.85rem; text-decoration:none; padding:.18rem .5rem; border:1px solid var(--line); border-radius:6px; }
+  a.nav:hover { border-color:var(--acc); }
+  main { padding:1rem; }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:.7rem 1rem .9rem; margin-bottom:1rem; }
+  .card h2 { font-size:.95rem; margin:.1rem 0 .55rem; color:var(--acc); font-weight:600; letter-spacing:.3px; }
+  .row { display:flex; align-items:center; gap:.5rem; flex-wrap:wrap; margin:.35rem 0; }
+  .lbl { color:var(--mut); font-size:.85rem; min-width:7rem; }
+  input[type=number] { width:5.5rem; background:var(--panel2); color:var(--fg); border:1px solid var(--line);
+                       border-radius:6px; padding:.25rem .4rem; font:inherit; }
+  button { background:var(--panel2); color:var(--fg); border:1px solid var(--line);
+           border-radius:6px; padding:.35rem .8rem; font:inherit; cursor:pointer; }
+  button:hover:not(:disabled) { border-color:var(--acc); color:var(--acc); }
+  button:disabled { opacity:.45; cursor:not-allowed; }
+  button.danger:hover:not(:disabled) { border-color:var(--bad); color:var(--bad); }
+  small.hint { color:var(--mut); font-size:.8rem; display:block; margin-top:.4rem; }
+  .stats { color:var(--mut); font-size:.85rem; margin-left:.5rem; font-variant-numeric:tabular-nums; }
+  .grid { display:grid; grid-template-columns:1fr 1fr; gap:1rem; }
+  .plot { background:var(--panel2); border:1px solid var(--line); border-radius:8px; height:360px; }
+  @media (max-width:1100px){ .grid { grid-template-columns:1fr; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>xsphere&nbsp;·&nbsp;thermometry diagnostic</h1>
+  <span id="p-state" class="pill mut">inactive</span>
+  <span id="p-rate"  class="pill mut">–</span>
+  <span id="p-samp"  class="pill mut">–</span>
+  <span style="flex:1"></span>
+  <a class="nav" href="/">Register ↗</a>
+  <a class="nav" href="/control">Control ↗</a>
+  <a class="nav" href="/sequencer">Sequencer ↗</a>
+  <a class="nav" href="/readme">README ↗</a>
+</header>
+
+<main>
+
+  <section class="card">
+    <h2>Controls</h2>
+    <div class="row">
+      <span class="lbl">rate (Hz)</span>     <input type="number" id="in-rate"     value="100" min="1"  max="1000" step="10">
+      <span class="lbl">window (s)</span>    <input type="number" id="in-window"   value="300" min="5"  max="3600" step="30">
+      <span class="lbl">display points</span><input type="number" id="in-disp"     value="1000" min="50" max="20000" step="100">
+      <span class="lbl">refresh (ms)</span>  <input type="number" id="in-refresh"  value="500" min="100" max="5000" step="100">
+      <span class="lbl">bins</span>          <input type="number" id="in-bins"     value="80"  min="10" max="400"  step="10">
+    </div>
+    <div class="row">
+      <button id="btn-start" onclick="startDiag()">Start diagnostic</button>
+      <button id="btn-stop"  onclick="stopDiag()" class="danger" disabled>Stop diagnostic</button>
+      <span class="stats" id="stats"></span>
+    </div>
+    <small class="hint">
+      Starting <b>stops xsphere-slowcontrol</b> so this page can own the LabJack T7 session
+      (the T7 only allows one client at a time). Stopping closes the LJ session and
+      restarts the slow-control service, returning normal operation.
+      Closing this browser tab does <em>not</em> stop the diagnostic — click Stop first.
+      Voltages are polled every cycle; temperatures (LabJack AIN_EF) are polled at
+      ~10&nbsp;Hz max regardless of the rate setting because the EF read includes the
+      device's internal settling.
+      <b>Sustained ceiling in command-response mode is ~40&nbsp;Hz</b> for 7 channels
+      (Nyquist&nbsp;≈&nbsp;20&nbsp;Hz). Spotting 60&nbsp;Hz mains hum requires stream mode,
+      not yet implemented. The "achieved" pill shows the actual rate.
+    </small>
+  </section>
+
+  <section class="card">
+    <h2>Voltage (raw differential)</h2>
+    <div class="grid">
+      <div id="plot-v-ts"   class="plot"></div>
+      <div id="plot-v-hist" class="plot"></div>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>Temperature (LabJack AIN_EF)</h2>
+    <div class="grid">
+      <div id="plot-t-ts"   class="plot"></div>
+      <div id="plot-t-hist" class="plot"></div>
+    </div>
+  </section>
+</main>
+
+<script>
+const $ = id => document.getElementById(id);
+
+// Tab-10 palette + dash style by sensor kind. The TC group always draws
+// dashed so the operator can tell sensor families apart at a glance.
+const COLORS = ['#1f77b4','#ff7f0e','#2ca02c','#d62728','#9467bd','#8c564b','#e377c2','#7f7f7f','#bcbd22','#17becf'];
+
+let refreshTimer = null;
+let active = false;
+
+const baseLayout = {
+  paper_bgcolor: '#232c3d', plot_bgcolor: '#232c3d',
+  font: { color: '#dde3ee', size: 11 },
+  margin: { t: 30, b: 40, l: 60, r: 20 },
+  legend: { font: { size: 9 }, x: 1, xanchor: 'right', y: 1, bgcolor: 'rgba(0,0,0,0)' },
+  xaxis: { gridcolor: '#2d3648', zerolinecolor: '#2d3648' },
+  yaxis: { gridcolor: '#2d3648', zerolinecolor: '#2d3648' },
+};
+function layout(title, xtitle, ytitle, extra) {
+  return Object.assign({}, baseLayout, {
+    title: { text: title, font: { size: 12, color: '#58a6ff' } },
+    xaxis: Object.assign({}, baseLayout.xaxis, { title: xtitle }),
+    yaxis: Object.assign({}, baseLayout.yaxis, { title: ytitle }),
+  }, extra || {});
+}
+
+function ensureInitPlots() {
+  Plotly.newPlot('plot-v-ts',   [], layout('Voltage — time series',     's ago', 'V'), {responsive:true, displaylogo:false});
+  Plotly.newPlot('plot-v-hist', [], layout('Voltage — histogram',       'V',     'counts'), {responsive:true, displaylogo:false});
+  Plotly.newPlot('plot-t-ts',   [], layout('Temperature — time series', 's ago', 'K'), {responsive:true, displaylogo:false});
+  Plotly.newPlot('plot-t-hist', [], layout('Temperature — histogram',   'K',     'counts'), {responsive:true, displaylogo:false});
+}
+
+function setActiveUI(isActive){
+  active = isActive;
+  $('btn-start').disabled = isActive;
+  $('btn-stop').disabled = !isActive;
+  $('p-state').textContent = isActive ? 'active' : 'inactive';
+  $('p-state').className = 'pill ' + (isActive ? 'ok' : 'mut');
+}
+
+async function startDiag(){
+  const rate_hz  = parseFloat($('in-rate').value);
+  const window_s = parseFloat($('in-window').value);
+  $('btn-start').disabled = true;
+  try {
+    const r = await fetch('/diag/start', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({rate_hz, window_s}),
+    });
+    const d = await r.json();
+    if (!r.ok || d.error) { alert('Start failed: ' + (d.error || r.status)); $('btn-start').disabled = false; return; }
+    setActiveUI(true);
+    scheduleRefresh();
+  } catch (e) {
+    alert('Start error: ' + e);
+    $('btn-start').disabled = false;
+  }
+}
+
+async function stopDiag(){
+  $('btn-stop').disabled = true;
+  try {
+    const r = await fetch('/diag/stop', { method: 'POST' });
+    const d = await r.json();
+    if (!r.ok && !d.ok) { alert('Stop failed: ' + (d.error || r.status)); }
+  } catch (e) {
+    alert('Stop error: ' + e);
+  }
+  setActiveUI(false);
+  cancelRefresh();
+}
+
+function scheduleRefresh(){
+  cancelRefresh();
+  const ms = Math.max(100, parseInt($('in-refresh').value) || 500);
+  refreshTimer = setInterval(refresh, ms);
+  refresh();
+}
+function cancelRefresh(){
+  if (refreshTimer) { clearInterval(refreshTimer); refreshTimer = null; }
+}
+$('in-refresh').addEventListener('change', () => { if (active) scheduleRefresh(); });
+
+async function refresh(){
+  const n_disp = parseInt($('in-disp').value) || 1000;
+  const n_bins = parseInt($('in-bins').value) || 80;
+  let d;
+  try {
+    const r = await fetch(`/diag/data?display_points=${n_disp}&bins=${n_bins}`);
+    d = await r.json();
+  } catch (e) {
+    $('p-state').textContent = 'fetch failed';
+    $('p-state').className = 'pill bad';
+    return;
+  }
+  if (!d.active) { setActiveUI(false); cancelRefresh(); return; }
+
+  $('p-rate').textContent = `${(d.achieved_hz||0).toFixed(1)} Hz`;
+  $('p-rate').className   = 'pill ' + ((d.achieved_hz||0) > 0.7 * parseFloat($('in-rate').value) ? 'ok' : 'warn');
+  $('p-samp').textContent = `${d.samples} samples / ${d.window_s.toFixed(0)} s`;
+  $('p-samp').className   = 'pill mut';
+  $('stats').textContent  =
+    `${d.samples} samples · ${(d.achieved_hz||0).toFixed(1)} Hz achieved · ${d.window_s.toFixed(0)} s window`;
+
+  const x = d.time_series.t_ago_s;
+
+  function tsTrace(idx, ch, y) {
+    return {
+      x, y, type: 'scattergl', mode: 'lines', name: `${ch.name} (${ch.label})`,
+      line: { color: COLORS[idx % COLORS.length], width: 1,
+              dash: (ch.kind === 'tc' ? 'dash' : 'solid') },
+    };
+  }
+  function histTrace(idx, ch, hist) {
+    // Centre each bin on the midpoint of its edges; plot as step.
+    const e = hist.edges, c = hist.counts;
+    const x = e.slice(0, -1).map((v, j) => (v + e[j+1]) / 2);
+    return {
+      x, y: c, type: 'scatter', mode: 'lines', name: ch.name,
+      line: { color: COLORS[idx % COLORS.length], width: 1, shape: 'hvh',
+              dash: (ch.kind === 'tc' ? 'dash' : 'solid') },
+    };
+  }
+
+  const vTs   = d.channels.map((c, i) => tsTrace(i, c, d.time_series.v[i]));
+  const tTs   = d.channels.map((c, i) => tsTrace(i, c, d.time_series.t[i]));
+  const vH    = d.channels.map((c, i) => histTrace(i, c, d.v_hist[i]));
+  const tH    = d.channels.map((c, i) => histTrace(i, c, d.t_hist[i]));
+
+  Plotly.react('plot-v-ts',   vTs, layout('Voltage — time series',     's ago', 'V', { xaxis: Object.assign({}, baseLayout.xaxis, {title:'s ago', range:[-d.window_s, 0]}) }), {responsive:true, displaylogo:false});
+  Plotly.react('plot-t-ts',   tTs, layout('Temperature — time series', 's ago', 'K', { xaxis: Object.assign({}, baseLayout.xaxis, {title:'s ago', range:[-d.window_s, 0]}) }), {responsive:true, displaylogo:false});
+  Plotly.react('plot-v-hist', vH,  layout('Voltage — histogram',       'V',     'counts'), {responsive:true, displaylogo:false});
+  Plotly.react('plot-t-hist', tH,  layout('Temperature — histogram',   'K',     'counts'), {responsive:true, displaylogo:false});
+}
+
+// On page load, sync state with the server (someone else may have started
+// the diag in another tab; the polling thread runs in the webcontrol process).
+async function init(){
+  ensureInitPlots();
+  try {
+    const r = await fetch('/diag/status');
+    const d = await r.json();
+    if (d.active) { setActiveUI(true); scheduleRefresh(); }
+    else          { setActiveUI(false); if (d.last_error) $('p-state').title = d.last_error; }
+  } catch (e) {
+    $('p-state').textContent = 'unreachable';
+    $('p-state').className = 'pill bad';
+  }
+}
+init();
+</script>
+</body>
+</html>
