@@ -168,9 +168,16 @@ function build(){
   $("pid").innerHTML = ZONES.map(([z,name])=>`
     <div class="blk" data-z="${z}">
       <div class="row"><span class="title">${name}</span><span id="ps-${z}" style="flex:1;color:var(--mut);font-size:.82rem;text-align:right"></span></div>
-      <div class="row"><span class="lbl">autotune</span>
-        <button onclick="cmd('xsphere/commands/pid/${z}/autotune',{})">trigger autotune</button>
-        <small style="color:var(--mut);margin-left:.5rem">Auto/Manual and manual output % live in the CLICK PID Monitor, not here</small></div>
+      <div class="row"><span class="lbl">mode</span>
+        <button id="mo-${z}-auto"   onclick="ctl('pid_${z}_mode','auto')">Auto</button>
+        <button id="mo-${z}-manual" onclick="ctl('pid_${z}_mode','manual')">Manual</button>
+        <span id="mo-${z}-cur" class="cur"></span>
+        <button style="margin-left:1rem" onclick="cmd('xsphere/commands/pid/${z}/autotune',{})">trigger autotune</button></div>
+      <div class="row"><span class="lbl">manual out (%)</span>
+        <input type="number" id="mo-${z}-out" step="1" min="0" max="100" style="width:5.5rem">
+        <button onclick="ctlNum('pid_${z}_output','mo-${z}-out')">set out</button>
+        <span id="mo-${z}-out-cur" class="cur"></span>
+        <small style="color:var(--mut);margin-left:.5rem">only takes effect in Manual mode</small></div>
       <div class="row"><span class="lbl">setpoint (K)</span><input type="text" id="spe-${z}" placeholder="e.g. 170 or rtd1 + 4" style="flex:1;min-width:10rem"><button onclick="ctl('pid_${z}_setpoint_expr',$('spe-${z}').value)">set</button><button onclick="$('spe-${z}').value='';ctl('pid_${z}_setpoint_expr','')">clear</button><span id="sp-${z}-cur" class="cur"></span><span id="spe-${z}-eval" class="cur"></span></div>
       <div class="row"><span class="lbl">PV expr (K)</span><input type="text" id="pve-${z}" placeholder="e.g. rtd2" style="flex:1;min-width:10rem"><button onclick="ctl('pid_${z}_pv_expr',$('pve-${z}').value)">set</button><button onclick="$('pve-${z}').value='';ctl('pid_${z}_pv_expr','')">clear</button><span id="pve-${z}-eval" class="cur"></span></div>
       <div class="row"><span class="lbl">Kp / Ki / Kd</span>
@@ -248,6 +255,7 @@ function update(d){
     const kp=st["pid_"+z+"_kp"], ki=st["pid_"+z+"_ki"], kd=st["pid_"+z+"_kd"];
     const spe=st["pid_"+z+"_setpoint_expr"], pve=st["pid_"+z+"_pv_expr"];
     const speV=st["pid_"+z+"_setpoint_expr_value"], pveV=st["pid_"+z+"_pv_expr_value"];
+    const mode=st["pid_"+z+"_mode"];
     const worst = [pv,setp,out].reduce((w,s)=> s && s.freshness==="invalid"?"invalid":(w==="invalid"?"invalid":(s&&s.freshness==="stale"?"stale":w)), "fresh");
     const row = $("ps-"+z);
     row.innerHTML = `<span class="kv"><span class="k">PV</span><span class="num">${fmtNum(pv&&pv.value)}</span> K</span>`
@@ -258,6 +266,14 @@ function update(d){
     setCur("sp-"+z+"-cur", "current "+fmtNum(setp&&setp.value)+" K", setp);
     setPlaceholder("kp-"+z, kp && kp.value); setPlaceholder("ki-"+z, ki && ki.value); setPlaceholder("kd-"+z, kd && kd.value);
     setCur("g-"+z+"-cur", "current "+fmtNum(kp&&kp.value)+" / "+fmtNum(ki&&ki.value)+" / "+fmtNum(kd&&kd.value), kp);
+    // mode + manual-output row: highlight the active mode button and show
+    // the current heater output as a "current X %" hint next to the input.
+    const mv = mode && mode.value;
+    $("mo-"+z+"-auto").className   = mv === "auto"   ? "on" : "";
+    $("mo-"+z+"-manual").className = mv === "manual" ? "on" : "";
+    setCur("mo-"+z+"-cur", mv ? ("current: " + mv) : "current: ?", mode);
+    setPlaceholder("mo-"+z+"-out", out && out.value);
+    setCur("mo-"+z+"-out-cur", "current " + fmtNum(out && out.value) + " %", out);
     // active expressions (placeholder only when empty so the user can edit)
     const speEl = $("spe-"+z); if (spe && document.activeElement!==speEl && speEl.value==="") speEl.placeholder = spe.value || "e.g. 170 or rtd1 + 4";
     const pveEl = $("pve-"+z); if (pve && document.activeElement!==pveEl && pveEl.value==="") pveEl.placeholder = pve.value || "e.g. rtd2";

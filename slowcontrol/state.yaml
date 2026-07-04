@@ -295,6 +295,14 @@ groups:
       unit: "%"
       label: "Zone 1 (top) heater output"
       source:  {topic: xsphere/status/pid/top, key: output_pct}
+      control: {topic: xsphere/commands/pid/top/output, payload: {value_pct: $value}}
+    pid_top_mode:
+      kind: enum
+      values: [auto, manual]
+      label: "Zone 1 (top) PID mode"
+      source:  {topic: xsphere/status/pid/top, key: mode}
+      control: {topic: xsphere/commands/pid/top/mode, payload: {mode: $value}}
+      period_s: null
     pid_top_pv_expr:
       kind: text
       label: "Zone 1 (top) PV expression (K)"
@@ -338,6 +346,14 @@ groups:
       unit: "%"
       label: "Zone 2 (bottom) heater output"
       source:  {topic: xsphere/status/pid/bottom, key: output_pct}
+      control: {topic: xsphere/commands/pid/bottom/output, payload: {value_pct: $value}}
+    pid_bottom_mode:
+      kind: enum
+      values: [auto, manual]
+      label: "Zone 2 (bottom) PID mode"
+      source:  {topic: xsphere/status/pid/bottom, key: mode}
+      control: {topic: xsphere/commands/pid/bottom/mode, payload: {mode: $value}}
+      period_s: null
     pid_bottom_pv_expr:
       kind: text
       label: "Zone 2 (bottom) PV expression (K)"
@@ -380,6 +396,14 @@ groups:
       unit: "%"
       label: "Zone 3 (nozzle) heater output"
       source:  {topic: xsphere/status/pid/nozzle, key: output_pct}
+      control: {topic: xsphere/commands/pid/nozzle/output, payload: {value_pct: $value}}
+    pid_nozzle_mode:
+      kind: enum
+      values: [auto, manual]
+      label: "Zone 3 (nozzle) PID mode"
+      source:  {topic: xsphere/status/pid/nozzle, key: mode}
+      control: {topic: xsphere/commands/pid/nozzle/mode, payload: {mode: $value}}
+      period_s: null
     pid_nozzle_pv_expr:
       kind: text
       label: "Zone 3 (nozzle) PV expression (K)"

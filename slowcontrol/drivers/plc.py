@@ -157,16 +157,19 @@ REG_LABJACK_TC_WRITE  = {1: _df(213), 2: _df(214), 3: _df(215), 4: _df(216)}
 
 
 # --- PID per-zone control coils (CLICK "C" relays) ---
-# The CLICK PID instruction allocates 40 coils per block (C100-C139 for HTR1)
-# but the firmware's internal Auto/Manual state and the manual-output gating
-# are NOT exposed via Modbus on this PLC — neither writes to these coils
-# (C115/C116) nor reads of them affect or reflect the actual mode. Mode +
-# manual output must be driven from the CLICK Programming Software's PID
-# Monitor. Only the bits that do have a measurable effect are kept here.
+# The CLICK PID instruction allocates 40 coils per block (C100-C139 for HTR1,
+# C140-C179 for HTR2, C180-C219 for HTR3).  Per the PID Monitor UI in the
+# CLICK Programming Software (verified 2026-07-04): C<block+15>/C<block+16>
+# are the Manual/Auto mode selector, C<block+17> is Autotune-start, and
+# C<block+7> is PI-vs-PID (1 = PID, 0 = PI).  Writes must be *level*:
+# set the target coil True AND the opposite False in the same operation
+# so the ladder is never in a state where both are asserted.
 def _c(n: int) -> int:
     """Coil address for control relay C<n>."""
     return C_BASE + (n - 1)
 
+REG_PID_MODE_MANUAL    = {"top": _c(115), "bottom": _c(155), "nozzle": _c(195)}
+REG_PID_MODE_AUTO      = {"top": _c(116), "bottom": _c(156), "nozzle": _c(196)}
 REG_PID_AUTOTUNE_START = {"top": _c(117), "bottom": _c(157), "nozzle": _c(197)}
 REG_PID_CONTROLLER_PID = {"top": _c(107), "bottom": _c(147), "nozzle": _c(187)}  # 1 = PID, 0 = PI
 
@@ -346,6 +349,8 @@ class PlcDriver(SensorDriver):
         from slowcontrol.core.mqtt import command_topic
         self._mqtt.subscribe(command_topic("pid", "+", "setpoint"),        self._on_pid_setpoint)
         self._mqtt.subscribe(command_topic("pid", "+", "gains"),           self._on_pid_gains)
+        self._mqtt.subscribe(command_topic("pid", "+", "mode"),            self._on_pid_mode)
+        self._mqtt.subscribe(command_topic("pid", "+", "output"),          self._on_pid_output)
         self._mqtt.subscribe(command_topic("pid", "+", "autotune"),        self._on_pid_autotune)
         self._mqtt.subscribe(command_topic("pid", "+", "controller_type"), self._on_pid_controller_type)
         self._mqtt.subscribe(command_topic("pid", "+", "pv"),              self._on_pid_pv_write)
@@ -764,10 +769,11 @@ class PlcDriver(SensorDriver):
     # ------------------------------------------------------------------
 
     def _publish_pid_status(self) -> None:
-        # Note: the CLICK PID's internal Auto/Manual state is not visible over
-        # Modbus on this PLC (see the comment near REG_PID_AUTOTUNE_START), so
-        # no "mode" field is published. Operators drive Auto/Manual + manual
-        # output via the CLICK Programming Software's PID Monitor.
+        # Mode read-back reads both Manual and Auto mode coils; a well-behaved
+        # ladder has exactly one asserted at a time. If both are False, we
+        # report "unknown" (transient state during a write, or a ladder edge
+        # we didn't set); if both are True we prefer "manual" as the safer
+        # interpretation for the GUI badge.
         for zone in ("top", "bottom", "nozzle"):
             sp_c  = self._read_float(_pid_reg(zone, "sp"))
             pv_c  = self._read_float(_pid_reg(zone, "pv"))
@@ -775,10 +781,18 @@ class PlcDriver(SensorDriver):
             kp    = self._read_float(_pid_reg(zone, "kp"))
             ki    = self._read_float(_pid_reg(zone, "ki"))
             kd    = self._read_float(_pid_reg(zone, "kd"))
-            ctrl_bit = self._read_coil(REG_PID_CONTROLLER_PID[zone])
+            ctrl_bit    = self._read_coil(REG_PID_CONTROLLER_PID[zone])
+            manual_bit  = self._read_coil(REG_PID_MODE_MANUAL[zone])
+            auto_bit    = self._read_coil(REG_PID_MODE_AUTO[zone])
             if sp_c is None or pv_c is None:
                 continue
             controller = "pid" if ctrl_bit else ("pi" if ctrl_bit is False else "unknown")
+            if manual_bit:
+                mode = "manual"
+            elif auto_bit:
+                mode = "auto"
+            else:
+                mode = "unknown"
             sp_val = self._pid_sp_expr_value_k.get(zone)
             pv_val = self._pid_pv_expr_value_k.get(zone)
             self._mqtt.publish_status(
@@ -790,6 +804,7 @@ class PlcDriver(SensorDriver):
                     "pv_k":        round(pv_c + CELSIUS_TO_KELVIN, 3),
                     "output_pct":  round(out, 2) if out is not None else None,
                     "kp": kp, "ki": ki, "kd": kd,
+                    "mode":            mode,
                     "controller_type": controller,
                     "setpoint_expr":         self._pid_sp_expr.get(zone, ""),
                     "pv_expr":               self._pid_pv_expr.get(zone, ""),
@@ -938,6 +953,59 @@ class PlcDriver(SensorDriver):
             return
         ok = self._write_coil(REG_PID_AUTOTUNE_START[zone], True)
         log.info("[plc] PID %s autotune start: %s", zone, "OK" if ok else "FAIL")
+
+    def _on_pid_mode(self, topic: str, payload: dict) -> None:
+        """xsphere/commands/pid/{zone}/mode  → {"mode": "auto"|"manual"}.
+
+        Writes the two mode coils in a level pattern: target coil True and
+        the opposite False, matching what the CLICK Programming Software's
+        PID Monitor does when you toggle Manual/Auto and click "Write all
+        Edits to PLC" (verified against C115/C116 for HTR1, C155/C156 for
+        HTR2, C195/C196 for HTR3 in the PID Monitor UI labels).
+        """
+        zone = topic.split("/")[-2]
+        if zone not in _PID_BLOCKS:
+            return
+        mode = str(payload.get("mode", "")).lower()
+        if mode == "manual":
+            new_manual, new_auto = True, False
+        elif mode == "auto":
+            new_manual, new_auto = False, True
+        else:
+            log.warning("[plc] PID %s mode: bad payload %r", zone, payload)
+            return
+        # Clear the opposite first so we never have both asserted (even
+        # briefly, from the ladder's point of view).
+        if new_manual:
+            self._write_coil(REG_PID_MODE_AUTO[zone], False)
+            ok = self._write_coil(REG_PID_MODE_MANUAL[zone], True)
+        else:
+            self._write_coil(REG_PID_MODE_MANUAL[zone], False)
+            ok = self._write_coil(REG_PID_MODE_AUTO[zone], True)
+        log.info("[plc] PID %s mode → %s: %s", zone, mode, "OK" if ok else "FAIL")
+
+    def _on_pid_output(self, topic: str, payload: dict) -> None:
+        """xsphere/commands/pid/{zone}/output  → {"value_pct": X}.
+
+        Writes the output register (DF108/DF133/DF158). Effective only when
+        the PID is in Manual mode — in Auto the PID overwrites this each
+        scan.  For a heater at 0-100 %; range-clamped for safety."""
+        zone = topic.split("/")[-2]
+        if zone not in _PID_BLOCKS:
+            return
+        try:
+            value_pct = float(payload.get("value_pct"))
+        except (TypeError, ValueError):
+            log.warning("[plc] PID %s output: bad payload %r", zone, payload)
+            return
+        # Clamp to [0, 100] as a safety measure — the PLC's own output range
+        # is set in the PID Monitor's "Output Range" block but we don't want
+        # to write a negative or wildly-large number even if a client sends
+        # one by mistake.
+        value_pct = max(0.0, min(100.0, value_pct))
+        ok = self._write_float(_pid_reg(zone, "output"), value_pct)
+        log.info("[plc] PID %s manual output → %.2f %%: %s",
+                 zone, value_pct, "OK" if ok else "FAIL")
 
     def _on_pid_controller_type(self, topic: str, payload: dict) -> None:
         """xsphere/commands/pid/{zone}/controller_type  → {"mode": "pi"|"pid"}."""
