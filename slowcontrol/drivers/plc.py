@@ -173,6 +173,27 @@ REG_PID_MODE_AUTO      = {"top": _c(116), "bottom": _c(156), "nozzle": _c(196)}
 REG_PID_AUTOTUNE_START = {"top": _c(117), "bottom": _c(157), "nozzle": _c(197)}
 REG_PID_CONTROLLER_PID = {"top": _c(107), "bottom": _c(147), "nozzle": _c(187)}  # 1 = PID, 0 = PI
 
+# Direct writes to the mode coils above turned out NOT to actually flip the
+# PID's internal Auto/Manual state on this PLC — the ladder needs to
+# consume a command rung, not raw-coil writes.  The operator added two
+# ladder rungs for the mode plumbing:
+#
+#   DF175 — mode-*command* register the ladder reads and interprets:
+#             value 0 → Manual, 1 → Auto.  We write it as int16 at the
+#             DF's low word (rung compares against integer 0 / 1).
+#   DF176 — mode-*status* mirror the ladder writes with the same
+#             convention: 0 = Manual coil asserted, 1 = Auto coil.
+#             We read DF176 (float) for the authoritative mode readback
+#             because the C115/C116 coil reads over Modbus proved
+#             unreliable on this PLC.
+#
+# As of 2026-07-04 only PID 1 (top) is wired this way; extend both dicts
+# as bottom / nozzle rungs get added.
+_PID_MODE_CMD_DF_NUM    = {"top": 175}
+_PID_MODE_STATUS_DF_NUM = {"top": 176}
+REG_PID_MODE_CMD    = {zone: _df(n) for zone, n in _PID_MODE_CMD_DF_NUM.items()}
+REG_PID_MODE_STATUS = {zone: _df(n) for zone, n in _PID_MODE_STATUS_DF_NUM.items()}
+
 # --- PID registers (DF, read setpoint/PV/output; write setpoint/gains) ---
 #
 #  Each PID block occupies 25 float registers starting at its DF_Memory_Start.
@@ -769,11 +790,11 @@ class PlcDriver(SensorDriver):
     # ------------------------------------------------------------------
 
     def _publish_pid_status(self) -> None:
-        # Mode read-back reads both Manual and Auto mode coils; a well-behaved
-        # ladder has exactly one asserted at a time. If both are False, we
-        # report "unknown" (transient state during a write, or a ladder edge
-        # we didn't set); if both are True we prefer "manual" as the safer
-        # interpretation for the GUI badge.
+        # Authoritative mode read comes from DF<PID_MODE_STATUS>, a ladder-
+        # maintained mirror of the mode coils (0 = Manual, 1 = Auto).  For
+        # zones that don't yet have the mirror rung wired we report
+        # "unknown" (no way to know without direct coil reads, and the
+        # coils proved unreliable — see the comment near REG_PID_MODE_CMD).
         for zone in ("top", "bottom", "nozzle"):
             sp_c  = self._read_float(_pid_reg(zone, "sp"))
             pv_c  = self._read_float(_pid_reg(zone, "pv"))
@@ -781,18 +802,24 @@ class PlcDriver(SensorDriver):
             kp    = self._read_float(_pid_reg(zone, "kp"))
             ki    = self._read_float(_pid_reg(zone, "ki"))
             kd    = self._read_float(_pid_reg(zone, "kd"))
-            ctrl_bit    = self._read_coil(REG_PID_CONTROLLER_PID[zone])
-            manual_bit  = self._read_coil(REG_PID_MODE_MANUAL[zone])
-            auto_bit    = self._read_coil(REG_PID_MODE_AUTO[zone])
+            ctrl_bit = self._read_coil(REG_PID_CONTROLLER_PID[zone])
+            # Mode-command echo (what we last wrote to DF<PID_MODE_CMD>) and
+            # mode-status (what the ladder mirrored to DF<PID_MODE_STATUS>).
+            cmd_addr    = REG_PID_MODE_CMD.get(zone)
+            status_addr = REG_PID_MODE_STATUS.get(zone)
+            mode_cmd    = self._read_float(cmd_addr)    if cmd_addr    else None
+            mode_status = self._read_float(status_addr) if status_addr else None
             if sp_c is None or pv_c is None:
                 continue
             controller = "pid" if ctrl_bit else ("pi" if ctrl_bit is False else "unknown")
-            if manual_bit:
+            if mode_status is None:
+                mode = "unknown"                       # rung not wired yet
+            elif abs(mode_status - 0.0) < 0.5:
                 mode = "manual"
-            elif auto_bit:
+            elif abs(mode_status - 1.0) < 0.5:
                 mode = "auto"
             else:
-                mode = "unknown"
+                mode = "unknown"                       # unexpected mirror value
             sp_val = self._pid_sp_expr_value_k.get(zone)
             pv_val = self._pid_pv_expr_value_k.get(zone)
             self._mqtt.publish_status(
@@ -805,6 +832,8 @@ class PlcDriver(SensorDriver):
                     "output_pct":  round(out, 2) if out is not None else None,
                     "kp": kp, "ki": ki, "kd": kd,
                     "mode":            mode,
+                    "mode_cmd":        round(mode_cmd, 4)    if mode_cmd    is not None else None,
+                    "mode_status_raw": round(mode_status, 4) if mode_status is not None else None,
                     "controller_type": controller,
                     "setpoint_expr":         self._pid_sp_expr.get(zone, ""),
                     "pv_expr":               self._pid_pv_expr.get(zone, ""),
@@ -957,32 +986,54 @@ class PlcDriver(SensorDriver):
     def _on_pid_mode(self, topic: str, payload: dict) -> None:
         """xsphere/commands/pid/{zone}/mode  → {"mode": "auto"|"manual"}.
 
-        Writes the two mode coils in a level pattern: target coil True and
-        the opposite False, matching what the CLICK Programming Software's
-        PID Monitor does when you toggle Manual/Auto and click "Write all
-        Edits to PLC" (verified against C115/C116 for HTR1, C155/C156 for
-        HTR2, C195/C196 for HTR3 in the PID Monitor UI labels).
+        Preferred path: write the ladder's mode-command DF register (0 =
+        Manual, 1 = Auto).  The rung reads that DF and set/resets the two
+        mode coils on the next PLC scan.  Direct coil writes were tried
+        first but the CLICK PID instruction doesn't respect them without
+        the intervening rung.
+
+        Fallback (for zones whose command register isn't wired yet):
+        write the mode coils directly.  This won't actually flip the
+        PID's internal mode but at least the coil readback follows what
+        the operator asked for, which is enough for the GUI to look
+        consistent while the operator's still wiring up the ladder for
+        the other zones.
         """
         zone = topic.split("/")[-2]
         if zone not in _PID_BLOCKS:
             return
         mode = str(payload.get("mode", "")).lower()
         if mode == "manual":
-            new_manual, new_auto = True, False
+            cmd_value = 0
         elif mode == "auto":
-            new_manual, new_auto = False, True
+            cmd_value = 1
         else:
             log.warning("[plc] PID %s mode: bad payload %r", zone, payload)
             return
-        # Clear the opposite first so we never have both asserted (even
-        # briefly, from the ladder's point of view).
-        if new_manual:
-            self._write_coil(REG_PID_MODE_AUTO[zone], False)
-            ok = self._write_coil(REG_PID_MODE_MANUAL[zone], True)
+
+        cmd_addr = REG_PID_MODE_CMD.get(zone)
+        if cmd_addr is not None:
+            df_num = _PID_MODE_CMD_DF_NUM[zone]
+            # Write a full 32-bit float — the CLICK ladder reads DF175 as
+            # a float, and writing just the low 16 bits leaves the high
+            # word stale (previous float bit pattern) so the composite
+            # float doesn't compare equal to 0.0 or 1.0.
+            ok = self._write_float(cmd_addr, float(cmd_value))
+            log.info("[plc] PID %s mode → %s via DF%d = %.1f: %s",
+                     zone, mode, df_num, float(cmd_value), "OK" if ok else "FAIL")
         else:
-            self._write_coil(REG_PID_MODE_MANUAL[zone], False)
-            ok = self._write_coil(REG_PID_MODE_AUTO[zone], True)
-        log.info("[plc] PID %s mode → %s: %s", zone, mode, "OK" if ok else "FAIL")
+            log.warning("[plc] PID %s mode: no mode-command DF wired for "
+                        "this zone; falling back to direct coil write (may "
+                        "not actually flip the PID's internal mode).", zone)
+            new_manual = (mode == "manual")
+            if new_manual:
+                self._write_coil(REG_PID_MODE_AUTO[zone], False)
+                ok = self._write_coil(REG_PID_MODE_MANUAL[zone], True)
+            else:
+                self._write_coil(REG_PID_MODE_MANUAL[zone], False)
+                ok = self._write_coil(REG_PID_MODE_AUTO[zone], True)
+            log.info("[plc] PID %s mode → %s (direct coil): %s",
+                     zone, mode, "OK" if ok else "FAIL")
 
     def _on_pid_output(self, topic: str, payload: dict) -> None:
         """xsphere/commands/pid/{zone}/output  → {"value_pct": X}.
