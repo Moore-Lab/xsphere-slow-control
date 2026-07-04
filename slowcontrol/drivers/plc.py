@@ -187,10 +187,12 @@ REG_PID_CONTROLLER_PID = {"top": _c(107), "bottom": _c(147), "nozzle": _c(187)} 
 #             because the C115/C116 coil reads over Modbus proved
 #             unreliable on this PLC.
 #
-# As of 2026-07-04 only PID 1 (top) is wired this way; extend both dicts
-# as bottom / nozzle rungs get added.
-_PID_MODE_CMD_DF_NUM    = {"top": 175}
-_PID_MODE_STATUS_DF_NUM = {"top": 176}
+# All three PIDs are wired the same way (added 2026-07-04):
+#   PID 1 (top)    — cmd DF175, status DF176
+#   PID 2 (bottom) — cmd DF177, status DF178
+#   PID 3 (nozzle) — cmd DF179, status DF180
+_PID_MODE_CMD_DF_NUM    = {"top": 175, "bottom": 177, "nozzle": 179}
+_PID_MODE_STATUS_DF_NUM = {"top": 176, "bottom": 178, "nozzle": 180}
 REG_PID_MODE_CMD    = {zone: _df(n) for zone, n in _PID_MODE_CMD_DF_NUM.items()}
 REG_PID_MODE_STATUS = {zone: _df(n) for zone, n in _PID_MODE_STATUS_DF_NUM.items()}
 
