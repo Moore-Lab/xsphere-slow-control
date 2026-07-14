@@ -259,14 +259,15 @@ function checkedSweepTargets(){
 }
 
 function updSweepHint(){
-  // preview point count + total runtime
+  // preview point count + total runtime. The sign of `step` is ignored —
+  // direction is inferred from start vs stop (matches server-side
+  // Sweep.values()), so 170 → 160 with step 5 counts down, not empty.
   const start = parseFloat($("w-start").value), stop = parseFloat($("w-stop").value),
         step = parseFloat($("w-step").value), dwellMin = parseFloat($("w-dwell").value);
   if ([start,stop,step,dwellMin].some(Number.isNaN)){ $("w-preview").textContent=""; return; }
   let n;
   if (step === 0 || start === stop) n = 1;
-  else if ((step > 0 && stop < start) || (step < 0 && stop > start)) n = 0;
-  else n = Math.floor((stop - start) / step + 1e-9) + 1;
+  else n = Math.floor(Math.abs(stop - start) / Math.abs(step) + 1e-9) + 1;
   const total = n * dwellMin;
   $("w-preview").textContent = `${n} point${n===1?"":"s"} · total ${total} min (${(total/60).toFixed(1)} h)`;
 }
@@ -346,9 +347,10 @@ function actionsHtml(actions){
 // Sweep items carry `targets` (list); tolerate the legacy single `target`.
 function sweepTargets(it){ return it.targets || (it.target ? [it.target] : []); }
 function sweepPointCount(it){
+  // Matches server-side Sweep.values(): sign of step is ignored, direction
+  // is inferred from start → stop.
   if (it.step === 0 || it.start === it.stop) return 1;
-  if ((it.step > 0 && it.stop < it.start) || (it.step < 0 && it.stop > it.start)) return 0;
-  return Math.floor((it.stop - it.start) / it.step + 1e-9) + 1;
+  return Math.floor(Math.abs(it.stop - it.start) / Math.abs(it.step) + 1e-9) + 1;
 }
 function renderProgram(){
   const tb = $("prog-body");

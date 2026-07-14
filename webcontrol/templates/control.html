@@ -147,7 +147,7 @@ function ctlNum(stateId, inputId){ ctl(stateId, numv(inputId)); }
 
 // ---- static structure: valves & PID (built once) ---------------------------
 const VESSELS = [["cryostat","XV3 — cryostat LN₂ vessel"],["primary_xe","XV2 — primary Xe bottle"],["ballast","XV1 — ballast bottle"]];
-const ZONES   = [["top","Zone 1 — top clamp"],["bottom","Zone 2 — bottom clamp"],["nozzle","Zone 3 — nozzle / disk"]];
+const ZONES   = [["top","Zone 1 — top clamp (rtd2)"],["bottom","Zone 2 — bottom clamp (rtd3)"],["nozzle","Zone 3 — nozzle / disk (rtd1)"]];
 let built = false;
 function build(){
   $("valves").innerHTML = VESSELS.map(([v,name])=>`

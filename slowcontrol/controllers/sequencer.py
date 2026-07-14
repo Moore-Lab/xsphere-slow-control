@@ -179,17 +179,24 @@ class Sweep:
                    start=start, stop=stop, step=step, dwell_s=dwell)
 
     def values(self) -> List[float]:
-        """Generate the ordered list of setpoints (inclusive of start and stop)."""
+        """Generate the ordered list of setpoints (inclusive of start and stop).
+
+        The sign of ``step`` is ignored — direction is inferred from
+        ``start`` vs ``stop`` so ``170 → 160`` with any nonzero step
+        counts *down*, not empty.  The user shouldn't have to think
+        about which sign to type in the GUI."""
         if self.step == 0 or self.start == self.stop:
             return [self.start]
+        step_mag  = abs(self.step)
+        direction = -1.0 if self.stop < self.start else 1.0
+        signed_step = direction * step_mag
         vs: List[float] = []
         sp = self.start
-        # Tolerance to include `stop` even when it doesn't divide evenly.
-        eps = abs(self.step) * 1e-9 + 1e-9
-        while ((self.step > 0 and sp <= self.stop + eps)
-               or (self.step < 0 and sp >= self.stop - eps)):
+        eps = step_mag * 1e-9 + 1e-9
+        while ((signed_step > 0 and sp <= self.stop + eps)
+               or (signed_step < 0 and sp >= self.stop - eps)):
             vs.append(round(sp, 6))
-            sp += self.step
+            sp += signed_step
         return vs
 
 
