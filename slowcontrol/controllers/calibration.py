@@ -33,6 +33,7 @@ import json
 import logging
 import math
 import os
+import time
 from typing import Any, Dict, Optional
 
 from slowcontrol.controllers.base import Controller
@@ -40,6 +41,19 @@ from slowcontrol.controllers.base import Controller
 log = logging.getLogger(__name__)
 
 _KELVIN = 273.15
+
+#: The service holds several *overlapping* broker subscriptions that all match
+#: ``xsphere/sensors/temperature/labjack/rtd/<n>`` — the wildcard used here and
+#: by the PLC driver, InterlocksController's ``sensors/temperature/#``, and the
+#: StateStore's exact per-source topics. Mosquitto delivers one copy *per
+#: matching subscription*, so a single raw RTD sample is delivered to
+#: ``_on_message`` multiple times. Idempotent handlers (PV mirror, interlocks,
+#: state cache) don't care, but this controller *republishes* on each delivery,
+#: which would triple the calibrated stream. We coalesce deliveries that arrive
+#: within this window (per channel): the duplicate copies land within ~1 ms of
+#: each other, while genuine samples are ≥ the LabJack poll interval (1 s)
+#: apart, so this cleanly drops only the redundant copies.
+_COALESCE_WINDOW_S = 0.5
 
 
 def _default_calibration_path() -> str:
@@ -159,10 +173,18 @@ class CalibrationController(Controller):
     NAME = "calibration"
 
     def __init__(self, config, mqtt, *,
-                 calibration_path: Optional[str] = None):
+                 calibration_path: Optional[str] = None,
+                 coalesce_window_s: float = _COALESCE_WINDOW_S):
         super().__init__(config, mqtt)
         self._calibration_path = calibration_path or _default_calibration_path()
         self._cal: Optional[RtdCalibration] = None
+        self._coalesce_window_s = coalesce_window_s
+        # channel -> monotonic time of the last accepted (published) sample,
+        # used to coalesce duplicate MQTT deliveries (see _COALESCE_WINDOW_S).
+        self._last_pub_mono: Dict[str, float] = {}
+        # one-shot log so the duplicate-delivery behaviour is discoverable
+        # without spamming the journal every second.
+        self._logged_coalesce = False
 
     # ── Lifecycle ────────────────────────────────────────────────────────
     def start(self) -> None:
@@ -221,6 +243,22 @@ class CalibrationController(Controller):
             # An RTD we don't have coefficients for — ignore rather than
             # publish an uncalibrated copy under the calibrated source.
             return
+
+        # Coalesce duplicate MQTT deliveries (see _COALESCE_WINDOW_S): the
+        # broker hands us the same raw sample once per overlapping subscription,
+        # all within ~1 ms; without this we would publish 2–3× as many
+        # calibrated points as there are real samples.
+        now = time.monotonic()
+        last = self._last_pub_mono.get(channel)
+        if last is not None and (now - last) < self._coalesce_window_s:
+            if not self._logged_coalesce:
+                log.info("[calibration] coalescing duplicate raw RTD deliveries "
+                         "(<%.2fs apart) — one calibrated point per real sample",
+                         self._coalesce_window_s)
+                self._logged_coalesce = True
+            return
+        self._last_pub_mono[channel] = now
+
         r_corr = self._cal.corrected_resistance(channel, r_raw)
         t_k = self._cal.corrected_temperature_k(channel, r_raw)
         if r_corr is None or t_k is None or math.isnan(t_k):
