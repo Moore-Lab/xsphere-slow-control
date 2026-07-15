@@ -60,6 +60,57 @@ groups:
       unit: K
       label: "Xe cube nozzle region (LJ RTD1)"
       source: {topic: xsphere/sensors/temperature/labjack/rtd/1, key: value_k}
+    # ── Calibrated LabJack RTDs ────────────────────────────────────────
+    # Same physical sensors as t_cube_top / _bottom / _nozzle above,
+    # after two-point (ice + LN2) resistance correction and re-derivation
+    # through the IEC-60751 PT100 CVD polynomial.  Published by the
+    # CalibrationController; coefficients live in
+    # slowcontrol/calibration/rtd_calibration.json.
+    t_cube_top_cal:
+      kind: analog
+      unit: K
+      label: "Xe cube top (LJ RTD2, calibrated)"
+      source: {topic: xsphere/sensors/temperature/labjack_cal/rtd/2, key: value_k}
+    t_cube_bottom_cal:
+      kind: analog
+      unit: K
+      label: "Xe cube bottom (LJ RTD3, calibrated)"
+      source: {topic: xsphere/sensors/temperature/labjack_cal/rtd/3, key: value_k}
+    t_cube_nozzle_cal:
+      kind: analog
+      unit: K
+      label: "Xe cube nozzle region (LJ RTD1, calibrated)"
+      source: {topic: xsphere/sensors/temperature/labjack_cal/rtd/1, key: value_k}
+    r_cube_top:
+      kind: analog
+      unit: Ω
+      label: "Xe cube top RTD resistance (LJ RTD2, raw)"
+      source: {topic: xsphere/sensors/temperature/labjack/rtd/2, key: resistance_ohm}
+    r_cube_bottom:
+      kind: analog
+      unit: Ω
+      label: "Xe cube bottom RTD resistance (LJ RTD3, raw)"
+      source: {topic: xsphere/sensors/temperature/labjack/rtd/3, key: resistance_ohm}
+    r_cube_nozzle:
+      kind: analog
+      unit: Ω
+      label: "Xe cube nozzle RTD resistance (LJ RTD1, raw)"
+      source: {topic: xsphere/sensors/temperature/labjack/rtd/1, key: resistance_ohm}
+    r_cube_top_cal:
+      kind: analog
+      unit: Ω
+      label: "Xe cube top RTD resistance (LJ RTD2, calibrated)"
+      source: {topic: xsphere/sensors/temperature/labjack_cal/rtd/2, key: resistance_ohm}
+    r_cube_bottom_cal:
+      kind: analog
+      unit: Ω
+      label: "Xe cube bottom RTD resistance (LJ RTD3, calibrated)"
+      source: {topic: xsphere/sensors/temperature/labjack_cal/rtd/3, key: resistance_ohm}
+    r_cube_nozzle_cal:
+      kind: analog
+      unit: Ω
+      label: "Xe cube nozzle RTD resistance (LJ RTD1, calibrated)"
+      source: {topic: xsphere/sensors/temperature/labjack_cal/rtd/1, key: resistance_ohm}
     t_lnvessel_base:
       kind: analog
       unit: K

@@ -1,0 +1,227 @@
+{
+  "title": "xsphere RTD calibration (raw vs corrected)",
+  "uid": "xsphere-rtd-calibration",
+  "tags": ["xsphere", "rtd", "calibration"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "refresh": "10s",
+  "time": { "from": "now-6h", "to": "now" },
+  "templating": {
+    "list": [
+      {
+        "name": "DS_INFLUX",
+        "type": "datasource",
+        "query": "influxdb",
+        "current": { "text": "InfluxDB-xsphere", "value": "InfluxDB-xsphere" },
+        "hide": 0
+      }
+    ]
+  },
+  "panels": [
+    {
+      "type": "row",
+      "title": "Temperature — all RTDs (raw = labjack, corrected = labjack_cal)",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
+      "collapsed": false
+    },
+    {
+      "type": "timeseries",
+      "title": "Temperature (K) — raw vs corrected, all three RTDs",
+      "datasource": { "type": "influxdb", "uid": "${DS_INFLUX}" },
+      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 1 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "kelvin",
+          "custom": { "drawStyle": "line", "showPoints": "never", "lineWidth": 1 }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byRegexp", "options": ".*labjack_cal.*" },
+            "properties": [
+              { "id": "custom.lineStyle", "value": { "fill": "dash", "dash": [6, 3] } }
+            ]
+          }
+        ]
+      },
+      "options": { "legend": { "displayMode": "table", "placement": "right", "calcs": ["last", "mean"] }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "influxdb", "uid": "${DS_INFLUX}" },
+          "query": "from(bucket: \"xsphere\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"temperature\" and r._field == \"value_k\" and r.sensor_type == \"rtd\" and (r.source == \"labjack\" or r.source == \"labjack_cal\"))\n  |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false)\n  |> map(fn: (r) => ({ r with series: r.source + \" rtd\" + r.channel }))\n  |> keep(columns: [\"_time\", \"_value\", \"series\"])\n  |> group(columns: [\"series\"])"
+        }
+      ]
+    },
+    {
+      "type": "row",
+      "title": "Resistance — all RTDs (raw vs corrected)",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 11 },
+      "collapsed": false
+    },
+    {
+      "type": "timeseries",
+      "title": "Resistance (Ω) — raw vs corrected, all three RTDs",
+      "datasource": { "type": "influxdb", "uid": "${DS_INFLUX}" },
+      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 12 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ohm",
+          "custom": { "drawStyle": "line", "showPoints": "never", "lineWidth": 1 }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byRegexp", "options": ".*labjack_cal.*" },
+            "properties": [
+              { "id": "custom.lineStyle", "value": { "fill": "dash", "dash": [6, 3] } }
+            ]
+          }
+        ]
+      },
+      "options": { "legend": { "displayMode": "table", "placement": "right", "calcs": ["last", "mean"] }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "influxdb", "uid": "${DS_INFLUX}" },
+          "query": "from(bucket: \"xsphere\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"temperature\" and r._field == \"resistance_ohm\" and r.sensor_type == \"rtd\" and (r.source == \"labjack\" or r.source == \"labjack_cal\"))\n  |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false)\n  |> map(fn: (r) => ({ r with series: r.source + \" rtd\" + r.channel }))\n  |> keep(columns: [\"_time\", \"_value\", \"series\"])\n  |> group(columns: [\"series\"])"
+        }
+      ]
+    },
+    {
+      "type": "row",
+      "title": "Per-RTD detail — RTD1 (nozzle)",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 22 },
+      "collapsed": false
+    },
+    {
+      "type": "timeseries",
+      "title": "RTD1 nozzle — resistance (Ω)",
+      "datasource": { "type": "influxdb", "uid": "${DS_INFLUX}" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 23 },
+      "fieldConfig": { "defaults": { "unit": "ohm", "custom": { "drawStyle": "line", "showPoints": "never", "lineWidth": 1 } }, "overrides": [] },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom", "calcs": ["last"] }, "tooltip": { "mode": "multi" } },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "influxdb", "uid": "${DS_INFLUX}" },
+          "query": "from(bucket: \"xsphere\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"temperature\" and r._field == \"resistance_ohm\" and r.sensor_type == \"rtd\" and r.channel == \"1\" and (r.source == \"labjack\" or r.source == \"labjack_cal\"))\n  |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false)\n  |> keep(columns: [\"_time\", \"_value\", \"source\"])\n  |> group(columns: [\"source\"])"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "RTD1 nozzle — temperature (K)",
+      "datasource": { "type": "influxdb", "uid": "${DS_INFLUX}" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 23 },
+      "fieldConfig": { "defaults": { "unit": "kelvin", "custom": { "drawStyle": "line", "showPoints": "never", "lineWidth": 1 } }, "overrides": [] },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom", "calcs": ["last"] }, "tooltip": { "mode": "multi" } },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "influxdb", "uid": "${DS_INFLUX}" },
+          "query": "from(bucket: \"xsphere\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"temperature\" and r._field == \"value_k\" and r.sensor_type == \"rtd\" and r.channel == \"1\" and (r.source == \"labjack\" or r.source == \"labjack_cal\"))\n  |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false)\n  |> keep(columns: [\"_time\", \"_value\", \"source\"])\n  |> group(columns: [\"source\"])"
+        }
+      ]
+    },
+    {
+      "type": "row",
+      "title": "Per-RTD detail — RTD2 (top cube)",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 31 },
+      "collapsed": false
+    },
+    {
+      "type": "timeseries",
+      "title": "RTD2 top cube — resistance (Ω)",
+      "datasource": { "type": "influxdb", "uid": "${DS_INFLUX}" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 32 },
+      "fieldConfig": { "defaults": { "unit": "ohm", "custom": { "drawStyle": "line", "showPoints": "never", "lineWidth": 1 } }, "overrides": [] },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom", "calcs": ["last"] }, "tooltip": { "mode": "multi" } },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "influxdb", "uid": "${DS_INFLUX}" },
+          "query": "from(bucket: \"xsphere\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"temperature\" and r._field == \"resistance_ohm\" and r.sensor_type == \"rtd\" and r.channel == \"2\" and (r.source == \"labjack\" or r.source == \"labjack_cal\"))\n  |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false)\n  |> keep(columns: [\"_time\", \"_value\", \"source\"])\n  |> group(columns: [\"source\"])"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "RTD2 top cube — temperature (K)",
+      "datasource": { "type": "influxdb", "uid": "${DS_INFLUX}" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 32 },
+      "fieldConfig": { "defaults": { "unit": "kelvin", "custom": { "drawStyle": "line", "showPoints": "never", "lineWidth": 1 } }, "overrides": [] },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom", "calcs": ["last"] }, "tooltip": { "mode": "multi" } },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "influxdb", "uid": "${DS_INFLUX}" },
+          "query": "from(bucket: \"xsphere\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"temperature\" and r._field == \"value_k\" and r.sensor_type == \"rtd\" and r.channel == \"2\" and (r.source == \"labjack\" or r.source == \"labjack_cal\"))\n  |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false)\n  |> keep(columns: [\"_time\", \"_value\", \"source\"])\n  |> group(columns: [\"source\"])"
+        }
+      ]
+    },
+    {
+      "type": "row",
+      "title": "Per-RTD detail — RTD3 (bottom cube)",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 40 },
+      "collapsed": false
+    },
+    {
+      "type": "timeseries",
+      "title": "RTD3 bottom cube — resistance (Ω)",
+      "datasource": { "type": "influxdb", "uid": "${DS_INFLUX}" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 41 },
+      "fieldConfig": { "defaults": { "unit": "ohm", "custom": { "drawStyle": "line", "showPoints": "never", "lineWidth": 1 } }, "overrides": [] },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom", "calcs": ["last"] }, "tooltip": { "mode": "multi" } },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "influxdb", "uid": "${DS_INFLUX}" },
+          "query": "from(bucket: \"xsphere\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"temperature\" and r._field == \"resistance_ohm\" and r.sensor_type == \"rtd\" and r.channel == \"3\" and (r.source == \"labjack\" or r.source == \"labjack_cal\"))\n  |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false)\n  |> keep(columns: [\"_time\", \"_value\", \"source\"])\n  |> group(columns: [\"source\"])"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "RTD3 bottom cube — temperature (K)",
+      "datasource": { "type": "influxdb", "uid": "${DS_INFLUX}" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 41 },
+      "fieldConfig": { "defaults": { "unit": "kelvin", "custom": { "drawStyle": "line", "showPoints": "never", "lineWidth": 1 } }, "overrides": [] },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom", "calcs": ["last"] }, "tooltip": { "mode": "multi" } },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "influxdb", "uid": "${DS_INFLUX}" },
+          "query": "from(bucket: \"xsphere\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"temperature\" and r._field == \"value_k\" and r.sensor_type == \"rtd\" and r.channel == \"3\" and (r.source == \"labjack\" or r.source == \"labjack_cal\"))\n  |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false)\n  |> keep(columns: [\"_time\", \"_value\", \"source\"])\n  |> group(columns: [\"source\"])"
+        }
+      ]
+    },
+    {
+      "type": "row",
+      "title": "Correction snapshot (raw − corrected)",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 49 },
+      "collapsed": false
+    },
+    {
+      "type": "table",
+      "title": "Latest values — all RTDs (raw vs corrected)",
+      "datasource": { "type": "influxdb", "uid": "${DS_INFLUX}" },
+      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 50 },
+      "options": { "showHeader": true, "cellHeight": "sm" },
+      "fieldConfig": {
+        "defaults": { "custom": { "align": "auto" } },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "value_k" }, "properties": [ { "id": "unit", "value": "kelvin" }, { "id": "decimals", "value": 3 } ] },
+          { "matcher": { "id": "byName", "options": "value_c" }, "properties": [ { "id": "unit", "value": "celsius" }, { "id": "decimals", "value": 3 } ] },
+          { "matcher": { "id": "byName", "options": "resistance_ohm" }, "properties": [ { "id": "unit", "value": "ohm" }, { "id": "decimals", "value": 4 } ] }
+        ]
+      },
+      "transformations": [ { "id": "merge" } ],
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "influxdb", "uid": "${DS_INFLUX}" },
+          "query": "from(bucket: \"xsphere\")\n  |> range(start: -5m)\n  |> filter(fn: (r) => r._measurement == \"temperature\" and r.sensor_type == \"rtd\" and (r.source == \"labjack\" or r.source == \"labjack_cal\") and (r._field == \"value_k\" or r._field == \"value_c\" or r._field == \"resistance_ohm\"))\n  |> last()\n  |> keep(columns: [\"source\", \"channel\", \"_field\", \"_value\"])\n  |> pivot(rowKey: [\"source\", \"channel\"], columnKey: [\"_field\"], valueColumn: \"_value\")\n  |> sort(columns: [\"channel\", \"source\"])"
+        }
+      ]
+    }
+  ]
+}

@@ -35,6 +35,7 @@ from slowcontrol.core.config import ServiceConfig
 from slowcontrol.core.mqtt import MqttClient, status_topic
 from slowcontrol.controllers.autovalve import AutovalveController
 from slowcontrol.controllers.base import Controller
+from slowcontrol.controllers.calibration import CalibrationController
 from slowcontrol.controllers.gradient import GradientController
 from slowcontrol.controllers.interlocks import InterlocksController
 from slowcontrol.controllers.sequencer import SequencerController
@@ -120,6 +121,8 @@ class SlowControlService:
             InterlocksController(self._config, self._mqtt),
             TrackerController(self._config, self._mqtt),
             SequencerController(self._config, self._mqtt),
+            # Republishes calibrated LabJack RTDs on the labjack_cal source.
+            CalibrationController(self._config, self._mqtt),
         ]
         if _HAS_LABJACK:
             self._controllers.append(LabJackT7Controller(self._config, self._mqtt))
