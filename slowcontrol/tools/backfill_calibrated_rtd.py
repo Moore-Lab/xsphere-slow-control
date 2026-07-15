@@ -311,10 +311,19 @@ def _line(channel: str, r_raw: float, cal: RtdCalibration, ts_ns: int) -> Option
     value_k = t_c
     value_c = t_c - _KELVIN
     # Line protocol: measurement,tag=... field=... timestamp
-    #   the `system=xsphere` global tag mirrors Telegraf's own global tag
-    #   so backfilled rows are indistinguishable from live rows on tags.
+    #
+    # The tag set must EXACTLY match what Telegraf writes for the live cal
+    # stream, or the backfilled history and the live points form two separate
+    # InfluxDB series (same fields, different tags) and never join into one
+    # continuous line. Telegraf tags each point with:
+    #   source, sensor_type, channel  (from topic_parsing)
+    #   system=xsphere                (global_tags)
+    #   topic=<full MQTT topic>       (mqtt_consumer's default topic_tag)
+    # so we reproduce all four here. ('/' needs no escaping in a tag value.)
+    topic = f"xsphere/sensors/temperature/labjack_cal/rtd/{channel}"
     return (
-        f"temperature,source=labjack_cal,sensor_type=rtd,channel={channel},system=xsphere "
+        f"temperature,source=labjack_cal,sensor_type=rtd,channel={channel},"
+        f"system=xsphere,topic={topic} "
         f"value_k={value_k:.6f},value_c={value_c:.6f},"
         f"resistance_ohm={r_corr:.6f},resistance_ohm_raw={r_raw:.6f} "
         f"{ts_ns}"
