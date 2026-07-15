@@ -32,7 +32,7 @@
         {
           "refId": "A",
           "datasource": { "type": "influxdb", "uid": "${DS_INFLUX}" },
-          "query": "from(bucket: \"xsphere\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"temperature\" and r._field == \"value_c\")\n  |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false)\n  |> map(fn: (r) => ({ r with series: r.source + \" \" + r.sensor_type + \"/\" + r.channel }))\n  |> keep(columns: [\"_time\", \"_value\", \"series\"])\n  |> group(columns: [\"series\"])"
+          "query": "from(bucket: \"xsphere\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"temperature\" and r._field == \"value_c\")\n  |> filter(fn: (r) => not (r.source == \"labjack\" and r.sensor_type == \"rtd\"))\n  |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false)\n  |> map(fn: (r) => ({ r with series: r.source + \" \" + r.sensor_type + \"/\" + r.channel }))\n  |> keep(columns: [\"_time\", \"_value\", \"series\"])\n  |> group(columns: [\"series\"])"
         }
       ]
     },
@@ -48,7 +48,7 @@
         {
           "refId": "A",
           "datasource": { "type": "influxdb", "uid": "${DS_INFLUX}" },
-          "query": "from(bucket: \"xsphere\")\n  |> range(start: -5m)\n  |> filter(fn: (r) => r._measurement == \"temperature\" and (r._field == \"value_c\" or r._field == \"value_k\" or r._field == \"resistance_ohm\" or r._field == \"emf_mv\"))\n  |> last()\n  |> keep(columns: [\"source\", \"sensor_type\", \"channel\", \"_field\", \"_value\"])\n  |> pivot(rowKey: [\"source\", \"sensor_type\", \"channel\"], columnKey: [\"_field\"], valueColumn: \"_value\")\n  |> sort(columns: [\"source\", \"sensor_type\", \"channel\"])"
+          "query": "from(bucket: \"xsphere\")\n  |> range(start: -5m)\n  |> filter(fn: (r) => r._measurement == \"temperature\" and (r._field == \"value_c\" or r._field == \"value_k\" or r._field == \"resistance_ohm\" or r._field == \"emf_mv\"))\n  |> filter(fn: (r) => not (r.source == \"labjack\" and r.sensor_type == \"rtd\"))\n  |> last()\n  |> keep(columns: [\"source\", \"sensor_type\", \"channel\", \"_field\", \"_value\"])\n  |> pivot(rowKey: [\"source\", \"sensor_type\", \"channel\"], columnKey: [\"_field\"], valueColumn: \"_value\")\n  |> sort(columns: [\"source\", \"sensor_type\", \"channel\"])"
         }
       ]
     },
