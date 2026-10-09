@@ -135,6 +135,18 @@ cd /home/xbox/xsphere-slow-control && python -m slowcontrol.state.schema
 
 See `slowcontrol/STATE_LAYER_PLAN.md` for the full field reference.
 
+### Starting and stopping the services from the DAQ PC
+
+`slowcontrol.servicectl` is a small window with Start / Restart / Stop / Logs for `xsphere-slowcontrol` and `xsphere-webcontrol`, a status dot per service, and the full `systemctl status` text in its output pane (on open, after each action, and on **Print Status**). It runs the commands on xbox-pi over SSH.
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\Install-Shortcut.ps1 -NoStartMenu
+```
+
+puts an **xSphere Slow Control** icon on the Windows desktop. It needs key-based SSH from the PC to `xbox@192.168.8.116` (it cannot answer a password prompt) and tells you how to set that up if it is missing. The same module is a CLI: `python -m slowcontrol.servicectl status`, `… restart slowcontrol`, `… logs webcontrol -n 100`; on the Pi itself add `--local`.
+
+**Stopping `xsphere-slowcontrol` is not inert.** The heater PIDs run in the PLC but this service feeds them their temperatures and enforces the PV safety interlock, so while it is stopped the PLC regulates on the last values written. Prefer Restart; the window asks before a Stop.
+
 ### Logs and troubleshooting
 
 ```bash
