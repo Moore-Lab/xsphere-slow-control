@@ -58,6 +58,15 @@ Every control widget shows the **current** value of the thing it controls next t
 - `auto-open` / `auto-close` toggle the **PLC ladder's** autofill enables. They do **not** make Python the autofill brain — that's still the PLC. If both are armed, the PLC ladder watches the level and opens/closes the valve when thresholds are crossed (config in `state.yaml` / SYSTEM_ARCHITECTURE.md §6b).
 - The Python autovalve controller is **disabled by default** (`config.yaml: autovalve.enabled: false`), to keep a single autofill authority.
 
+**Pneumatic valves — gas handling** (ballast, pump, bottle — relay outputs Y105 / Y106 / Y107)
+
+- `Open` / `Close` always mean the **valve**, not the relay, and send `xsphere/commands/pneumatic/{ballast|pump|bottle}/state`.
+- The **ballast and bottle valves are normally open**: their relay is energised to *close* them. The **pump valve is normally closed**. The PLC driver applies that sense (`PNEUMATIC_VALVES` in `slowcontrol/drivers/plc.py`), so nothing else has to — change it there if a valve is ever re-plumbed.
+- "actual" ● is worked out from the PLC output read back, "desired" from the register (DS151 / DS152 / DS153), and "relay" shows the output itself (`energised` / `off`). Seeing ballast `OPEN` with relay `off` is correct.
+- With the PLC outputs off — power loss, PLC in STOP — ballast and bottle sit **open** and the pump valve shut.
+- There is no auto-open, auto-close or timer behind these, in the ladder or in Python. A valve stays where it was last put, including through a restart of the slow-control service.
+- Each one is also a Sequencer target, like any other control on this page.
+
 **Heaters — PID** (one block per zone — top / bottom / nozzle)
 
 - The summary line shows **PV** (process variable, actual temperature), **SET** (setpoint), **OUT** (heater output 0-100 %), and **err** (PV − SET).
@@ -248,6 +257,7 @@ All sensor/status payloads are JSON.  Full schema and payload shapes:
 | `xsphere/sensors/level/{vessel}` | FDC1004 ESP32→broker | `{"raw","filtered"}` (pF) |
 | `xsphere/status/pid/{zone}` | PLC driver→broker | `{"setpoint_k","pv_k","output_pct","kp","ki","kd"}` (retained) |
 | `xsphere/status/valve/{vessel}` | Python→broker | `{"state","desired","auto_open","auto_close"}` (retained) |
+| `xsphere/status/pneumatic/{name}` | Python→broker | `{"state","desired","relay"}` — valve open / commanded open / relay energised (retained) |
 | `xsphere/status/service/heartbeat` | Python→broker | `{"uptime_s"}` (retained) |
 | `xsphere/status/ghs_esp32`, `xsphere/status/level_{vessel}` | ESP32→broker | `{"uptime_s","rssi","ip"}` (device health; not ingested) |
 | `xsphere/status/gradient`, `xsphere/status/gradient_scanner`, `xsphere/status/interlocks` | Python→broker | controller state |

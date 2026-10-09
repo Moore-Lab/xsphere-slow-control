@@ -141,6 +141,13 @@ def probe(host: str, port: int, unit: int, timeout: float) -> int:
     for key, addr in P.REG_HTR_COIL.items():
         show_coil(f"htr_{key}_pwm", addr)
 
+    print("\n== Pneumatic valves (DS15x relay command → Y10x relay output; "
+          "1 = relay energised, NOT necessarily valve open) ==")
+    for key, (ds_addr, coil_addr, normally_open) in getattr(P, "PNEUMATIC_VALVES", {}).items():
+        sense = "normally open" if normally_open else "normally closed"
+        show_int(f"pneumatic_{key} ({sense})", ds_addr)
+        show_coil(f"pneumatic_{key} relay", coil_addr)
+
     client.close()
     print("\n(read-only probe complete — nothing was written)")
     return 0

@@ -387,6 +387,7 @@ xsphere/sensors/level/{vessel}                          {"raw": <f>, "filtered":
 xsphere/status/service/heartbeat          {"uptime_s": <int>}                 (retained)
 xsphere/status/pid/{zone}                  {"setpoint_k","pv_k","output_pct","kp","ki","kd"} (retained)
 xsphere/status/valve/{vessel}              {"state","desired","auto_close","auto_open"}      (retained)
+xsphere/status/pneumatic/{name}            {"state","desired","relay"}  1 = valve open / relay energised (retained)
 xsphere/status/ghs_esp32                   {"uptime_s","rssi","ip"}            (device health; not ingested by Telegraf)
 xsphere/status/level_{vessel}              {"uptime_s","rssi","ip","vessel"}   (device health; not ingested by Telegraf)
 xsphere/alerts/{rule}                      # Interlock alerts
@@ -400,6 +401,7 @@ xsphere/commands/gradient/longitudinal     # Set longitudinal ΔT (K)
 xsphere/commands/valve/{vessel}/state      # Open/close solenoid valve
 xsphere/commands/valve/{vessel}/auto_open  # Arm/disarm auto-open
 xsphere/commands/valve/{vessel}/auto_close # Arm/disarm auto-close
+xsphere/commands/pneumatic/{name}/state    # {"state": 1|0} open/close a pneumatic valve (ballast|pump|bottle)
 xsphere/commands/gradient_scanner/start    # Start gradient scan
 xsphere/commands/gradient_scanner/stop     # Stop gradient scan
 ```
@@ -473,11 +475,34 @@ Vessel naming: `cryostat`, `primary_xe`, `ballast`
 | DS1104 | Integer (write) | XV2 auto-open enable |
 | DS1105 | Integer (write) | XV3 auto-close enable |
 | DS1106 | Integer (write) | XV3 auto-open enable |
+| DS151 | Integer (write) | Ballast pneumatic valve **relay** command (1 = energise Y105, anything else = off) |
+| DS152 | Integer (write) | Pump pneumatic valve relay command → Y106 |
+| DS153 | Integer (write) | Bottle pneumatic valve relay command → Y107 |
+| Y105 | Output bit (read) | Ballast pneumatic valve relay. Valve is **normally open**: energised = closed |
+| Y106 | Output bit (read) | Pump pneumatic valve relay. Valve is normally closed: energised = open |
+| Y107 | Output bit (read) | Bottle pneumatic valve relay. Valve is **normally open**: energised = closed |
 
 **Valve identity:**
 - XV1 → Y101: ballast bottle LN2 fill (level sensor: DF351)
 - XV2 → Y102: primary Xe bottle LN2 fill (level sensor: DF352)
 - XV3 → Y103: cryostat LN2 vessel fill (level sensor: DF303)
+
+**Pneumatic valves — gas handling (Y105–Y107).** Three relay-actuated gas
+valves, on the ballast, the pump and the bottle. Each is one pair of ladder
+rungs — `DS15x = 1` SETs the output, `DS15x ≠ 1` RSTs it — with no
+present-state register, no X-input feedback, no auto-open/auto-close and no
+timer. DS15x and Y10x describe the **relay**; the ballast and bottle valves are
+normally open, so for those two an energised relay means a *closed* valve.
+
+The PLC driver hides that: `xsphere/commands/pneumatic/{name}/state` takes
+`{"state": 1}` for *valve open*, and `xsphere/status/pneumatic/{name}` reports
+`state` and `desired` in valve terms plus `relay` as the raw Y output. The
+sense per valve lives in one table, `PNEUMATIC_VALVES` in
+`slowcontrol/drivers/plc.py`. With the PLC outputs off, ballast and bottle are
+open and the pump valve is shut.
+
+Y output coils are addressed with a 32-per-slot stride, not by point number:
+Y101 → coil 8224, Y105 → 8228, Y106 → 8229, Y107 → 8230 (0-based).
 
 **Autofill thresholds (from ladder):**
 - XV1/XV2: auto-close when level > 2.5; auto-open when level < 0.5 (timer: 600 s)

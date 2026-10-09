@@ -10,6 +10,7 @@ Also accepts write commands for:
   - PID gains (DF105-107, DF130-132, DF155-157)
   - Valve desired state (DS1002, DS1004, DS1006)
   - Valve automation enables (DS1101-1106)
+  - Pneumatic valve desired state (DS151, DS152, DS153)
   - Level sensor raw values (DF251, DF252) — written from MQTT callbacks
     so the PLC's autofill ladder logic stays current
 
@@ -38,7 +39,10 @@ Also accepts write commands for:
 #                        registers (big-endian IEEE 754).
 #
 #   Coils (FC1 read, FC5 write):
-#     Y (output bits)  : address = Y_BASE + Y_number - 1
+#     Y (output bits)  : address = Y_BASE + 32 * slot + (point - 1), where
+#                        Y<slot><point> has a 2-digit point number.  The slot
+#                        stride is 32, NOT 100: Y001 → 8192, Y101 → 8224,
+#                        Y105 → 8228.
 #     C (control relay): address = C_BASE + C_number - 1
 #
 #   Discrete Inputs (FC2 read):
@@ -98,6 +102,17 @@ def _df(n: int) -> int:
 def _ds(n: int) -> int:
     """Return pymodbus holding register address for DS register n."""
     return DS_BASE + (n - 1)
+
+
+def _y(n: int) -> int:
+    """Coil address for output bit Y<n>.
+
+    CLICK numbers outputs as slot digit(s) + a 2-digit point, but the Modbus
+    addresses advance 32 per slot, not 100 — so Y101 (slot 1, point 1) is
+    Y_BASE + 32, not Y_BASE + 100.
+    """
+    slot, point = divmod(n, 100)
+    return Y_BASE + 32 * slot + (point - 1)
 
 
 # --- RTD inputs (read-only, DF, from the CLICK RTD module) ---
@@ -259,16 +274,48 @@ REG_VALVE = {
 
 # Coil addresses for actual output state
 REG_VALVE_COIL = {
-    "cryostat":   Y_BASE + 103 - 1,   # Y103
-    "primary_xe": Y_BASE + 102 - 1,   # Y102
-    "ballast":    Y_BASE + 101 - 1,   # Y101
+    "cryostat":   _y(103),
+    "primary_xe": _y(102),
+    "ballast":    _y(101),
+}
+
+# --- Pneumatic valves — gas handling (relay outputs Y105-Y107) ---
+# Each valve is one pair of ladder rungs:
+#
+#     DS15x == 1  →  SET Y10x      (open)
+#     DS15x != 1  →  RST Y10x      (closed)
+#
+# so the DS register is the whole command interface.  Unlike XV1-XV3 there is
+# no present-state register, no X-input feedback, no auto-open / auto-close and
+# no timer — the relay follows the register and nothing else.  The readback is
+# therefore the Y output coil itself.
+#
+# RELAY SENSE.  The register and the coil describe the RELAY, not the valve.
+# The ballast and bottle valves are plumbed normally open — at rest, relay
+# de-energised, they are OPEN, and energising the relay CLOSES them.  The pump
+# valve is normally closed, so energising OPENS it.  Everything on MQTT speaks
+# in valve terms (1 = open); the sense is applied in this driver and nowhere
+# else, so no consumer has to know which way round a given valve is.
+#
+# Consequence worth knowing: with the PLC outputs off — power loss, PLC in
+# STOP, a register never written — ballast and bottle sit OPEN and pump shut.
+#
+# They get their own topic family (.../pneumatic/{name}) rather than joining
+# .../valve/{vessel}: these are not LN2 fill valves, `ballast` already names
+# XV1 there, and the Telegraf valve_state input requires the autofill fields.
+#
+#   name → (desired register, output coil, normally open?)
+PNEUMATIC_VALVES = {
+    "ballast": (_ds(151), _y(105), True),    # DS151 → Y105  on the ballast
+    "pump":    (_ds(152), _y(106), False),   # DS152 → Y106  on the pump
+    "bottle":  (_ds(153), _y(107), True),    # DS153 → Y107  on the bottle
 }
 
 # PWM output coil addresses (for reading heater duty cycle state)
 REG_HTR_COIL = {
-    "top":    Y_BASE + 4 - 1,   # Y004
-    "bottom": Y_BASE + 3 - 1,   # Y003
-    "nozzle": Y_BASE + 2 - 1,   # Y002
+    "top":    _y(4),
+    "bottom": _y(3),
+    "nozzle": _y(2),
 }
 
 CELSIUS_TO_KELVIN = 273.15
@@ -382,6 +429,7 @@ class PlcDriver(SensorDriver):
         self._mqtt.subscribe(command_topic("valve", "+", "state"),         self._on_valve_state)
         self._mqtt.subscribe(command_topic("valve", "+", "auto_close"),    self._on_valve_auto)
         self._mqtt.subscribe(command_topic("valve", "+", "auto_open"),     self._on_valve_auto)
+        self._mqtt.subscribe(command_topic("pneumatic", "+", "state"),     self._on_pneumatic_state)
         self._mqtt.subscribe(command_topic("pv_interlock", "limits"),      self._on_pv_interlock_limits)
         # Publish the (just-loaded) limits + initial trip state so the
         # snapshot has a value before the first poll.
@@ -435,6 +483,13 @@ class PlcDriver(SensorDriver):
             # writes the safe-surrogate to the PID's pv_raw register, which
             # must override anything an active pv_expr would have written.
             self._write_labjack_to_plc()
+            # Last, and fenced off: a fault in this readback must not send the
+            # PID-expression and PV-interlock writes above down the reconnect
+            # path on every poll.
+            try:
+                self._publish_pneumatic_status()
+            except Exception as exc:
+                log.warning("[plc] pneumatic valve readback failed: %s", exc)
         except (BrokenPipeError, ConnectionResetError, ConnectionError, OSError, ModbusException) as exc:
             log.warning("[plc] Modbus poll error — will reconnect: %s", exc)
             try:
@@ -874,6 +929,33 @@ class PlcDriver(SensorDriver):
                 },
             )
 
+    def _publish_pneumatic_status(self) -> None:
+        """xsphere/status/pneumatic/{name}
+               → {"state": 0|1, "desired": 0|1, "relay": 0|1}
+
+        `state` and `desired` are in VALVE terms (1 = open): `desired` from
+        the DS register the operator writes, `state` from the Y output the
+        ladder SET/RSTs from it, each with the valve's relay sense applied.
+        `relay` is that Y output as it is (1 = energised).
+
+        `state` and `relay` are left out, not inferred from `desired`, when
+        the coil cannot be read — so a consumer never mistakes the command for
+        the relay's answer.
+        """
+        for name, (desired_addr, coil_addr, normally_open) in PNEUMATIC_VALVES.items():
+            register = self._read_int(desired_addr)
+            relay = self._read_coil(coil_addr)
+            if register is None and relay is None:
+                continue
+            payload = {}
+            if register is not None:
+                # The ladder energises on == 1 exactly; anything else is off.
+                payload["desired"] = int((register == 1) != normally_open)
+            if relay is not None:
+                payload["state"] = int(relay != normally_open)
+                payload["relay"] = int(relay)
+            self._mqtt.publish_status("pneumatic", name, payload=payload)
+
     # ------------------------------------------------------------------
     # MQTT command callbacks
     # ------------------------------------------------------------------
@@ -1219,3 +1301,29 @@ class PlcDriver(SensorDriver):
         enabled = int(bool(payload.get("enabled", False)))
         self._write_int(REG_VALVE[key], enabled)
         log.info("[plc] valve %s %s → %d", vessel, mode, enabled)
+
+    def _on_pneumatic_state(self, topic: str, payload: dict) -> None:
+        """xsphere/commands/pneumatic/{name}/state  → {"state": 0|1}
+
+        `state` is the VALVE position wanted (1 = open).  For a normally-open
+        valve that means the opposite relay state, so opening the ballast or
+        bottle valve writes 0 to its register and closing it writes 1.
+        """
+        name = topic.split("/")[-2]
+        valve = PNEUMATIC_VALVES.get(name)
+        if valve is None:
+            log.warning("[plc] unknown pneumatic valve: %s", name)
+            return
+        desired_addr, _coil, normally_open = valve
+        # Only a literal 0/1 opens or closes a gas valve — anything else off
+        # the bus is dropped rather than coerced.
+        raw = payload.get("state") if isinstance(payload, dict) else None
+        if raw not in (0, 1):
+            log.warning("[plc] pneumatic valve %s: ignoring state %r", name, raw)
+            return
+        want_open = bool(raw)
+        relay_on = want_open != normally_open
+        ok = self._write_int(desired_addr, int(relay_on))
+        log.info("[plc] pneumatic valve %s → %s (relay %s): %s",
+                 name, "OPEN" if want_open else "CLOSED",
+                 "energised" if relay_on else "off", "OK" if ok else "FAIL")
