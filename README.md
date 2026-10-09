@@ -10,8 +10,11 @@ xenon cryostat used in levitated-particle physics experiments.
   the Omega RDXL6SD-USB data logger (clamp RTDs, thermocouples)
 - **Controls heaters** via three PID zones (top / bottom / nozzle) on the PLC,
   with a Python gradient abstraction layer (gradient mode or per-zone absolute)
-- **Manages LN2 autofill** for the ballast and primary xenon dewars via solenoid
-  valves, with configurable level thresholds and fill-timeout safety
+- **Manages LN2 autofill** for the cryostat, ballast and primary xenon dewars
+  via solenoid valves, with configurable level thresholds and fill-timeout
+  safety, plus an optional **coast refill** for the cryostat that holds the
+  fill back while the vessel runs on the thermal mass of its cold block, until
+  two RTDs show that reserve is spent
 - **Monitors pressure and vacuum** from the gas handling system (GHS) ESP32
 - **Watches safety interlocks** — alerts on stale sensors, out-of-range
   temperatures, and saturated heater output
@@ -108,11 +111,14 @@ xsphere-slow-control/
 |---|---|---|
 | `xsphere/sensors/temperature/plc/{ch}` | PLC→broker | RTD/TC readings from PLC |
 | `xsphere/sensors/temperature/omega/{ch}` | Omega→broker | TC/RTD readings from Omega logger |
-| `xsphere/sensors/level/{vessel}` | ESP32→broker | LN2 level (raw pF) |
+| `xsphere/sensors/level/{vessel}` | ESP32 / PLC driver→broker | LN2 level (raw pF); the cryostat channel comes from the PLC ADC |
 | `xsphere/sensors/pressure/{gauge}` | GHS ESP32→broker | Pressure (PSI) |
 | `xsphere/sensors/vacuum/{gauge}` | GHS ESP32→broker | Vacuum (mbar) |
 | `xsphere/sensors/environment/{sensor}` | GHS ESP32→broker | Lab T/RH/P |
 | `xsphere/status/pid/{zone}` | PLC driver→broker | PID setpoint/PV/output |
+| `xsphere/status/valve/{vessel}` | PLC driver→broker | Valve state, auto enables, coast permit readback |
+| `xsphere/status/level/{vessel}` | Python→broker | Raw and filtered LN2 level (not retained) |
+| `xsphere/status/coast/{vessel}` | Python→broker | Coast gate state, hold reason and thresholds |
 | `xsphere/status/gradient` | Python→broker | Gradient mode and parameters |
 | `xsphere/status/interlocks` | Python→broker | Active alerts and ok flag |
 | `xsphere/alerts/{rule}/{channel}` | Python→broker | Individual alert payloads |

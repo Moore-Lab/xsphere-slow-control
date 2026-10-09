@@ -66,6 +66,18 @@ class MqttClient:
         self._client.disconnect()
         log.info("Disconnected from MQTT broker")
 
+    def is_connected(self) -> bool:
+        """True while the broker session is actually up.
+
+        `connect()` returning without raising only means the initial TCP
+        handshake succeeded; paho reconnects in the background after that, so
+        a caller that wants to know whether a publish will reach the broker
+        right now — a GUI enabling a command button, say — has to ask this
+        rather than assume the client object implies a live session.
+        """
+        probe = getattr(self._client, "is_connected", None)
+        return bool(probe()) if callable(probe) else True
+
     # ------------------------------------------------------------------
     # Publish
     # ------------------------------------------------------------------

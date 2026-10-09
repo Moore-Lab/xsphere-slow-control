@@ -123,7 +123,27 @@ class SlowControlApp(tk.Tk):
         self.protocol("WM_DELETE_WINDOW", self._on_close)
 
         self._config_path = config_path
+        self._config = self._load_config(config_path)
         self._build_ui()
+
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _load_config(path: str):
+        """Load config.yaml, or return None if it cannot be read.
+
+        The GUI is also the tool an operator reaches for when the config is
+        the thing that is broken, so a bad or missing file must not stop the
+        window from opening.  Panels fall back to their own defaults when this
+        returns None.
+        """
+        try:
+            from slowcontrol.core import config as config_mod
+            return config_mod.load(path)
+        except Exception:
+            log.warning("Could not load config from %s — panels will use "
+                        "built-in defaults", path, exc_info=True)
+            return None
 
     # ------------------------------------------------------------------
 
@@ -134,6 +154,25 @@ class SlowControlApp(tk.Tk):
         # Overview tab
         overview = _OverviewTab(nb)
         nb.add(overview, text="Overview")
+
+        # Cryostat tab — live LN2 status and the temperature-gated XV3 open
+        try:
+            from slowcontrol.cryostat_panel import CryostatPanel
+            cryo = ttk.Frame(nb)
+            CryostatPanel(cryo, config=self._config).pack(fill="both",
+                                                          expand=True)
+            nb.add(cryo, text="Cryostat")
+        except Exception:
+            log.exception("Cryostat panel unavailable")
+
+        # Services tab — start/stop/restart the systemd units on xbox-pi
+        try:
+            from slowcontrol.servicectl import ServicePanel
+            services = ttk.Frame(nb)
+            ServicePanel(services).pack(fill="both", expand=True)
+            nb.add(services, text="Services")
+        except Exception:
+            log.exception("Service control panel unavailable")
 
         # LabJack T7 tab — contains the full LJ panel with its own nested tabs
         lj = _LabJackTab(nb)

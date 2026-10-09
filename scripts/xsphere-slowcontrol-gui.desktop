@@ -1,0 +1,14 @@
+[Desktop Entry]
+Type=Application
+Name=xsphere Slow Control
+GenericName=Service Control
+Comment=Start, stop and restart the xsphere slow control services
+# Adjust the interpreter path if you are not using the miniconda install that
+# the systemd units use. Running with --local skips SSH, since on the Pi the
+# units are right here.
+Exec=/home/xbox/miniconda3/bin/python -m slowcontrol.servicectl --local
+Path=/home/xbox/xsphere-slow-control
+Icon=utilities-system-monitor
+Terminal=false
+Categories=System;Monitor;
+Keywords=xsphere;slowcontrol;systemd;

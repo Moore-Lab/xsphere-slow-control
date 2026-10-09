@@ -23,6 +23,11 @@ plc:
   unit_id: 1
   poll_interval: 1.0     # seconds between Modbus reads
   timeout: 3.0
+  # CLICK stores 32-bit floats low-word-first. Verify once before trusting
+  # any DF value: write 1.0 into DF1 from the CLICK software and read Modbus
+  # registers 28672/28673.
+  #   [0x0000, 0x3F80] -> low_first     [0x3F80, 0x0000] -> high_first
+  float_word_order: low_first
 
 # Omega logger runs as a separate service (omega-logger/omega_logger.py)
 # and has its own config file (omega-logger/config.yaml).
@@ -33,7 +38,81 @@ autovalve:
     cryostat:
       level_high: 2.5       # close valve when filtered level > this
       level_low: 0.25       # open valve when filtered level < this
-      fill_timeout_s: 920   # safety timeout (matches PLC ladder timer T3)
+      fill_timeout_s: 920   # safety timeout, Python side.
+                            # !! The ladder timer T3 is currently 1200 s (see
+                            # extras/plc-block-2.pdf rung 24), so these two no
+                            # longer match: Python gives up 280 s before the
+                            # PLC does.  That direction is the safe one — the
+                            # service closes the valve first and the ladder
+                            # lockout never arms — but it also means the
+                            # ladder's "fill ran full term and never reached
+                            # full" protection (rung 28) cannot fire while the
+                            # service is alive.  Raise this to 1200 to hand
+                            # that decision back to the ladder, or to 1800
+                            # ONLY together with T3: a from-dry coast fill is
+                            # a much longer transfer than the top-up 920 s was
+                            # sized for
+
+      # Coast refill: run the cryostat on the thermal mass of its cold block
+      # after the LN2 boils off, instead of topping up the moment the level
+      # reads empty.  A refill starts only when BOTH the vessel is empty
+      # (filtered < empty_threshold) AND the sensor pair has converged
+      # (T_warm - T_cold < delta_max_k), i.e. the cold reserve is spent.
+      #
+      # Coast gates auto_open ONLY.  It can never inhibit auto_close, the fill
+      # timeout, or a manual valve command, and every condition it cannot
+      # evaluate releases the inhibit — it fails towards spending LN2, never
+      # towards leaving the vessel empty.
+      #
+      # !! Coast always starts DISARMED.  Arming is an explicit operator act
+      # !! over MQTT; there is deliberately no arm-on-start key.
+      coast:
+        enabled: false          # allow coast to be armed at runtime
+        ladder_rung_entered: false   # set true only after CLICK ladder
+                                #   addition 6 has been hand-entered and the
+                                #   commissioning test in
+                                #   VERIFICATION_CHECKLIST.md has passed.
+                                #   While false the ladder's own auto-open
+                                #   will top the vessel up during the descent
+                                #   and coast will never see an empty vessel
+
+        # --- Operator-tunable gate (also settable over MQTT) ----------
+        empty_threshold: 0.13   # !! CALIBRATE. Refill is permitted below
+                                #   this level, in the same units as
+                                #   level_low (pF at the capacitance probe).
+                                #   Set to the measured dry reading + 0.05.
+                                #   Nothing in the repo maps pF to litres, so
+                                #   this has no defensible default
+        sensor_warm: plc/rtd/2  # Ti — Xe cube bottom (DF2), the heated load
+        sensor_cold: plc/rtd/4  # Tj — LN2 vessel base (DF4), the cold sink.
+                                #   Do NOT pair rtd/1 with rtd/2: that
+                                #   difference IS the commanded vertical
+                                #   gradient, so the gate would sit at ~0 K
+                                #   and coast would silently never engage
+        delta_max_k: 40.0       # X.  Refill permitted when Ti - Tj < X.
+                                #   ~88 K with liquid in the vessel; 40 K
+                                #   corresponds to DF4 reaching ~125 K
+        delta_mode: signed      # signed | absolute.  Signed (Ti - Tj) is the
+                                #   default: a cold sensor reading HOTTER than
+                                #   the load is a wiring or scaling fault, and
+                                #   absolute() would read it as convergence
+        delta_hysteresis_k: 5.0 # re-inhibit only above delta_max_k + this
+        confirm_s: 60.0         # gate must hold this long before opening
+
+        # --- Backstops (config file ONLY — not settable over MQTT) ----
+        base_k_nominal: 165.0   # operating base temperature; used to reject
+                                #   a sink_warm_k that would pre-empt the gate
+        max_duration_s: 5400.0  # 90 min — unconditional end of a coast
+        ceiling_k: 175.0        # any cube RTD above this ends the coast.
+                                #   Xe triple point is 161.4 K
+        sink_warm_k: 135.0      # cold sensor above this means the sink is
+                                #   dry — refill regardless of the gate
+        sink_cold_k: 90.0       # cold sensor below this proves liquid is
+                                #   back; used to clear a latched backstop
+        temp_stale_s: 30.0      # matches interlocks.TEMP_STALE_S
+        level_stale_s: 60.0     # matches interlocks.LEVEL_STALE_S
+        temp_min_k: 50.0        # plausibility band, both channels
+        temp_max_k: 400.0
     primary_xe:
       level_high: 2.5
       level_low: 0.5
@@ -42,6 +121,38 @@ autovalve:
       level_high: 2.5
       level_low: 0.5
       fill_timeout_s: 600
+
+# Gas flow: MKS M330B mass flow controller in parallel with a pneumatic
+# bypass valve.  Both legs join the same tee upstream and downstream, so
+# normally exactly one of them is open.
+gasflow:
+  enabled: true
+  exclusive_paths: true      # refuse to have MKS and bypass open at once
+  default_path: isolated     # mks | bypass | isolated
+  apply_default_on_start: false   # do NOT move valves when the service restarts
+
+  mks:
+    enabled: true
+    # !! Read these off the calibration sticker on the MFC flowbody.
+    full_scale_sccm: 1000.0       # full scale for the calibration gas
+    gas_name: N2                  # gas the unit was calibrated with
+    gas_correction_factor: 1.0    # actual-gas sccm = calibration sccm x GCF
+                                  # LEAVE AT 1.0 if the label says Xe.
+                                  # If the label says N2, MKS tabulates 1.32
+                                  # for xenon -- but their own theoretical
+                                  # formula gives 1.44 and the table is marked
+                                  # "empirically defined". Flow-calibrate
+                                  # rather than trusting either number.
+    signal_span_v: 5.0            # 0-5 V standard MKS analog interface
+    setpoint_max_pct: 100.0       # reject setpoints above this % of full scale
+
+    # End-to-end analog trim. The C2-08D2-6V is spec'd at +/-2% of its 10 V
+    # full scale, i.e. up to +/-4% of the MFC's 5 V range -- four times the
+    # MFC's own accuracy. Calibrate against a DMM and set these.
+    adc_gain: 1.0
+    adc_offset_v: 0.0
+    dac_gain: 1.0
+    dac_offset_v: 0.0
 
 heartbeat_interval: 10.0    # seconds between heartbeat MQTT publishes
 log_level: INFO

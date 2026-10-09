@@ -1,0 +1,58 @@
+# Passwordless systemctl for the two xsphere units, and nothing else.
+#
+# Without this, `sudo systemctl restart ...` over a non-interactive SSH session
+# fails with "sudo: a password is required" — the GUI has no way to answer a
+# prompt, so it would otherwise be unusable remotely.
+#
+# Install on xbox-pi (visudo validates the syntax; a malformed sudoers file can
+# lock you out of sudo entirely, so do NOT just cp it):
+#
+#   sudo visudo -c -f xsphere-slowcontrol-sudoers      # check it parses
+#   sudo install -m 440 -o root -g root \
+#        xsphere-slowcontrol-sudoers /etc/sudoers.d/xsphere-slowcontrol
+#
+# Verify, as user xbox — this asks sudo whether the command is permitted and
+# prints it if so, WITHOUT actually running it:
+#
+#   sudo -ln /usr/bin/systemctl restart xsphere-slowcontrol.service
+#
+# Do not test with `systemctl status`: `status` is deliberately not granted
+# here, because reading state needs no privilege at all. Both callers read
+# state unprivileged (servicectl.py uses `systemctl show`, slowcontrol-ctl.sh
+# uses `systemctl is-active`), which is why status works before this file is
+# installed. Adding `status` would widen the grant for no benefit.
+#
+# Scope: this grants exactly the listed verbs on exactly the two units. It does
+# not grant general systemctl access and does not grant a root shell.
+#
+# Why the names are fully qualified with .service, and why the callers' bare
+# `systemctl` still matches the absolute path written here:
+#
+#   sudo compares the command line LITERALLY. The rule's spelling therefore has
+#   to match the caller's argv byte for byte — and both callers pass the unit
+#   with the .service suffix. Changing either side alone silently breaks the
+#   match, and sudo then denies the command.
+#
+#   The callers invoke a bare `systemctl`, not /usr/bin/systemctl. That still
+#   matches: sudo resolves the bare name against `Defaults secure_path` (Debian
+#   ships /usr/bin in it), then compares the resolved binary by device and
+#   inode — so /bin/systemctl matches too, being the same inode under
+#   bookworm's usrmerge.
+#
+#   Extra arguments cannot be appended. Because each Cmnd here specifies
+#   arguments, sudo requires the whole argument list to match; a user cannot
+#   tack on, say, a --property override.
+
+Cmnd_Alias XSPHERE_SVC = \
+    /usr/bin/systemctl start   xsphere-slowcontrol.service, \
+    /usr/bin/systemctl stop    xsphere-slowcontrol.service, \
+    /usr/bin/systemctl restart xsphere-slowcontrol.service, \
+    /usr/bin/systemctl enable  xsphere-slowcontrol.service, \
+    /usr/bin/systemctl disable xsphere-slowcontrol.service, \
+    /usr/bin/systemctl start   xsphere-omega-logger.service, \
+    /usr/bin/systemctl stop    xsphere-omega-logger.service, \
+    /usr/bin/systemctl restart xsphere-omega-logger.service, \
+    /usr/bin/systemctl enable  xsphere-omega-logger.service, \
+    /usr/bin/systemctl disable xsphere-omega-logger.service
+
+xbox ALL=(root) NOPASSWD: XSPHERE_SVC

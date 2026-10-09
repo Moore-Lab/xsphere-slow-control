@@ -66,6 +66,12 @@ nano /home/xbox/xsphere-slow-control/slowcontrol/config.yaml
 **Must change before first run:**
 - `plc.host` — set to the PLC's actual IP address (check router DHCP table
   or PLC front panel; it is on the `192.168.8.x` subnet)
+- `autovalve.vessels.cryostat.coast.empty_threshold` — before arming coast
+  refill. It is inert while `coast.enabled` stays `false`, but it has no
+  defensible default: nothing in the repo maps the probe's pF reading to
+  litres, so the 0.13 in the file is an estimate, not a measurement. Set it
+  to the measured dry reading + 0.05 after a supervised boil-dry. The loader
+  refuses any value outside `(0, level_low]`.
 
 Everything else can be left as default for first boot.
 
@@ -352,6 +358,106 @@ journalctl -u xsphere-omega-logger -f
 mosquitto_sub -h localhost -t 'xsphere/status/service/heartbeat' -v
 ```
 
+Or use the wrapper, which handles both units at once:
+
+```bash
+./scripts/slowcontrol-ctl.sh restart
+```
+
+---
+
+## Service control GUI
+
+A Tk panel for start / restart / stop / logs, usable from the Windows DAQ
+machine over SSH or directly on the Pi. It is also the **Services** tab of
+`python -m slowcontrol.gui`.
+
+### On the Pi
+
+No setup needed beyond the repo — run it locally:
+
+```bash
+python -m slowcontrol.servicectl --local
+```
+
+For a desktop launcher, edit the interpreter path in
+`scripts/xsphere-slowcontrol-gui.desktop` if you are not using the miniconda
+install, then:
+
+```bash
+install -Dm644 scripts/xsphere-slowcontrol-gui.desktop ~/.local/share/applications/xsphere-slowcontrol-gui.desktop
+```
+
+### From the Windows DAQ machine
+
+Two things must be set up first. The GUI runs SSH with `BatchMode=yes` and
+`sudo -n`, so it **fails fast with a clear message** instead of hanging on a
+prompt it cannot answer.
+
+**1. Key-based SSH.** In PowerShell on the DAQ machine:
+
+```powershell
+ssh-keygen -t ed25519
+```
+
+```powershell
+type $env:USERPROFILE\.ssh\id_ed25519.pub | ssh xbox@192.168.8.116 "mkdir -p ~/.ssh && cat >> ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys"
+```
+
+Confirm it works without a password:
+
+```powershell
+ssh xbox@192.168.8.116 systemctl --version
+```
+
+**2. Passwordless sudo for these two units.** On the Pi — validate before
+installing, because a malformed sudoers file can lock you out of `sudo`:
+
+```bash
+sudo visudo -c -f scripts/xsphere-slowcontrol-sudoers
+```
+
+```bash
+sudo install -m 440 -o root -g root scripts/xsphere-slowcontrol-sudoers /etc/sudoers.d/xsphere-slowcontrol
+```
+
+Verify as user `xbox` — this asks sudo whether the command is allowed and
+prints it, without actually restarting anything:
+
+```bash
+sudo -ln /usr/bin/systemctl restart xsphere-slowcontrol.service
+```
+
+Don't test with `systemctl status`: reading state needs no privilege, so it is
+deliberately not in the grant.
+
+The rule grants only start/stop/restart/enable/disable on the two xsphere
+units — no general `systemctl` access and no root shell. If `systemctl` is not
+at `/usr/bin/systemctl` on your image, correct the path in the file first:
+
+```bash
+command -v systemctl
+```
+
+**3. Create the shortcut.** Back on Windows, from the repo root:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\Install-Shortcut.ps1
+```
+
+That puts **xSphere Slow Control** on the Desktop and in the Start Menu, with
+the cyan-beam twin of the xSphere DAQ icon (`scripts/xsphere-slowcontrol.ico`).
+Add `-NoStartMenu` for the Desktop icon only. Re-run it after moving the repo;
+`-Uninstall` removes both.
+
+The shortcut runs `scriptsslowcontrol-gui.bat`, which looks for Python in
+`%USERPROFILE%naconda3` first (where the DAQ machine keeps it, off PATH),
+then the `py` launcher, then PATH. If the icon does nothing, run
+`scriptsslowcontrol-gui.bat /console` to see why.
+
+Host and user are editable in the GUI's Connection box and are remembered in
+`~/.xsphere/servicectl.json`.
+
 ---
 
 ## Troubleshooting quick reference
@@ -359,11 +465,17 @@ mosquitto_sub -h localhost -t 'xsphere/status/service/heartbeat' -v
 | Symptom | Likely cause | Fix |
 |---|---|---|
 | `[plc] Modbus connection refused` | Wrong PLC IP | Update `plc.host` in `config.yaml` |
-| PLC temperatures read as garbage floats | Wrong byte order | Toggle `>f` ↔ `<f` in `plc.py:_read_float` |
+| PLC temperatures read as garbage floats | Wrong 32-bit word order | Set `plc.float_word_order` to `high_first` in `config.yaml` (see the bench check in `plc.py`'s header) |
+| Service GUI: `Permission denied (publickey)` | SSH key not installed on the Pi | Follow "Key-based SSH" above — password login cannot be used |
+| Service GUI: `sudo: a password is required` | sudoers snippet not installed | Install `scripts/xsphere-slowcontrol-sudoers` to `/etc/sudoers.d/` |
+| Service GUI: buttons work but status stays `unreachable` | Wrong host, or VPN down | Check the Connection box; try `ssh xbox@<host> systemctl --version` |
+| Service GUI: unit shows `missing` | Unit file never installed on the Pi | Repeat Step 2 / Step 3 install commands |
 | Omega logger: `Cannot open serial port` | Wrong port or missing dialout permission | Update `serial_port` in `config.yaml`; add user to `dialout` |
 | Omega reads all channels as FAULT | Wrong baud rate or Modbus address | Check `baud_rate` and `modbus_address` in `config.yaml` |
 | Level sensor pF reading drifts with no liquid | CAPDAC adjusting; probe settling | Wait ~30 s after power-on; calibrate offset |
 | Autovalve fires immediately at startup | Level thresholds not recalibrated for pF | Update `level_low`/`level_high` in `config.yaml` |
+| Cryostat never refills / stays empty | Coast is armed and its ΔT gate is not satisfied yet | Read `xsphere/status/coast/cryostat` — `state`, `hold_reason` and `latched_off` say why; publish `{"enabled": false}` to `xsphere/commands/valve/cryostat/coast` to fall straight back to level-only filling at `level_low` |
+| Coast armed but the cryostat still tops up early | CLICK ladder addition 6 not entered, so the ladder's own auto-open window is refilling during the descent | Check `ladder_rung_entered` in `xsphere/status/coast/cryostat`; hand-enter ladder addition 6 (SYSTEM_ARCHITECTURE.md) and set `coast.ladder_rung_entered: true` |
 | Interlock alert fires: `temperature_stale` | Sensor not publishing or wrong topic | Check ESP32/Omega connection; check topic names |
 | Dashboard shows no data | Node-RED MQTT broker node wrong | Edit broker node, set host to `localhost` |
 | Telegraf not writing to InfluxDB | Bad token or wrong org/bucket | Check `telegraf/.env`; verify token in InfluxDB UI |

@@ -11,7 +11,8 @@ Startup order
   3. Controllers start (subscribe to MQTT, no polling)
      a. GradientController   — setpoint coupling logic
      b. AutovalveController  — autofill state machines
-     c. InterlocksController — safety watchdog
+     c. GasFlowController    — MKS MFC + bypass path selection
+     d. InterlocksController — safety watchdog
   4. Plugins start (optional experiment automation)
      a. GradientScannerPlugin
   5. Heartbeat loop (blocks until SIGTERM / SIGINT)
@@ -30,6 +31,7 @@ from slowcontrol.core.config import ServiceConfig
 from slowcontrol.core.mqtt import MqttClient, status_topic
 from slowcontrol.controllers.autovalve import AutovalveController
 from slowcontrol.controllers.base import Controller
+from slowcontrol.controllers.gasflow import GasFlowController
 from slowcontrol.controllers.gradient import GradientController
 from slowcontrol.controllers.interlocks import InterlocksController
 from slowcontrol.drivers.base import SensorDriver
@@ -87,6 +89,7 @@ class SlowControlService:
         self._controllers = [
             GradientController(self._config, self._mqtt),
             AutovalveController(self._config, self._mqtt),
+            GasFlowController(self._config, self._mqtt),
             InterlocksController(self._config, self._mqtt),
             GradientScannerPlugin(self._config, self._mqtt),
         ]
@@ -95,8 +98,15 @@ class SlowControlService:
             log.info("LabJack T7 controller registered")
         else:
             log.info("labjack_t7 package not found — LabJack T7 controller skipped")
+        # Started independently: one controller failing to start must not stop
+        # the rest — in particular it must not prevent the interlock watchdog
+        # from running, since that is what notices the resulting mess.
         for ctrl in self._controllers:
-            ctrl.start()
+            try:
+                ctrl.start()
+            except Exception:
+                log.exception("Controller %s failed to start — continuing "
+                              "without it", getattr(ctrl, "NAME", ctrl))
         log.info("Controllers started")
 
         log.info("All components running — entering heartbeat loop")
