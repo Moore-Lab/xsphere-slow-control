@@ -193,18 +193,18 @@ groups:
     level_cryostat:
       kind: analog
       unit: "0–10"
-      label: "cryostat LN₂ vessel"
+      label: "cryostat LN₂ level, analog copy (PLC input DF203 → DF303)"
       source: {topic: xsphere/sensors/level/cryostat, keys: [filtered, raw]}
       period_s: 2.0
       avg_windows_s: [300]
     # The cryostat probe as read over USB (drivers/levelprobe.py): the voltage
-    # its analog output stands for, which the PLC driver writes to DF253, and
+    # its analog output stands for, which the PLC driver writes to DF333, and
     # the capacitance count behind it (≈782 empty, ≈705 full).  A line arrives
     # every ~3.5 s.
     level_cryostat_probe:
       kind: analog
       unit: V
-      label: "cryostat LN₂ level probe (USB) — voltage to PLC DF253"
+      label: "cryostat LN₂ level, digital copy (USB probe → PLC DF333)"
       source: {topic: xsphere/sensors/level_probe/cryostat, key: voltage_v}
       period_s: 5.0
       avg_windows_s: [300]

@@ -113,7 +113,8 @@ turbovac:
 # USB.  It prints "median delta = <count> | pwm = <0-255>" every ~3.5 s; the
 # service turns pwm back into the voltage its analog output would have given
 # (pwm / pwm_max * v_ref), publishes it on xsphere/sensors/level_probe/cryostat
-# and the PLC driver writes it to DF253 (age of the reading, in s, to DF254).
+# and the PLC driver writes it to DF333 (age of the reading, in s, to DF254).
+# The analog copy of the same level is the CLICK's own input: DF203 → DF303.
 # See slowcontrol/drivers/levelprobe.py.
 level_probe:
   enabled: true

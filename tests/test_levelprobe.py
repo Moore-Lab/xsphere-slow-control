@@ -195,7 +195,7 @@ def test_plc_driver_writes_voltage_and_age(monkeypatch):
     monkeypatch.setattr(driver, "_write_float",
                         lambda addr, value: writes.__setitem__(addr, value) or True)
     volts, age = plc.REG_LEVEL_PROBE_WRITE["cryostat"], plc.REG_LEVEL_PROBE_AGE["cryostat"]
-    assert (volts, age) == (plc._df(253), plc._df(254))
+    assert (volts, age) == (plc._df(333), plc._df(254))
 
     driver._write_level_to_plc()        # nothing heard yet
     assert volts not in writes and writes[age] == plc.LEVEL_PROBE_AGE_MAX_S

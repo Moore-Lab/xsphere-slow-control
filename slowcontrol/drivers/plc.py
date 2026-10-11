@@ -12,7 +12,7 @@ Also accepts write commands for:
   - Valve automation enables (DS1101-1106)
   - Pneumatic valve desired state (DS151, DS152, DS153)
   - Level sensor raw values (DF251, DF252) — written from MQTT callbacks
-  - Cryostat level probe voltage (DF253) and its age (DF254) — likewise
+  - Cryostat level probe voltage (DF333) and its age (DF254) — likewise
     so the PLC's autofill ladder logic stays current
 
 # ==========================================================================
@@ -164,16 +164,20 @@ LEVEL_SOURCE_TOPICS = {
 # The cryostat's internal LN level probe is read over USB by LevelProbeDriver
 # (drivers/levelprobe.py), which publishes the voltage the probe's analog
 # output stands for on xsphere/sensors/level_probe/{vessel}.  We write that
-# voltage here, so the ladder can take it from this register instead of from
-# the analog input (DF203), and next to it the age of the reading in seconds —
-# 0-4 while the probe is talking, climbing (to LEVEL_PROBE_AGE_MAX_S) once it
-# stops — for a ladder rung that wants to know the voltage has gone stale.
-# The voltage register is left at its last value when that happens.
+# voltage to DF333 — the "digital" copy of the cryostat level.  The ladder's
+# XV3 fill-status rungs compare it with the same 1.0 / 2.3 limits as DF303,
+# the filtered analog input, which stays as the "analog" copy.  It is not
+# filtered in the ladder; the probe's firmware already takes a median.
+#
+# Separately we write the age of that reading in seconds — 0-4 while the probe
+# is talking, climbing (to LEVEL_PROBE_AGE_MAX_S) once it stops — for a ladder
+# rung that wants to know the voltage has gone stale.  The voltage register is
+# left at its last value when that happens.
 REG_LEVEL_PROBE_WRITE = {
-    "cryostat":   _df(253),  # DF253 cryostat level probe voltage (V, written by us)
+    "cryostat":   _df(333),  # DF333 cryostat level, digital copy (V, written by us)
 }
 REG_LEVEL_PROBE_AGE = {
-    "cryostat":   _df(254),  # DF254 age of DF253's reading (s, written by us)
+    "cryostat":   _df(254),  # DF254 age of DF333's reading (s, written by us)
 }
 LEVEL_PROBE_AGE_MAX_S = 9999.0
 
@@ -631,7 +635,7 @@ class PlcDriver(SensorDriver):
             if val is not None:
                 self._write_float(addr, val)
 
-        # Level probe read over USB: voltage → DF253 while it is fresh, and
+        # Level probe read over USB: voltage → DF333 while it is fresh, and
         # the age of that reading → DF254 always.
         now = time.monotonic()
         stale_s = self._config.level_probe.stale_s
