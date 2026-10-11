@@ -167,7 +167,7 @@ See `slowcontrol/STATE_LAYER_PLAN.md` for the full field reference.
 
 ### Starting and stopping the services from the DAQ PC
 
-`slowcontrol.servicectl` is a small window with Start / Restart / Stop / Logs for `xsphere-slowcontrol` and `xsphere-webcontrol`, a status dot per service, and the full `systemctl status` text in its output pane (on open, after each action, and on **Print Status**). It runs the commands on xbox-pi over SSH.
+`slowcontrol.servicectl` is a small window with Start / Restart / Stop / Logs for `xsphere-slowcontrol` and `xsphere-webcontrol`, a status dot per service, and the full `systemctl status` text in its output pane (on open, after each action, and on **Print Status**). It runs the commands on xbox-pi over SSH. The status dots refresh every 5 s over one SSH connection that stays open with the window, so leaving it open adds nothing to the Pi's journal; each button press is a login of its own.
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\scripts\Install-Shortcut.ps1 -NoStartMenu
@@ -265,7 +265,8 @@ xsphere-slow-control/
 │                                 their simulators
 │
 ├── telegraf/                   ← Telegraf MQTT→InfluxDB pipeline
-│   ├── telegraf.conf
+│   ├── telegraf.conf           ← template; the container reads a deployed copy
+│   ├── deploy-iotstack.sh      ← render + install it into the IOTstack container
 │   └── .env.example            ← copy to .env and fill in secrets
 │
 ├── grafana/                    ← Grafana dashboard JSON
@@ -288,7 +289,7 @@ xsphere-slow-control/
 |---|---|---|---|
 | Slow control service | xbox-pi | Python | `systemctl start xsphere-slowcontrol` |
 | Web control panel | xbox-pi | Python (Flask) | `systemctl start xsphere-webcontrol` |
-| Telegraf | xbox-pi (Docker) | — | `systemctl start telegraf` (or Docker) |
+| Telegraf | xbox-pi (Docker) | — | already running via IOTstack; after editing `telegraf/telegraf.conf` run `bash telegraf/deploy-iotstack.sh --apply` |
 | MQTT broker | xbox-pi (Docker) | — | already running via IOTstack |
 | InfluxDB | xbox-pi (Docker) | — | already running via IOTstack |
 | Node-RED | xbox-pi (Docker) | — | **stopped** — bypassed by Telegraf + webcontrol; revert with `docker start nodered` |
