@@ -538,6 +538,211 @@ groups:
     pid_nozzle_ki: {kind: analog, label: "Zone 3 (nozzle) Ki", source: {topic: xsphere/status/pid/nozzle, key: ki}, avg_windows_s: []}
     pid_nozzle_kd: {kind: analog, label: "Zone 3 (nozzle) Kd", source: {topic: xsphere/status/pid/nozzle, key: kd}, avg_windows_s: []}
 
+  # ── Heater supply (R&S NGE103 on USB; NGE ch n → heater n) ──────────────
+  # The DC supply the PLC's heater SSRs switch.  Read and driven by the
+  # NgeDriver (drivers/nge.py).  `_output` is what the supply is doing,
+  # `_desired` what hold keeps it at; `_voltage_set` / `_current_limit` are the
+  # supply's own readback — it caps the limit at 33.6 W / V, so 1.5 A asked at
+  # 24 V shows as 1.4 A.  The measured values catch the heater mid-PWM-cycle;
+  # their 60 s averages are the ones to read.  Nothing is published per channel
+  # while the supply is unreachable, so those rows go stale instead of lying.
+  heater_supply:
+    nge_connected:
+      kind: binary
+      label: "NGE supply connected"
+      source: {topic: xsphere/status/nge, key: connected}
+    nge_hold:
+      kind: binary
+      label: "NGE hold (keep channels at their set state)"
+      source:  {topic: xsphere/status/nge, key: hold}
+      control: {topic: xsphere/commands/nge/hold, payload: {enabled: $value}}
+    nge_ch1_output:
+      kind: binary
+      label: "NGE ch 1 (heater 1, top) output on"
+      source:  {topic: xsphere/status/nge/1, key: output}
+      control: {topic: xsphere/commands/nge/1/output, payload: {state: $value01}}
+      period_s: 2.0
+    nge_ch1_desired:
+      kind: binary
+      label: "NGE ch 1 output held on"
+      source: {topic: xsphere/status/nge/1, key: desired}
+      period_s: 2.0
+    nge_ch1_voltage_set:
+      kind: analog
+      unit: V
+      label: "NGE ch 1 voltage setpoint"
+      source:  {topic: xsphere/status/nge/1, key: voltage_set_v}
+      control: {topic: xsphere/commands/nge/1/voltage, payload: {value_v: $value}}
+      period_s: 2.0
+      avg_windows_s: []
+    nge_ch1_current_limit:
+      kind: analog
+      unit: A
+      label: "NGE ch 1 current limit"
+      source:  {topic: xsphere/status/nge/1, key: current_limit_a}
+      control: {topic: xsphere/commands/nge/1/current, payload: {value_a: $value}}
+      period_s: 2.0
+      avg_windows_s: []
+    nge_ch1_voltage:
+      kind: analog
+      unit: V
+      label: "NGE ch 1 measured voltage"
+      source: {topic: xsphere/status/nge/1, key: voltage_v}
+      period_s: 2.0
+    nge_ch1_current:
+      kind: analog
+      unit: A
+      label: "NGE ch 1 measured current"
+      source: {topic: xsphere/status/nge/1, key: current_a}
+      period_s: 2.0
+    nge_ch1_power:
+      kind: analog
+      unit: W
+      label: "NGE ch 1 measured power"
+      source: {topic: xsphere/status/nge/1, key: power_w}
+      period_s: 2.0
+    nge_ch1_mode:
+      kind: enum
+      values: ["off", cv, cc]      # quoted: a bare `off` is YAML for false
+      label: "NGE ch 1 regulation (cc = current-limited)"
+      source: {topic: xsphere/status/nge/1, key: mode}
+      period_s: 2.0
+    nge_ch1_trip:
+      kind: text
+      label: "NGE ch 1 protection trip (none / ovp / opp / fuse)"
+      source: {topic: xsphere/status/nge/1, key: trip}
+      period_s: 2.0
+    nge_ch1_dropouts:
+      kind: analog
+      label: "NGE ch 1 drop-outs recovered since service start"
+      source: {topic: xsphere/status/nge/1, key: dropouts}
+      period_s: 2.0
+      avg_windows_s: []
+    nge_ch2_output:
+      kind: binary
+      label: "NGE ch 2 (heater 2, bottom) output on"
+      source:  {topic: xsphere/status/nge/2, key: output}
+      control: {topic: xsphere/commands/nge/2/output, payload: {state: $value01}}
+      period_s: 2.0
+    nge_ch2_desired:
+      kind: binary
+      label: "NGE ch 2 output held on"
+      source: {topic: xsphere/status/nge/2, key: desired}
+      period_s: 2.0
+    nge_ch2_voltage_set:
+      kind: analog
+      unit: V
+      label: "NGE ch 2 voltage setpoint"
+      source:  {topic: xsphere/status/nge/2, key: voltage_set_v}
+      control: {topic: xsphere/commands/nge/2/voltage, payload: {value_v: $value}}
+      period_s: 2.0
+      avg_windows_s: []
+    nge_ch2_current_limit:
+      kind: analog
+      unit: A
+      label: "NGE ch 2 current limit"
+      source:  {topic: xsphere/status/nge/2, key: current_limit_a}
+      control: {topic: xsphere/commands/nge/2/current, payload: {value_a: $value}}
+      period_s: 2.0
+      avg_windows_s: []
+    nge_ch2_voltage:
+      kind: analog
+      unit: V
+      label: "NGE ch 2 measured voltage"
+      source: {topic: xsphere/status/nge/2, key: voltage_v}
+      period_s: 2.0
+    nge_ch2_current:
+      kind: analog
+      unit: A
+      label: "NGE ch 2 measured current"
+      source: {topic: xsphere/status/nge/2, key: current_a}
+      period_s: 2.0
+    nge_ch2_power:
+      kind: analog
+      unit: W
+      label: "NGE ch 2 measured power"
+      source: {topic: xsphere/status/nge/2, key: power_w}
+      period_s: 2.0
+    nge_ch2_mode:
+      kind: enum
+      values: ["off", cv, cc]      # quoted: a bare `off` is YAML for false
+      label: "NGE ch 2 regulation (cc = current-limited)"
+      source: {topic: xsphere/status/nge/2, key: mode}
+      period_s: 2.0
+    nge_ch2_trip:
+      kind: text
+      label: "NGE ch 2 protection trip (none / ovp / opp / fuse)"
+      source: {topic: xsphere/status/nge/2, key: trip}
+      period_s: 2.0
+    nge_ch2_dropouts:
+      kind: analog
+      label: "NGE ch 2 drop-outs recovered since service start"
+      source: {topic: xsphere/status/nge/2, key: dropouts}
+      period_s: 2.0
+      avg_windows_s: []
+    nge_ch3_output:
+      kind: binary
+      label: "NGE ch 3 (heater 3, nozzle) output on"
+      source:  {topic: xsphere/status/nge/3, key: output}
+      control: {topic: xsphere/commands/nge/3/output, payload: {state: $value01}}
+      period_s: 2.0
+    nge_ch3_desired:
+      kind: binary
+      label: "NGE ch 3 output held on"
+      source: {topic: xsphere/status/nge/3, key: desired}
+      period_s: 2.0
+    nge_ch3_voltage_set:
+      kind: analog
+      unit: V
+      label: "NGE ch 3 voltage setpoint"
+      source:  {topic: xsphere/status/nge/3, key: voltage_set_v}
+      control: {topic: xsphere/commands/nge/3/voltage, payload: {value_v: $value}}
+      period_s: 2.0
+      avg_windows_s: []
+    nge_ch3_current_limit:
+      kind: analog
+      unit: A
+      label: "NGE ch 3 current limit"
+      source:  {topic: xsphere/status/nge/3, key: current_limit_a}
+      control: {topic: xsphere/commands/nge/3/current, payload: {value_a: $value}}
+      period_s: 2.0
+      avg_windows_s: []
+    nge_ch3_voltage:
+      kind: analog
+      unit: V
+      label: "NGE ch 3 measured voltage"
+      source: {topic: xsphere/status/nge/3, key: voltage_v}
+      period_s: 2.0
+    nge_ch3_current:
+      kind: analog
+      unit: A
+      label: "NGE ch 3 measured current"
+      source: {topic: xsphere/status/nge/3, key: current_a}
+      period_s: 2.0
+    nge_ch3_power:
+      kind: analog
+      unit: W
+      label: "NGE ch 3 measured power"
+      source: {topic: xsphere/status/nge/3, key: power_w}
+      period_s: 2.0
+    nge_ch3_mode:
+      kind: enum
+      values: ["off", cv, cc]      # quoted: a bare `off` is YAML for false
+      label: "NGE ch 3 regulation (cc = current-limited)"
+      source: {topic: xsphere/status/nge/3, key: mode}
+      period_s: 2.0
+    nge_ch3_trip:
+      kind: text
+      label: "NGE ch 3 protection trip (none / ovp / opp / fuse)"
+      source: {topic: xsphere/status/nge/3, key: trip}
+      period_s: 2.0
+    nge_ch3_dropouts:
+      kind: analog
+      label: "NGE ch 3 drop-outs recovered since service start"
+      source: {topic: xsphere/status/nge/3, key: dropouts}
+      period_s: 2.0
+      avg_windows_s: []
+
   # ── Gradient abstraction (setpoint coupling, slow-control service) ──────
   gradient:
     gradient_mode:
@@ -659,3 +864,9 @@ derived:
     label: "Zone 3 (nozzle) tracking error (PV − SP)"
     expr: "pid_nozzle_pv - pid_nozzle_setpoint"
     avg_windows_s: []
+  nge_power_total:
+    kind: analog
+    unit: W
+    label: "heater supply total power (NGE ch 1 + 2 + 3)"
+    expr: "nge_ch1_power + nge_ch2_power + nge_ch3_power"
+    avg_windows_s: [60]

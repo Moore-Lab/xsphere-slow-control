@@ -92,6 +92,38 @@ class OmegaConfig:
 
 
 @dataclass
+class NgeConfig:
+    """R&S NGE100-series bench supply feeding the three heaters (NGE channel
+    n → heater n; the PLC still PWMs each heater through its SSR).  USB-TMC,
+    plugged into the Pi.  See slowcontrol/drivers/nge.py."""
+    enabled: bool = False
+    # The kernel usbtmc device node (the udev rule in
+    # slowcontrol/99-xsphere-nge.rules names it /dev/nge100), or "sim" for the
+    # built-in simulator.
+    resource: str = "/dev/nge100"
+    # If set, refuse to drive an NGE with any other serial number.
+    serial: str = ""
+    timeout_s: float = 2.0
+    poll_interval_s: float = 1.0
+    # Initial hold setting; the operator's later choice persists to
+    # slowcontrol/nge_state.json together with the held outputs / setpoints.
+    hold: bool = True
+    # Take away the supply's own reasons to switch a channel off in normal
+    # heater operation: over-power protection off, electronic fuse off, OVP
+    # left armed at its maximum.
+    disable_auto_off: bool = True
+    # A held state older than this is not re-imposed when the service next
+    # reaches the supply; the supply's present state is adopted instead.
+    resume_max_age_s: float = 86400.0
+    # What the Control page's "defaults" button sends.
+    default_voltage_v: float = 24.0
+    default_current_a: float = 1.5
+    # Ceilings on what a command may ask for.
+    max_voltage_v: float = 32.0
+    max_current_a: float = 3.0
+
+
+@dataclass
 class VesselAutofillConfig:
     level_high: float = 2.5         # close valve above this (0-10 scale)
     level_low: float = 0.5          # open valve below this (0-10 scale)
@@ -134,6 +166,7 @@ class ServiceConfig:
     influx: InfluxConfig = field(default_factory=InfluxConfig)
     plc: PlcConfig = field(default_factory=PlcConfig)
     omega: OmegaConfig = field(default_factory=OmegaConfig)
+    nge: NgeConfig = field(default_factory=NgeConfig)
     autovalve: AutovalveConfig = field(default_factory=AutovalveConfig)
     gradient: GradientConfig = field(default_factory=GradientConfig)
     # Raw `labjack:` block from the YAML, passed through to the LabJack T7
@@ -214,6 +247,23 @@ def load(path: str = "config.yaml") -> ServiceConfig:
             poll_interval_s=float(o.get("poll_interval_s", cfg.omega.poll_interval_s)),
             timeout_s=float(o.get("timeout_s", cfg.omega.timeout_s)),
             channels=list(o.get("channels", []) or []),
+        )
+
+    if "nge" in raw:
+        n = raw["nge"] or {}
+        cfg.nge = NgeConfig(
+            enabled=bool(n.get("enabled", cfg.nge.enabled)),
+            resource=str(n.get("resource", cfg.nge.resource)),
+            serial=str(n.get("serial", cfg.nge.serial) or ""),
+            timeout_s=float(n.get("timeout_s", cfg.nge.timeout_s)),
+            poll_interval_s=float(n.get("poll_interval_s", cfg.nge.poll_interval_s)),
+            hold=bool(n.get("hold", cfg.nge.hold)),
+            disable_auto_off=bool(n.get("disable_auto_off", cfg.nge.disable_auto_off)),
+            resume_max_age_s=float(n.get("resume_max_age_s", cfg.nge.resume_max_age_s)),
+            default_voltage_v=float(n.get("default_voltage_v", cfg.nge.default_voltage_v)),
+            default_current_a=float(n.get("default_current_a", cfg.nge.default_current_a)),
+            max_voltage_v=float(n.get("max_voltage_v", cfg.nge.max_voltage_v)),
+            max_current_a=float(n.get("max_current_a", cfg.nge.max_current_a)),
         )
 
     if "autovalve" in raw:

@@ -61,6 +61,30 @@ omega:
     - {ch: 5, label: "Omega Ch-5"}
     - {ch: 6, label: "Omega Ch-6"}
 
+# R&S NGE103 — the DC supply behind the three heaters (NGE ch n → heater n;
+# the PLC still PWMs each heater through its SSR).  USB-TMC into the Pi; the
+# udev rule in slowcontrol/99-xsphere-nge.rules provides /dev/nge100.
+# See slowcontrol/drivers/nge.py for what it does and why.
+nge:
+  enabled: true
+  resource: /dev/nge100    # or "sim" for the built-in simulator
+  serial: "101129"         # only ever drive this unit; "" accepts any NGE100
+  poll_interval_s: 1.0
+  # Hold: keep each channel on the output state / voltage / current limit set
+  # from the Control page, and put it back if it drops out or the supply is
+  # power-cycled.  This is only the initial value — the Control page toggle
+  # persists, with the held state, in slowcontrol/nge_state.json.
+  hold: true
+  # Switch off the supply's own switch-off triggers that fire in normal heater
+  # operation: over-power protection (ships enabled at the 33.6 W channel
+  # limit; the heaters are 36 W) and the electronic fuse.  OVP stays armed at
+  # its 32.5 V maximum.  An overload then just current-limits.
+  disable_auto_off: true
+  # What the Control page's "defaults" button sends.  Note the supply caps the
+  # current limit at 33.6 W / V — 1.400 A at 24 V — whatever is asked for.
+  default_voltage_v: 24.0
+  default_current_a: 1.5
+
 autovalve:
   # LN2 autofill is owned by the PLC ladder (it reads the analog level
   # inputs and decides when/how to open/close XV1/XV2/XV3). The Python

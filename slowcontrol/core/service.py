@@ -7,7 +7,8 @@ loop, and handles clean shutdown on SIGTERM / SIGINT.
 Startup order
 ─────────────
   1. MQTT connect
-  2. Drivers start (PlcDriver polls Modbus registers and publishes sensor data)
+  2. Drivers start (PlcDriver polls Modbus registers and publishes sensor data;
+     NgeDriver looks after the heater supply)
   3. StateStore start (subscribes to every source topic in state.yaml; the
      subscriptions catch the retained status messages before the controllers
      start, and the consolidated snapshot is republished from then on)
@@ -41,6 +42,7 @@ from slowcontrol.controllers.interlocks import InterlocksController
 from slowcontrol.controllers.sequencer import SequencerController
 from slowcontrol.controllers.trackers import TrackerController
 from slowcontrol.drivers.base import SensorDriver
+from slowcontrol.drivers.nge import NgeDriver
 from slowcontrol.drivers.omega import OmegaDriver
 from slowcontrol.drivers.plc import PlcDriver
 from slowcontrol.state import SchemaError, default_schema_path, load_state_schema
@@ -93,6 +95,8 @@ class SlowControlService:
         ]
         if self._config.omega.enabled:
             self._drivers.append(OmegaDriver(self._config, self._mqtt))
+        if self._config.nge.enabled:
+            self._drivers.append(NgeDriver(self._config, self._mqtt))
         for driver in self._drivers:
             driver.start()
         log.info("Drivers started")

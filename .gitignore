@@ -18,6 +18,8 @@ slowcontrol/sequencer.json
 slowcontrol/sequencer.json.tmp
 slowcontrol/pv_interlock.json
 slowcontrol/pv_interlock.json.tmp
+slowcontrol/nge_state.json
+slowcontrol/nge_state.json.tmp
 
 # Editor / OS
 *.swp

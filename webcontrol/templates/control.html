@@ -52,6 +52,7 @@
   <span id="p-svc" class="pill mut">service …</span>
   <span id="p-ilk" class="pill mut">interlocks …</span>
   <span id="p-lj"  class="pill mut">labjack …</span>
+  <span id="p-nge" class="pill mut">supply …</span>
   <span id="p-mq"  class="pill mut">mqtt …</span>
   <span style="flex:1"></span>
   <a class="nav" href="/">Register ↗</a>
@@ -114,6 +115,30 @@
       DFs that's °C, so add <code>273.15</code> if mixing with a Kelvin alias.</small>
   </section>
 
+  <!-- Heater supply -->
+  <section class="card">
+    <h2>Heater supply — R&amp;S NGE103</h2>
+    <div class="blk">
+      <div class="row"><span class="title" id="ng-state">…</span></div>
+      <div class="row">
+        <span class="lbl" style="min-width:auto">hold</span><button id="ng-hold" onclick="ctlToggle('nge_hold')">—</button>
+        <button id="ng-def" style="margin-left:.5rem" onclick="ngeDefaults()">set all to defaults</button>
+        <span style="flex:1"></span>
+        <button class="danger" onclick="ngeAllOff()">all off</button>
+      </div>
+      <div class="row"><span id="ng-event" class="cur"></span></div>
+    </div>
+    <div id="nge"></div>
+    <small class="hint">The DC supply behind the heaters — NGE channel <em>n</em> feeds heater <em>n</em>; the PLC still PWMs each one.
+      <b>Hold</b> keeps every channel at what is set here: a channel that drops out (protection trip, supply power-cycled,
+      switched at the front panel) is switched back on, and one switched on at the front panel is switched off again.
+      Turn hold off to work at the front panel. Stopping the slow-control service leaves the supply as it is.
+      <b>33.6 W per channel:</b> the supply caps the current limit at 33.6 W ÷ V — <b>1.40 A at 24 V</b>, whatever is asked —
+      so a 36 W heater runs current-limited (<code>CC</code>) at about 22.4 V. The service keeps over-power protection and the
+      electronic fuse off, because those switch a channel <em>off</em> where plain current limiting is wanted.
+      V / A / W are instantaneous and catch the heater mid-PWM-cycle; the Register page has their 60 s averages.</small>
+  </section>
+
 
 </main>
 
@@ -133,6 +158,7 @@ function fmtNum(v){
 
 // ---- command helpers -------------------------------------------------------
 let SNAP = {states:{}};                       // last snapshot.states
+let RAW = {};                                 // last raw status/sensor cache, by topic
 function S(id){ return SNAP.states[id] || null; }
 async function cmd(topic, payload){
   try { await fetch("/api/cmd",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({topic,payload})}); }
@@ -151,6 +177,23 @@ function ctl(stateId, value){                 // send the control for a state wi
 }
 function ctlToggle(stateId){ const st = S(stateId); if (st) ctl(stateId, !st.value); }
 function ctlNum(stateId, inputId){ ctl(stateId, numv(inputId)); }
+// Heater supply.  Unlike ctlNum, an empty or unreadable field sends nothing —
+// "0 V" must never be what a stray click on `set` means.
+function ngeSet(stateId, inputId){
+  const e = $(inputId), v = parseFloat(e.value);
+  if (isNaN(v)) return;
+  ctl(stateId, v); e.value = "";
+}
+function ngeRaw(ch){ const r = RAW["xsphere/status/nge" + (ch ? "/"+ch : "")]; return (r && r.payload) || {}; }
+function ngeDefaults(){                       // voltage + current limit only; outputs are left as they are
+  const g = ngeRaw();
+  if (g.default_voltage_v == null || g.default_current_a == null) return;
+  NGE.forEach(([ch])=>{
+    ctl("nge_ch"+ch+"_voltage_set", g.default_voltage_v);
+    ctl("nge_ch"+ch+"_current_limit", g.default_current_a);
+  });
+}
+function ngeAllOff(){ NGE.forEach(([ch])=>ctl("nge_ch"+ch+"_output", false)); }
 
 // ---- static structure: valves & PID (built once) ---------------------------
 const VESSELS = [["cryostat","XV3 — cryostat LN₂ vessel"],["primary_xe","XV2 — primary Xe bottle"],["ballast","XV1 — ballast bottle"]];
@@ -158,6 +201,8 @@ const ZONES   = [["top","Zone 1 — top clamp (rtd2)"],["bottom","Zone 2 — bot
 // Pneumatic valves: [state id, label].  Open / close only — no autofill enables.
 // Values are in valve terms; the PLC driver applies each valve's relay sense.
 const PNEUMATIC = [["pneumatic_ballast","Ballast valve — normally open (Y105)"],["pneumatic_pump","Pump valve — normally closed (Y106)"],["pneumatic_bottle","Bottle valve — normally open (Y107)"]];
+// Heater supply channels: [NGE channel, label].  Channel n feeds heater n.
+const NGE = [[1,"Ch 1 → heater 1 (zone 1, top)"],[2,"Ch 2 → heater 2 (zone 2, bottom)"],[3,"Ch 3 → heater 3 (zone 3, nozzle)"]];
 let built = false;
 // One valve block.  `sid` is the state carrying the control; its commanded
 // twin is `${sid}_desired`.  `auto` adds the LN₂ autofill enable toggles;
@@ -205,6 +250,24 @@ function build(){
         <button onclick="cmd('xsphere/commands/pid/${z}/gains',{kp:numv('kp-${z}'),ki:numv('ki-${z}'),kd:numv('kd-${z}')})">set gains</button>
         <span id="g-${z}-cur" class="cur"></span></div>
     </div>`).join("");
+
+  $("nge").innerHTML = NGE.map(([n,name])=>`
+    <div class="blk">
+      <div class="row"><span class="title">${name}</span><span id="ng${n}-meas" style="flex:1;color:var(--mut);font-size:.82rem;text-align:right"></span></div>
+      <div class="row"><span class="lbl">output</span>
+        <span class="kv"><span class="dot" id="ng${n}-dot"></span><span id="ng${n}-out" class="num">–</span></span>
+        <button id="ng${n}-on"  onclick="ctl('nge_ch${n}_output',true)">on</button>
+        <button id="ng${n}-off" onclick="ctl('nge_ch${n}_output',false)">off</button>
+        <span id="ng${n}-note" class="cur"></span></div>
+      <div class="row"><span class="lbl">voltage (V)</span>
+        <input type="number" id="ng${n}-v" step="0.1" min="0" max="32">
+        <button onclick="ngeSet('nge_ch${n}_voltage_set','ng${n}-v')">set</button>
+        <span id="ng${n}-v-cur" class="cur"></span></div>
+      <div class="row"><span class="lbl">current limit (A)</span>
+        <input type="number" id="ng${n}-i" step="0.05" min="0" max="3">
+        <button onclick="ngeSet('nge_ch${n}_current_limit','ng${n}-i')">set</button>
+        <span id="ng${n}-i-cur" class="cur"></span></div>
+    </div>`).join("");
   built = true;
 }
 
@@ -216,6 +279,7 @@ function boolText(st, t, f){ if(!st || st.value===null) return "–"; return st.
 
 function update(d){
   SNAP = d.snapshot || {states:{}};
+  RAW = d.state || {};
   if (!built) build();
   const st = SNAP.states;
 
@@ -228,6 +292,7 @@ function update(d){
   if(ilk && ilk.value!==null && ilk.freshness!=="invalid"){ const o=!!ilk.value; $("p-ilk").textContent="interlocks: "+(o?"OK":"ALERT"); $("p-ilk").className="pill "+(o?"ok":"bad"); }
   else { $("p-ilk").textContent="interlocks: ?"; $("p-ilk").className="pill mut"; }
   sp("p-lj", st.labjack_connected, "labjack", "ok");
+  sp("p-nge", st.nge_connected, "supply", "ok");
   $("p-mq").textContent="mqtt: "+(d.mqtt_connected?"connected":"DOWN"); $("p-mq").className="pill "+(d.mqtt_connected?"ok":"bad");
 
   // valves — LN₂ manifold and pneumatic share the actual / desired / open / close part
@@ -306,6 +371,59 @@ function update(d){
     setCur("pve-"+z+"-eval",
       (pveV && pveV.value!=null) ? "= "+fmtNum(pveV.value)+" K"
                                  : (pve && pve.value ? "(eval failed)" : ""), pveV);
+  });
+
+  // Heater supply.  The registry carries the values and controls; the detail
+  // lines (identity, last event, what was asked for vs. what the supply
+  // accepted, why a channel last dropped out) come from the raw status.
+  const ngC = st.nge_connected, ngH = st.nge_hold, ng = ngeRaw();
+  const ngEl = $("ng-state");
+  const hhmm = iso => { const t = new Date(iso); return isNaN(t) ? "" : t.toLocaleTimeString(); };
+  if (!ngC || ngC.value===null || ngC.freshness==="invalid"){
+    ngEl.textContent = "no data — is the supply enabled in config.yaml?"; ngEl.style.color = "var(--mut)";
+  } else if (ngC.value){
+    ngEl.textContent = "connected — " + (ng.model||"NGE") + (ng.serial ? " #"+ng.serial : "") + (ng.firmware ? ", fw "+ng.firmware : "");
+    ngEl.style.color = ngC.freshness==="stale" ? "var(--warn)" : "var(--ok)";
+  } else {
+    ngEl.textContent = "⚠ NOT CONNECTED" + (ng.error ? " — "+ng.error : ""); ngEl.style.color = "var(--bad)";
+  }
+  const ngUp = !!ngC && ngC.value===true && ngC.freshness!=="invalid";
+  const holdOn = ngH && ngH.value===true;
+  $("ng-hold").textContent = ngH && ngH.value!==null ? (holdOn?"on":"off") : "—"; $("ng-hold").className = holdOn?"on":"";
+  $("ng-event").textContent = ng.event ? ("last event " + hhmm(ng.event_utc) + " — " + ng.event) : "";
+  if (ng.default_voltage_v!=null) $("ng-def").textContent = "set all to " + Number(ng.default_voltage_v) + " V / " + Number(ng.default_current_a) + " A";
+  NGE.forEach(([n])=>{
+    const p="nge_ch"+n+"_", out=st[p+"output"], des=st[p+"desired"], vs=st[p+"voltage_set"], il=st[p+"current_limit"];
+    const v=st[p+"voltage"], i=st[p+"current"], w=st[p+"power"], mode=st[p+"mode"], trip=st[p+"trip"], raw=ngeRaw(n);
+    // With the supply unreachable the last readings say nothing about now:
+    // show "?" rather than a confident ON that may no longer be true.
+    const live = ngUp && out && out.freshness!=="invalid" && out.value!==null;
+    const on = live && out.value===true;
+    $("ng"+n+"-dot").className = "dot"+(on?" on":"");
+    const oe=$("ng"+n+"-out");
+    oe.textContent = !live ? "?" : on ? "ON" + (mode && mode.value && mode.value!=="off" ? " · "+mode.value.toUpperCase() : "") : "OFF";
+    oe.className = "num"+(out&&out.freshness!=="fresh"?" cur "+out.freshness:"");
+    oe.style.color = on && mode && mode.value==="cc" ? "var(--warn)" : "";
+    $("ng"+n+"-on").className  = (live && des && des.value===true)  ? "on" : "";
+    $("ng"+n+"-off").className = (live && des && des.value===false) ? "on" : "";
+    const m=$("ng"+n+"-meas"), mv = s => fmtNum(live && s ? s.value : null);
+    m.innerHTML = `<span class="kv"><span class="num">${mv(v)}</span> V</span>`
+      + `<span class="kv"><span class="num">${mv(i)}</span> A</span>`
+      + `<span class="kv" style="margin-right:0"><span class="num">${mv(w)}</span> W</span>`;
+    m.style.color = live && v && v.freshness==="stale" ? "var(--warn)" : "var(--mut)";
+    // one line of what needs saying about this channel, most urgent first
+    const tripped = trip && trip.value && trip.value!=="none" && trip.freshness!=="invalid";
+    const ne=$("ng"+n+"-note"); let note="", bad=false;
+    if (tripped){ note = "⚠ tripped: "+trip.value.toUpperCase(); bad = true; }
+    else if (live && des && des.value===true && !on){ note = "⚠ off — being switched back on"; bad = true; }
+    else if (live && raw.fuse){ note = "⚠ electronic fuse is on — it will be removed when the channel is next off"; bad = true; }
+    else if (raw.dropouts){ note = raw.dropouts+" drop-out"+(raw.dropouts>1?"s":"")+" recovered — last "+hhmm(raw.last_dropout_utc)+": "+(raw.last_dropout||"?"); }
+    ne.textContent = note; ne.className = "cur"; ne.style.color = bad ? "var(--bad)" : "";
+    setPlaceholder("ng"+n+"-v", vs && vs.value); setPlaceholder("ng"+n+"-i", il && il.value);
+    setCur("ng"+n+"-v-cur", "current "+fmtNum(vs&&vs.value)+" V", vs);
+    // the supply caps the limit at 33.6 W / V: say so when it did
+    const asked = raw.current_request_a, capped = il && il.value!=null && asked!=null && asked - il.value > 0.0015;
+    setCur("ng"+n+"-i-cur", "current "+fmtNum(il&&il.value)+" A" + (capped ? " — "+fmtNum(asked)+" A asked, capped by the supply" : ""), il);
   });
 
 }
