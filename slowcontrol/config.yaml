@@ -109,6 +109,24 @@ turbovac:
       # (the Control page shows it) so that it is pinned like the GHS pump.
       serial: ""
 
+# Cryostat LN level probe — the MPR121 sensor's ESP32, plugged into the Pi by
+# USB.  It prints "median delta = <count> | pwm = <0-255>" every ~3.5 s; the
+# service turns pwm back into the voltage its analog output would have given
+# (pwm / pwm_max * v_ref), publishes it on xsphere/sensors/level_probe/cryostat
+# and the PLC driver writes it to DF253 (age of the reading, in s, to DF254).
+# See slowcontrol/drivers/levelprobe.py.
+level_probe:
+  enabled: true
+  # The board's CH340 USB-serial chip has no serial number, so this name is
+  # shared by every CH340 on the Pi.  If a second one is ever plugged in, use
+  # the /dev/serial/by-path/... name of the socket instead.
+  port: /dev/serial/by-id/usb-1a86_USB_Serial-if00-port0
+  baud_rate: 9600
+  vessel: cryostat
+  pwm_max: 255
+  v_ref: 3.3
+  stale_s: 15.0
+
 autovalve:
   # LN2 autofill is owned by the PLC ladder (it reads the analog level
   # inputs and decides when/how to open/close XV1/XV2/XV3). The Python

@@ -395,6 +395,8 @@ xsphere/sensors/environment/{location}/{parameter}      {"value": <f>}
     location : ghs   parameter : temperature | humidity | baro_pressure
 xsphere/sensors/level/{vessel}                          {"raw": <f>, "filtered": <f>}
     vessel : cryostat | primary_xe | ballast    (FDC1004, pF; scaling done in Python)
+xsphere/sensors/level_probe/{vessel}                    {"voltage_v","pwm","count"}   cryostat LN2 level probe read over USB by the Pi (every ~3.5 s);
+                                                        voltage_v goes to PLC DF253.  Link state: xsphere/status/level_probe/{vessel} (retained)
 xsphere/sensors/turbo/{pump}                            {"state","frequency_hz","setpoint_hz","current_a","voltage_v","power_w",
                                                          "motor_temp_c","bearing_temp_c","converter_temp_c","drive_on","normal","turning",
                                                          "accelerating","decelerating","fault","warning","remote","status_word",
@@ -478,6 +480,8 @@ Vessel naming: `cryostat`, `primary_xe`, `ballast`
 | DF303 | Cryostat LN2 level (filtered) | α=0.01 exponential filter applied by ladder |
 | DF251 | Ballast bottle level (raw, 0–10) | Written by Python service via Modbus TCP (was PLC Node-RED from MQTT `sensor/ch4_voltage`) |
 | DF252 | Primary Xe bottle level (raw, 0–10) | Written by Python service via Modbus TCP (was PLC Node-RED from MQTT `sensor/ch5_voltage`) |
+| DF253 | Cryostat LN2 level probe voltage (V) | Written by Python service via Modbus TCP from the probe's USB serial output (`LevelProbeDriver`): pwm / 255 × 3.3 V, the same voltage the probe's analog output gives DF203. Held at the last value if the probe goes quiet |
+| DF254 | Age of the DF253 reading (s) | Written by Python service every poll: 0–4 while the probe is talking, climbs once it stops (9999 = nothing since the service started). For a ladder rung that should not trust a stale DF253 |
 | DF351 | Ballast bottle level (filtered) | α=0.01 filter applied by ladder |
 | DF352 | Primary Xe bottle level (filtered) | α=0.01 filter applied by ladder |
 

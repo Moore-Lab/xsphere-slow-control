@@ -124,6 +124,8 @@ def probe(host: str, port: int, unit: int, timeout: float) -> int:
     show_float("primary_xe filt.",  P.REG_LEVEL_FILTERED["primary_xe"])
     show_float("ballast raw (DF251, written by service)",   P.REG_LEVEL_WRITE["ballast"])
     show_float("primary_xe raw (DF252, written by service)", P.REG_LEVEL_WRITE["primary_xe"])
+    show_float("cryostat probe V (DF253, written by service)", P.REG_LEVEL_PROBE_WRITE["cryostat"])
+    show_float("cryostat probe age s (DF254, written by service)", P.REG_LEVEL_PROBE_AGE["cryostat"])
 
     print("\n== PID blocks (sp / pv in °C, output in %, gains raw) ==")
     for zone in ("top", "bottom", "nozzle"):
