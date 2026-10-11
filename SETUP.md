@@ -12,7 +12,8 @@ The xbox-pi should already be running [IOTstack](https://sensorsiot.github.io/IO
 with the following Docker services active:
 
 - **Mosquitto** (MQTT broker) on port 1883
-- **InfluxDB 2.x** on port 8086
+- **InfluxDB 2.x** on host port 8087 (8086 inside the Docker network)
+- **Telegraf** (no UI; see Step 4)
 - **Node-RED** on port 1880
 - **Grafana** on port 3000 (optional at first)
 
@@ -171,26 +172,34 @@ sudo systemctl start xsphere-omega-logger
 
 ## Step 4 — Telegraf (MQTT → InfluxDB pipeline)
 
-### 4a. Install Telegraf on xbox-pi
+On xbox-pi Telegraf runs as the `telegraf` container of the IOTstack stack
+(4a–4e).  A native apt install also works (4f) but is not what the lab runs.
 
-If Telegraf is not already installed:
+> **The container does not read the repo copy of the config.**  It reads
+> `~/IOTstack/volumes/telegraf/telegraf.conf` (bind-mounted to `/etc/telegraf`).
+> Pulling a commit that changes `telegraf/telegraf.conf` therefore changes
+> nothing until you redeploy it (4d); until then a newly added measurement is
+> silently not recorded.
+
+### 4a. Add the Telegraf container
+
+If `docker compose ps` (Prerequisites) does not list `telegraf`:
 ```bash
-# Add InfluxData repo
-curl -s https://repos.influxdata.com/influxdata.key | sudo apt-key add -
-echo "deb https://repos.influxdata.com/debian stable main" \
-  | sudo tee /etc/apt/sources.list.d/influxdata.list
-sudo apt update && sudo apt install telegraf -y
+cd ~/IOTstack
+./menu.sh                      # Build Stack → tick telegraf → build
+docker compose up -d telegraf
 ```
 
 ### 4b. Create InfluxDB credentials
 
-1. Open InfluxDB UI: `http://192.168.8.116:8086`
-2. Create an organisation (e.g., `xsphere`) and a bucket (e.g., `xsphere`)
-   if they do not already exist.
-3. Go to **Data → API Tokens → Generate API Token → All Access Token**.
-   Copy the token.
+1. Open InfluxDB UI: `http://192.168.8.116:8087` (the stack maps the
+   container's port 8086 to host port 8087).
+2. Create an organisation and a bucket if they do not already exist.  The
+   running system uses organisation `xbox-server` and bucket `xsphere`.
+3. Go to **Data → API Tokens → Generate API Token** and create a token with
+   write access to the bucket.  Copy the token.
 
-### 4c. Configure environment variables
+### 4c. Connection values (first deploy only)
 
 ```bash
 cp /home/xbox/xsphere-slow-control/telegraf/.env.example \
@@ -198,25 +207,75 @@ cp /home/xbox/xsphere-slow-control/telegraf/.env.example \
 nano /home/xbox/xsphere-slow-control/telegraf/.env
 ```
 
-Fill in:
+Fill in (these are addresses as seen from inside the Docker network, so use the
+container names and container ports, not `localhost` or host port 8087):
 ```
-INFLUX_URL=http://192.168.8.116:8086
+INFLUX_URL=http://influxdb2:8086
 INFLUX_TOKEN=<paste token here>
-INFLUX_ORG=xsphere
+INFLUX_ORG=xbox-server
 INFLUX_BUCKET=xsphere
-MQTT_HOST=localhost
+MQTT_HOST=mosquitto
 MQTT_PORT=1883
 ```
 
-### 4d. Install the Telegraf configuration
+### 4d. Deploy the Telegraf configuration
+
+`telegraf/deploy-iotstack.sh` substitutes the `@PLACEHOLDER@` tokens in
+`telegraf/telegraf.conf`, validates the result with the container's own
+Telegraf build, shows a diff against what is deployed (token hidden), and with
+`--apply` backs up the old file, installs the new one and restarts the
+container.
 
 ```bash
-# Make Telegraf load the .env file automatically
-sudo mkdir -p /etc/telegraf
-sudo cp /home/xbox/xsphere-slow-control/telegraf/telegraf.conf \
-        /etc/telegraf/telegraf.conf
+cd /home/xbox/xsphere-slow-control
 
-# Pass environment variables to the service
+# First deploy: take the values from telegraf/.env
+bash telegraf/deploy-iotstack.sh --env            # preview, changes nothing
+bash telegraf/deploy-iotstack.sh --env --apply    # install + restart
+
+# Every later change to telegraf/telegraf.conf: the values already deployed
+# are carried over, so no .env is needed
+bash telegraf/deploy-iotstack.sh
+bash telegraf/deploy-iotstack.sh --apply
+```
+
+The restart loses the MQTT messages published while Telegraf is down (a few
+seconds).  The script finishes by checking that every MQTT input reconnected
+and prints the rollback command if one did not.
+
+### 4e. Verify data is flowing
+
+```bash
+# Messages are arriving at the broker
+docker exec mosquitto mosquitto_sub -h localhost -t 'xsphere/sensors/#' -v -C 5
+
+# Telegraf connected one consumer per input section and logs no errors
+docker logs --tail 20 telegraf
+```
+
+Then check InfluxDB itself — Data Explorer → bucket `xsphere`, or the
+per-measurement count query in OPERATIONS.md ("Changing what Telegraf
+records").  Every measurement with a live source should show points within a
+few seconds.
+
+### 4f. Alternative: native apt Telegraf
+
+Not used on xbox-pi; do not run it alongside the container or every point is
+written twice.
+
+```bash
+# Add InfluxData repo
+curl -s https://repos.influxdata.com/influxdata.key | sudo apt-key add -
+echo "deb https://repos.influxdata.com/debian stable main" \
+  | sudo tee /etc/apt/sources.list.d/influxdata.list
+sudo apt update && sudo apt install telegraf -y
+
+# Turn @VAR@ into ${VAR} so Telegraf reads the values from its environment
+sed -E '/^[[:space:]]*#/!s/@([A-Z_]+)@/${\1}/g' \
+    /home/xbox/xsphere-slow-control/telegraf/telegraf.conf \
+  | sudo tee /etc/telegraf/telegraf.conf > /dev/null
+
+# Pass telegraf/.env (4c, but with host addresses: localhost and port 8087)
 sudo mkdir -p /etc/systemd/system/telegraf.service.d
 sudo tee /etc/systemd/system/telegraf.service.d/env.conf <<'EOF'
 [Service]
@@ -226,16 +285,6 @@ EOF
 sudo systemctl daemon-reload
 sudo systemctl restart telegraf
 sudo systemctl status telegraf
-```
-
-### 4e. Verify data is flowing
-
-```bash
-# Subscribe to any sensor topic and confirm messages arrive
-mosquitto_sub -h localhost -t 'xsphere/sensors/#' -v
-
-# In InfluxDB UI: Data Explorer → select bucket 'xsphere'
-# → measurement 'temperature' → should have fields within ~60 seconds
 ```
 
 ---
@@ -420,4 +469,5 @@ mosquitto_sub -h localhost -t 'xsphere/status/service/heartbeat' -v
 | Autovalve fires immediately at startup | Level thresholds not recalibrated for pF | Update `level_low`/`level_high` in `config.yaml` |
 | Interlock alert fires: `temperature_stale` | Sensor not publishing or wrong topic | Check ESP32/Omega connection; check topic names |
 | Dashboard shows no data | Node-RED MQTT broker node wrong | Edit broker node, set host to `localhost` |
-| Telegraf not writing to InfluxDB | Bad token or wrong org/bucket | Check `telegraf/.env`; verify token in InfluxDB UI |
+| Telegraf not writing to InfluxDB | Bad token or wrong org/bucket | `docker logs telegraf`; check the `[[outputs.influxdb_v2]]` values in `~/IOTstack/volumes/telegraf/telegraf.conf`; verify token in InfluxDB UI |
+| One measurement missing from InfluxDB while its MQTT topic is publishing | `telegraf/telegraf.conf` was changed but not redeployed | `bash telegraf/deploy-iotstack.sh` shows the pending diff; add `--apply` (Step 4d) |

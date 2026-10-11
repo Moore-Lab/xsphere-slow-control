@@ -224,7 +224,8 @@ xsphere-slow-control/
 ├── LJ-python-controller/       ← LabJack T7 plugin (pip install -e .)
 │
 ├── telegraf/                   ← Telegraf MQTT→InfluxDB pipeline
-│   ├── telegraf.conf
+│   ├── telegraf.conf           ← template; the container reads a deployed copy
+│   ├── deploy-iotstack.sh      ← render + install it into the IOTstack container
 │   └── .env.example            ← copy to .env and fill in secrets
 │
 ├── grafana/                    ← Grafana dashboard JSON
@@ -247,7 +248,7 @@ xsphere-slow-control/
 |---|---|---|---|
 | Slow control service | xbox-pi | Python | `systemctl start xsphere-slowcontrol` |
 | Web control panel | xbox-pi | Python (Flask) | `systemctl start xsphere-webcontrol` |
-| Telegraf | xbox-pi (Docker) | — | `systemctl start telegraf` (or Docker) |
+| Telegraf | xbox-pi (Docker) | — | already running via IOTstack; after editing `telegraf/telegraf.conf` run `bash telegraf/deploy-iotstack.sh --apply` |
 | MQTT broker | xbox-pi (Docker) | — | already running via IOTstack |
 | InfluxDB | xbox-pi (Docker) | — | already running via IOTstack |
 | Node-RED | xbox-pi (Docker) | — | **stopped** — bypassed by Telegraf + webcontrol; revert with `docker start nodered` |
