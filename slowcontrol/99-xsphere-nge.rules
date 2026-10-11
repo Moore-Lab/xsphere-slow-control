@@ -1,0 +1,15 @@
+# udev rule for the R&S NGE100 heater supply (USB-TMC) on xbox-pi.
+#
+# The kernel's usbtmc driver creates /dev/usbtmcN for the supply, owned by
+# root and numbered by plug-in order.  This rule lets the slow control service
+# (user xbox, already in group dialout) open it, and adds a name that does not
+# move: /dev/nge100 — the `nge.resource` in slowcontrol/config.yaml.
+#
+# Install:
+#   sudo cp slowcontrol/99-xsphere-nge.rules /etc/udev/rules.d/
+#   sudo udevadm control --reload-rules
+#   sudo udevadm trigger --subsystem-match=usbmisc
+#
+# 0aad:0197 = Rohde & Schwarz NGE102 / NGE103 in USB-TMC mode.  The service
+# checks the serial number itself (nge.serial), so the rule does not pin one.
+SUBSYSTEM=="usbmisc", KERNEL=="usbtmc*", ATTRS{idVendor}=="0aad", ATTRS{idProduct}=="0197", GROUP="dialout", MODE="0660", SYMLINK+="nge100"

@@ -90,6 +90,15 @@ Omega RDXL6SD-USB: 6 channels, fully utilized (2 RTD + 4 TC).
 
 All PID loops run on the CLICK Plus PLC. PID tuning, setpoints, and process variable source are written via Modbus register values.
 
+**Heater supply.** The DC side of the three SSRs is an R&S NGE103 (3 × 0–32 V / 0–3 A), NGE channel *n* → heater *n* (1 = top, 2 = bottom, 3 = nozzle), on USB-TMC into xbox-pi and looked after by `NgeDriver` (`slowcontrol/drivers/nge.py`). Things that matter when reading the numbers:
+
+- **33.6 W per channel**, less than the 36 W the heaters are rated for. The supply caps the current limit at 33.6 W ÷ V with no error — 1.400 A at 24 V, whatever is requested — so a 16 Ω (36 W at 24 V) heater runs in constant current at about 22.4 V / 1.4 A / 31 W while its SSR is closed.
+- **Over-power protection ships enabled at that same 33.6 W** and switches the channel off rather than limiting; the electronic fuse does likewise at the current limit, and OVP at its voltage level. The driver keeps OPP and the fuse off and the OVP level at its 32.5 V maximum (`nge.disable_auto_off`).
+- **A channel delivers power when its arm flag (`OUTP:SEL`) and the master switch (`OUTP:GEN`) are both on.** `OUTP ON` on one channel raises the master and with it every other armed channel, so the driver always writes all three arm flags and then the master.
+- **After a mains interruption** the supply comes up with every output off and its setpoints reloaded from memory M1. With *hold* on, the driver rewrites the setpoints and switches the held channels back on.
+
+The measurements behind this (firmware 1.40) are in the driver's module docstring; `slowcontrol/drivers/nge_sim.py` reproduces them for offline tests.
+
 ### 2.4 LN2 Supply & Distribution
 
 ```
@@ -388,6 +397,9 @@ xsphere/status/service/heartbeat          {"uptime_s": <int>}                 (r
 xsphere/status/pid/{zone}                  {"setpoint_k","pv_k","output_pct","kp","ki","kd"} (retained)
 xsphere/status/valve/{vessel}              {"state","desired","auto_close","auto_open"}      (retained)
 xsphere/status/pneumatic/{name}            {"state","desired","relay"}  1 = valve open / relay energised (retained)
+xsphere/status/nge                         {"connected","hold","master","model","serial","firmware","error","event",…}  heater supply (retained; not ingested by Telegraf)
+xsphere/status/nge/{channel}               {"output","desired","armed","voltage_set_v","current_limit_a","voltage_v","current_a","power_w","mode","trip","dropouts",…}
+    channel : 1 | 2 | 3 (= heater n)   mode : off | cv | cc   trip : none | ovp | opp | fuse   (retained; silent while the supply is unreachable)
 xsphere/status/ghs_esp32                   {"uptime_s","rssi","ip"}            (device health; not ingested by Telegraf)
 xsphere/status/level_{vessel}              {"uptime_s","rssi","ip","vessel"}   (device health; not ingested by Telegraf)
 xsphere/alerts/{rule}                      # Interlock alerts
@@ -402,6 +414,10 @@ xsphere/commands/valve/{vessel}/state      # Open/close solenoid valve
 xsphere/commands/valve/{vessel}/auto_open  # Arm/disarm auto-open
 xsphere/commands/valve/{vessel}/auto_close # Arm/disarm auto-close
 xsphere/commands/pneumatic/{name}/state    # {"state": 1|0} open/close a pneumatic valve (ballast|pump|bottle)
+xsphere/commands/nge/{channel}/output      # {"state": 1|0} heater supply channel on/off (literal 0/1 only)
+xsphere/commands/nge/{channel}/voltage     # {"value_v": <V>}  0 … 32
+xsphere/commands/nge/{channel}/current     # {"value_a": <A>}  0 … 3 (the supply caps it at 33.6 W / V)
+xsphere/commands/nge/hold                  # {"enabled": true|false} keep the channels at their set state
 xsphere/commands/gradient_scanner/start    # Start gradient scan
 xsphere/commands/gradient_scanner/stop     # Stop gradient scan
 ```

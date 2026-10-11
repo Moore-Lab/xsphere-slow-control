@@ -184,6 +184,39 @@ sudo systemctl enable xsphere-omega-logger
 sudo systemctl start xsphere-omega-logger
 ```
 
+### 3f. Heater supply — R&S NGE103 (USB-TMC)
+
+The NGE103 behind the three heaters plugs straight into a USB port of
+xbox-pi. Leave the supply in **USB-TMC** mode (Menu → Interface → USB; the
+status bar shows `TMC`). No VISA library or extra Python package is needed:
+the kernel's `usbtmc` driver turns the supply into `/dev/usbtmcN`, and the
+slow control service reads and writes that file.
+
+One udev rule lets the service's user open it and gives it a name that does
+not depend on plug-in order:
+
+```bash
+cd /home/xbox/xsphere-slow-control
+sudo cp slowcontrol/99-xsphere-nge.rules /etc/udev/rules.d/
+sudo udevadm control --reload-rules
+sudo udevadm trigger --subsystem-match=usbmisc
+ls -l /dev/nge100        # → a symlink to usbtmc0, group dialout, mode rw-rw----
+```
+
+(`xbox` is already in `dialout` from step 3a.) The `nge:` block in
+`slowcontrol/config.yaml` then needs `enabled: true`, `resource: /dev/nge100`
+and — so that no other NGE in the lab is ever driven by mistake — `serial:`
+set to this unit's serial number (Menu → Device → Information on the supply;
+if it is wrong, the card's "this is NGE serial …" error names the right one).
+Restart the service and look for the **Heater supply** card on the Control
+page; `journalctl -u xsphere-slowcontrol | grep nge` shows what it found and
+did.
+
+On first contact the service adopts whatever the supply is doing and switches
+nothing — except the protection settings described in the README (over-power
+protection and electronic fuse off, OVP level at maximum), unless
+`nge.disable_auto_off` is `false`.
+
 ---
 
 ## Step 4 — Telegraf (MQTT → InfluxDB pipeline)

@@ -10,6 +10,9 @@ xenon cryostat used in levitated-particle physics experiments.
   + clamps) and the LabJack T7 (cube RTDs + four type-K gradiometer TCs)
 - **Controls heaters** via three PID zones (top / bottom / nozzle) on the PLC,
   with a Python gradient abstraction layer (gradient mode or per-zone absolute)
+- **Looks after the heater supply** — the R&S NGE103 behind the heaters: output,
+  voltage and current limit per channel, and switching a channel back on if
+  it drops out
 - **Manages LN2 autofill** for the ballast and primary xenon dewars via solenoid
   valves — the autofill ladder runs on the PLC; the Python service forwards
   level readings and exposes manual/arm controls
@@ -73,6 +76,20 @@ Every control widget shows the **current** value of the thing it controls next t
 - `setpoint (K)` + `set SP` writes the PID's setpoint register on the PLC.
   - **Important**: this only "sticks" when **gradient mode = absolute**. If gradient mode is `gradient`, the GradientController owns the per-zone setpoints and will overwrite anything you set here on the next gradient command. To control individual zones, switch to absolute first.
 - `Kp / Ki / Kd` + `set gains` writes all three at once to the PLC's PID block. There's no commit-on-Tab — you must press the button.
+
+**Heater supply — R&S NGE103** (the DC supply the heater SSRs switch; NGE channel *n* feeds heater *n*)
+
+- One block per channel: `on` / `off`, `voltage (V)` + `set`, `current limit (A)` + `set`; `set all to 24 V / 1.5 A` writes the defaults from `config.yaml` to all three (setpoints only — it switches nothing). An empty field sends nothing. The V / A / W at the right of each block are instantaneous and catch the heater mid-PWM-cycle; read the 60 s averages on the Register page.
+- **33.6 W per channel.** The supply caps the current limit at 33.6 W ÷ V without saying so: ask for 1.5 A at 24 V and it holds **1.400 A** (the card shows "1.50 A asked, capped by the supply"). A 36 W heater therefore runs current-limited — `ON · CC`, about 22.4 V / 1.4 A / 31 W — whenever its SSR is closed. That is normal here, not a fault.
+- **Why channels switch themselves off, and what stops it.** Over-power protection ships enabled at exactly that 33.6 W, and unlike the current limit it switches the channel *off*; with 36 W heaters the supply works right at that level. The electronic fuse does the same at the current limit. The service keeps both off and the OVP level at its 32.5 V maximum (`nge.disable_auto_off`), so an overload just current-limits.
+- **Hold** (on by default; the button on the card) keeps every channel at the output state, voltage and current limit set on this page:
+  - a channel that drops out — protection trip, supply power-cycled, switched at the front panel — is switched back on, and setpoints lost in a power cycle are rewritten. The card counts the drop-outs and shows the reason for the last one;
+  - it works the other way too: a channel switched **on** at the front panel is switched off again. Operate the supply from this page, or turn hold off first. Turning it back on holds whatever the supply is doing at that moment;
+  - a channel that will not stay on is retried with back-off — at once, then after 2 s, 4 s … up to once a minute.
+- The held state survives a service restart and a Pi reboot (`slowcontrol/nge_state.json`). After a power cut the supply comes up with every output off and the service puts it back as it was — unless that state is more than a day old (`nge.resume_max_age_s`), in which case it adopts what it finds.
+- Stopping the slow-control service leaves the supply exactly as it is.
+- While the supply is unreachable (`⚠ NOT CONNECTED`), `off` is remembered — the channel stays off when the supply returns — and `on` and setpoint changes are refused rather than queued.
+- Each control is also a Sequencer target. `nge.resource: sim` in `config.yaml` runs all of this against a built-in simulated supply.
 
 **Gradient**
 
@@ -167,6 +184,8 @@ Common things and what they mean:
 - **Many states INVALID after restart** — wait ~2 s; retained MQTT messages take a moment to redeliver to a fresh subscriber. If they stay invalid, the publisher (PLC driver / LabJack controller / ESP32) is down.
 - **A LabJack/PLC restart kills the connection** — drivers reconnect automatically; the corresponding states will go stale then fresh.
 - **`pid_*_setpoint` set has no effect** — gradient mode is probably `gradient`; switch to `absolute` first (or use the gradient card).
+- **`supply: DOWN` / heater supply `⚠ NOT CONNECTED`** — the card shows the reason. `cannot open /dev/nge100` means the supply is off, its USB cable is out, or the udev rule is missing (`ls -l /dev/nge100`; SETUP.md step 3f). The supply carries on as it was; the service picks it up again within seconds of it reappearing.
+- **A heater supply channel shows `ON · CC`** — it is current-limited, which is expected for a 36 W heater on a 33.6 W channel (see the control-page notes above).
 
 ## System overview
 
@@ -176,6 +195,7 @@ Common things and what they mean:
                     │                                         │
   PLC ──Modbus TCP──► Python slow control service             │
                     │   · PlcDriver  (poll + command)         │
+  NGE103 ──USB-TMC──►   · NgeDriver  (heater supply)          │
                     │   · LabJackT7Controller                 │
                     │   · GradientController, AutoValve, …    │
                     │   · StateStore  →  xsphere/state/snapshot │
@@ -207,7 +227,8 @@ xsphere-slow-control/
 │   ├── SESSION_LOG.md          ← running record of state-layer sessions
 │   ├── xsphere-slowcontrol.service
 │   ├── core/  (config, mqtt, service orchestrator)
-│   ├── drivers/  (PLC Modbus TCP)
+│   ├── drivers/  (PLC Modbus TCP; NGE heater supply + its simulator)
+│   ├── 99-xsphere-nge.rules    ← udev rule for the heater supply (/dev/nge100)
 │   ├── controllers/  (gradient, autovalve [disabled], interlocks)
 │   ├── plugins/  (gradient_scanner)
 │   └── state/  (schema loader + StateStore: subscribe, freshness, averages,
@@ -222,6 +243,9 @@ xsphere-slow-control/
 │   └── xsphere-webcontrol.service
 │
 ├── LJ-python-controller/       ← LabJack T7 plugin (pip install -e .)
+│
+├── tests/                      ← offline tests (python -m pytest tests -q); the
+│                                 heater supply ones run against the simulator
 │
 ├── telegraf/                   ← Telegraf MQTT→InfluxDB pipeline
 │   ├── telegraf.conf
@@ -270,6 +294,8 @@ All sensor/status payloads are JSON.  Full schema and payload shapes:
 | `xsphere/status/pid/{zone}` | PLC driver→broker | `{"setpoint_k","pv_k","output_pct","kp","ki","kd"}` (retained) |
 | `xsphere/status/valve/{vessel}` | Python→broker | `{"state","desired","auto_open","auto_close"}` (retained) |
 | `xsphere/status/pneumatic/{name}` | Python→broker | `{"state","desired","relay"}` — valve open / commanded open / relay energised (retained) |
+| `xsphere/status/nge` | Python→broker | heater supply: `{"connected","hold","master","model","serial","error","event",…}` (retained) |
+| `xsphere/status/nge/{1\|2\|3}` | Python→broker | per channel: `{"output","desired","voltage_set_v","current_limit_a","voltage_v","current_a","power_w","mode","trip","dropouts",…}` (retained; not published while the supply is unreachable) |
 | `xsphere/status/service/heartbeat` | Python→broker | `{"uptime_s"}` (retained) |
 | `xsphere/status/ghs_esp32`, `xsphere/status/level_{vessel}` | ESP32→broker | `{"uptime_s","rssi","ip"}` (device health; not ingested) |
 | `xsphere/status/gradient`, `xsphere/status/gradient_scanner`, `xsphere/status/interlocks` | Python→broker | controller state |
