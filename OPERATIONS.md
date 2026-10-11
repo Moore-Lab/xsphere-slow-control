@@ -328,7 +328,7 @@ Reverse of cooling:
 ### InfluxDB / Grafana
 
 ```
-http://192.168.8.116:8086    InfluxDB UI — raw data explorer
+http://192.168.8.116:8087    InfluxDB UI — raw data explorer
 http://192.168.8.116:3000    Grafana — dashboards and plots
 ```
 
@@ -343,12 +343,49 @@ names (set by Telegraf):
 | `vacuum` | `source` (ghs), `channel` | `value` (mbar) |
 | `pid_state` | `zone` | `setpoint_k`, `pv_k`, `output_pct`, `kp`, `ki`, `kd` |
 | `valve_state` | `vessel` | `state`, `desired`, `auto_open`, `auto_close` |
+| `pneumatic_state` | `valve` (ballast/pump/bottle) | `state`, `desired` (1 = open), `relay` (1 = energised) |
 | `environment` | `location` (ghs), `parameter` (temperature/humidity/baro_pressure) | `value` |
 | `service_heartbeat` | — | `uptime_s` |
+
+### Changing what Telegraf records
+
+Telegraf runs in the IOTstack `telegraf` container and reads
+`~/IOTstack/volumes/telegraf/telegraf.conf`, not the copy in this repo.
+After any change to `telegraf/telegraf.conf` (a new topic, field or
+measurement), `git pull` on xbox-pi is not enough — redeploy it:
+
+```bash
+cd ~/xsphere-slow-control
+bash telegraf/deploy-iotstack.sh            # preview: diff + validation, changes nothing
+bash telegraf/deploy-iotstack.sh --apply    # install, restart telegraf
+```
+
+The restart loses the few seconds of data published while Telegraf is down.
+Until the redeploy the new measurement is simply not stored, with no error
+anywhere — and it cannot be backfilled.
+
+Then confirm every measurement is arriving (points in the last 2 minutes):
+
+```bash
+cd ~/xsphere-slow-control
+TOKEN=$(grep '^INFLUX_TOKEN=' .env | cut -d= -f2-)
+curl -s 'http://localhost:8087/api/v2/query?org=xbox-server' \
+  -H "Authorization: Token $TOKEN" -H 'Content-Type: application/vnd.flux' \
+  --data-binary 'from(bucket:"xsphere") |> range(start:-2m) |> toFloat()
+    |> group(columns:["_measurement"]) |> count()
+    |> keep(columns:["_measurement","_value"])'
+```
+
+`pressure`, `vacuum` and `environment` all come from the GHS ESP32, so they
+are missing together whenever that board is offline; that is not a Telegraf
+problem.
 
 ### Subscribing to raw MQTT (debugging)
 
 ```bash
+# mosquitto_sub is not installed on the xbox-pi host; there, prefix each
+# command with:  docker exec mosquitto
+
 # All sensor data
 mosquitto_sub -h localhost -t 'xsphere/sensors/#' -v
 
@@ -374,8 +411,8 @@ journalctl -u xsphere-slowcontrol --since "1 hour ago"
 # Omega logger
 journalctl -u xsphere-omega-logger -f
 
-# Telegraf
-journalctl -u telegraf -f
+# Telegraf (IOTstack container)
+docker logs telegraf -f
 
 # Node-RED (if running in Docker)
 docker logs nodered -f
