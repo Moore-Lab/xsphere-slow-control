@@ -94,6 +94,13 @@
     <small class="hint">“actual” is the energised state read back from the PLC; “desired” is the last command sent. Auto-open / auto-close arm the PLC ladder’s autofill enables for that vessel.</small>
   </section>
 
+  <!-- Pneumatic valves -->
+  <section class="card">
+    <h2>Pneumatic valves — gas handling</h2>
+    <div id="pneumatic"></div>
+    <small class="hint"><b>Open / close always mean the valve, not the relay.</b> Ballast and bottle are <b>normally open</b>: their relay is energised to <em>close</em> them, so with the PLC outputs off they sit open. The pump valve is normally closed. “actual” is worked out from the PLC output (Y105–Y107) read back, “desired” from the register (DS151–DS153), and “relay” is the output itself. The ladder has no auto-open, auto-close or timer behind these, so a valve stays where it was last put — through a service restart too.</small>
+  </section>
+
   <!-- Heaters / PID -->
   <section class="card">
     <h2>Heaters — PID loops</h2>
@@ -148,22 +155,33 @@ function ctlNum(stateId, inputId){ ctl(stateId, numv(inputId)); }
 // ---- static structure: valves & PID (built once) ---------------------------
 const VESSELS = [["cryostat","XV3 — cryostat LN₂ vessel"],["primary_xe","XV2 — primary Xe bottle"],["ballast","XV1 — ballast bottle"]];
 const ZONES   = [["top","Zone 1 — top clamp (rtd2)"],["bottom","Zone 2 — bottom clamp (rtd3)"],["nozzle","Zone 3 — nozzle / disk (rtd1)"]];
+// Pneumatic valves: [state id, label].  Open / close only — no autofill enables.
+// Values are in valve terms; the PLC driver applies each valve's relay sense.
+const PNEUMATIC = [["pneumatic_ballast","Ballast valve — normally open (Y105)"],["pneumatic_pump","Pump valve — normally closed (Y106)"],["pneumatic_bottle","Bottle valve — normally open (Y107)"]];
 let built = false;
-function build(){
-  $("valves").innerHTML = VESSELS.map(([v,name])=>`
+// One valve block.  `sid` is the state carrying the control; its commanded
+// twin is `${sid}_desired`.  `auto` adds the LN₂ autofill enable toggles;
+// `relay` adds a readout of `${sid}_relay`, the raw output behind the valve.
+function valveBlock(sid, name, auto, relay){
+  return `
     <div class="blk">
       <div class="row"><span class="title">${name}</span></div>
       <div class="row">
-        <span class="kv"><span class="k">actual</span><span class="dot" id="vd-${v}"></span><span id="va-${v}" class="num">–</span></span>
-        <span class="kv"><span class="k">desired</span><span id="vw-${v}" class="num cur">–</span></span>
+        <span class="kv"><span class="k">actual</span><span class="dot" id="vd-${sid}"></span><span id="va-${sid}" class="num">–</span></span>
+        <span class="kv"><span class="k">desired</span><span id="vw-${sid}" class="num cur">–</span></span>${relay ? `
+        <span class="kv"><span class="k">relay</span><span id="vr-${sid}" class="num cur">–</span></span>` : ""}
       </div>
       <div class="row">
-        <button id="vo-${v}" onclick="ctl('valve_${v}',true)">open</button>
-        <button id="vc-${v}" onclick="ctl('valve_${v}',false)">close</button>
-        <span class="lbl" style="min-width:auto;margin-left:.5rem">auto-open</span><button id="vao-${v}" onclick="ctlToggle('valve_${v}_auto_open')">—</button>
-        <span class="lbl" style="min-width:auto">auto-close</span><button id="vac-${v}" onclick="ctlToggle('valve_${v}_auto_close')">—</button>
+        <button id="vo-${sid}" onclick="ctl('${sid}',true)">open</button>
+        <button id="vc-${sid}" onclick="ctl('${sid}',false)">close</button>${auto ? `
+        <span class="lbl" style="min-width:auto;margin-left:.5rem">auto-open</span><button id="vao-${sid}" onclick="ctlToggle('${sid}_auto_open')">—</button>
+        <span class="lbl" style="min-width:auto">auto-close</span><button id="vac-${sid}" onclick="ctlToggle('${sid}_auto_close')">—</button>` : ""}
       </div>
-    </div>`).join("");
+    </div>`;
+}
+function build(){
+  $("valves").innerHTML = VESSELS.map(([v,name])=>valveBlock("valve_"+v, name, true, false)).join("");
+  $("pneumatic").innerHTML = PNEUMATIC.map(([sid,name])=>valveBlock(sid, name, false, true)).join("");
 
   $("pid").innerHTML = ZONES.map(([z,name])=>`
     <div class="blk" data-z="${z}">
@@ -212,19 +230,22 @@ function update(d){
   sp("p-lj", st.labjack_connected, "labjack", "ok");
   $("p-mq").textContent="mqtt: "+(d.mqtt_connected?"connected":"DOWN"); $("p-mq").className="pill "+(d.mqtt_connected?"ok":"bad");
 
-  // valves
-  VESSELS.forEach(([v])=>{
-    const act=st["valve_"+v], des=st["valve_"+v+"_desired"], ao=st["valve_"+v+"_auto_open"], ac=st["valve_"+v+"_auto_close"];
+  // valves — LN₂ manifold and pneumatic share the actual / desired / open / close part
+  [...VESSELS.map(([v])=>"valve_"+v), ...PNEUMATIC.map(([sid])=>sid)].forEach(sid=>{
+    const act=st[sid], des=st[sid+"_desired"];
     const on = act && act.value===true;
-    $("vd-"+v).className = "dot"+(on?" on":"");
-    const ae=$("va-"+v); ae.textContent = boolText(act,"OPEN","CLOSED"); ae.className = "num"+(act&&act.freshness!=="fresh"?" cur "+(act?act.freshness:""):"");
-    setCur("vw-"+v, boolText(des,"OPEN","CLOSED"), des);
+    $("vd-"+sid).className = "dot"+(on?" on":"");
+    const ae=$("va-"+sid); ae.textContent = boolText(act,"OPEN","CLOSED"); ae.className = "num"+(act&&act.freshness!=="fresh"?" cur "+(act?act.freshness:""):"");
+    setCur("vw-"+sid, boolText(des,"OPEN","CLOSED"), des);
     const dOpen = des && des.value===true;
-    $("vo-"+v).className = dOpen ? "on" : "";
-    $("vc-"+v).className = (des && des.value===false) ? "on" : "";
+    $("vo-"+sid).className = dOpen ? "on" : "";
+    $("vc-"+sid).className = (des && des.value===false) ? "on" : "";
+    if ($("vr-"+sid)){ const rl=st[sid+"_relay"]; setCur("vr-"+sid, boolText(rl,"energised","off"), rl); }
+    if (!$("vao-"+sid)) return;               // pneumatic valves have no autofill enables
+    const ao=st[sid+"_auto_open"], ac=st[sid+"_auto_close"];
     const aoOn = ao && ao.value===true, acOn = ac && ac.value===true;
-    $("vao-"+v).textContent = ao && ao.value!==null ? (aoOn?"armed":"disarmed") : "—"; $("vao-"+v).className = aoOn?"on":"";
-    $("vac-"+v).textContent = ac && ac.value!==null ? (acOn?"armed":"disarmed") : "—"; $("vac-"+v).className = acOn?"on":"";
+    $("vao-"+sid).textContent = ao && ao.value!==null ? (aoOn?"armed":"disarmed") : "—"; $("vao-"+sid).className = aoOn?"on":"";
+    $("vac-"+sid).textContent = ac && ac.value!==null ? (acOn?"armed":"disarmed") : "—"; $("vac-"+sid).className = acOn?"on":"";
   });
 
   // PV safety interlock

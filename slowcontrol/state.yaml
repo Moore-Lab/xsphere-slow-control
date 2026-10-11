@@ -331,6 +331,56 @@ groups:
       source:  {topic: xsphere/status/valve/ballast, key: auto_close}
       control: {topic: xsphere/commands/valve/ballast/auto_close, payload: {enabled: $value}}
 
+  # ── Pneumatic valves — gas handling (relay outputs Y105–Y107) ───────────
+  # Direct relay commands: the ladder SETs Y10x while DS15x = 1 and RSTs it
+  # otherwise — no autofill, no timer.
+  #
+  # Every value here except `_relay` is in VALVE terms (true = open).  The
+  # ballast and bottle valves are normally open, so their relay is energised
+  # to CLOSE them; the pump valve is normally closed.  The PLC driver applies
+  # that sense (PNEUMATIC_VALVES in drivers/plc.py), so controls and readouts
+  # never have to.  `_relay` is the raw Y output, for when the two disagree.
+  pneumatic:
+    pneumatic_ballast:
+      kind: binary
+      label: "Pneumatic valve — ballast (open; normally open, Y105)"
+      source:  {topic: xsphere/status/pneumatic/ballast, key: state}
+      control: {topic: xsphere/commands/pneumatic/ballast/state, payload: {state: $value01}}
+    pneumatic_ballast_desired:
+      kind: binary
+      label: "Ballast pneumatic valve commanded open (from DS151)"
+      source: {topic: xsphere/status/pneumatic/ballast, key: desired}
+    pneumatic_ballast_relay:
+      kind: binary
+      label: "Ballast pneumatic valve relay energised (Y105 — closes the valve)"
+      source: {topic: xsphere/status/pneumatic/ballast, key: relay}
+    pneumatic_pump:
+      kind: binary
+      label: "Pneumatic valve — pump (open; normally closed, Y106)"
+      source:  {topic: xsphere/status/pneumatic/pump, key: state}
+      control: {topic: xsphere/commands/pneumatic/pump/state, payload: {state: $value01}}
+    pneumatic_pump_desired:
+      kind: binary
+      label: "Pump pneumatic valve commanded open (from DS152)"
+      source: {topic: xsphere/status/pneumatic/pump, key: desired}
+    pneumatic_pump_relay:
+      kind: binary
+      label: "Pump pneumatic valve relay energised (Y106 — opens the valve)"
+      source: {topic: xsphere/status/pneumatic/pump, key: relay}
+    pneumatic_bottle:
+      kind: binary
+      label: "Pneumatic valve — bottle (open; normally open, Y107)"
+      source:  {topic: xsphere/status/pneumatic/bottle, key: state}
+      control: {topic: xsphere/commands/pneumatic/bottle/state, payload: {state: $value01}}
+    pneumatic_bottle_desired:
+      kind: binary
+      label: "Bottle pneumatic valve commanded open (from DS153)"
+      source: {topic: xsphere/status/pneumatic/bottle, key: desired}
+    pneumatic_bottle_relay:
+      kind: binary
+      label: "Bottle pneumatic valve relay energised (Y107 — closes the valve)"
+      source: {topic: xsphere/status/pneumatic/bottle, key: relay}
+
   # ── Heater PID loops (run on the CLICK PLC; temps in K at this boundary) ─
   # Zone 1 = top clamp (Y004), Zone 2 = bottom clamp (Y003), Zone 3 = nozzle/disk (Y002).
   # NB: directly setting pid_*_setpoint only "sticks" in gradient mode = absolute;
