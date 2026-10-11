@@ -85,6 +85,30 @@ nge:
   default_voltage_v: 24.0
   default_current_a: 1.5
 
+# Leybold TURBOVAC 90 i turbo pumps — READ-ONLY monitoring over each pump's USB
+# port.  The service cannot start, stop or re-tune a pump through this; see
+# slowcontrol/drivers/turbovac.py for why not, and for what is read.
+#
+# Both pumps' USB ports look identical to the Pi, so a pump is recognised by
+# its own serial number: the one on its nameplate, which is also what the pump
+# answers when asked.  Which USB port it is on, and the order things were
+# plugged in, do not matter.  The names (ghs, outer) are used in the MQTT
+# topics, state.yaml, telegraf.conf and the Control page.
+turbovac:
+  enabled: true
+  poll_interval_s: 2.0
+  pumps:
+    ghs:
+      label: "GHS turbo — gas handling system + science chamber"
+      serial: "31003077799"      # TURBOVAC 90 i, cat. no. 810041V1000
+    outer:
+      label: "Outer vacuum turbo"
+      # Not connected yet.  While this is empty, the entry takes the one
+      # TURBOVAC on USB that is not pinned above — so the outer vacuum pump
+      # shows up as soon as it is plugged in.  Then put its serial number here
+      # (the Control page shows it) so that it is pinned like the GHS pump.
+      serial: ""
+
 autovalve:
   # LN2 autofill is owned by the PLC ladder (it reads the analog level
   # inputs and decides when/how to open/close XV1/XV2/XV3). The Python

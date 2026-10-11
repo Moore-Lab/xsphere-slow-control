@@ -8,7 +8,8 @@ Startup order
 ─────────────
   1. MQTT connect
   2. Drivers start (PlcDriver polls Modbus registers and publishes sensor data;
-     NgeDriver looks after the heater supply)
+     NgeDriver looks after the heater supply; TurbovacDriver reads the turbo
+     pumps)
   3. StateStore start (subscribes to every source topic in state.yaml; the
      subscriptions catch the retained status messages before the controllers
      start, and the consolidated snapshot is republished from then on)
@@ -45,6 +46,7 @@ from slowcontrol.drivers.base import SensorDriver
 from slowcontrol.drivers.nge import NgeDriver
 from slowcontrol.drivers.omega import OmegaDriver
 from slowcontrol.drivers.plc import PlcDriver
+from slowcontrol.drivers.turbovac import TurbovacDriver
 from slowcontrol.state import SchemaError, default_schema_path, load_state_schema
 from slowcontrol.state.store import StateStore
 
@@ -97,6 +99,8 @@ class SlowControlService:
             self._drivers.append(OmegaDriver(self._config, self._mqtt))
         if self._config.nge.enabled:
             self._drivers.append(NgeDriver(self._config, self._mqtt))
+        if self._config.turbovac.enabled:
+            self._drivers.append(TurbovacDriver(self._config, self._mqtt))
         for driver in self._drivers:
             driver.start()
         log.info("Drivers started")
