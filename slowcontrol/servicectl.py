@@ -41,11 +41,14 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import queue
 import subprocess
 import sys
+import threading
+import time
 from dataclasses import asdict, dataclass, replace
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 # ---------------------------------------------------------------------------
 # Units
@@ -63,6 +66,11 @@ UNITS: Dict[str, tuple] = {
 }
 
 ACTIONS = ("start", "stop", "restart", "enable", "disable")
+
+#: What a status query reads for each unit. Id is there so that the reply to a
+#: query for several units can be matched back to them.
+_STATUS_PROPS = ("Id", "ActiveState", "SubState", "UnitFileState",
+                 "ActiveEnterTimestamp")
 
 #: Extra warning shown before stopping a unit. Only the slow control service
 #: has hardware consequences; saying the same thing about the web panel would
@@ -157,6 +165,69 @@ class UnitStatus:
         return self.active == "failed" or bool(self.error)
 
 
+def _status_argv(keys: List[str]) -> List[str]:
+    # One machine-readable call rather than parsing `systemctl status`.
+    # This needs no sudo, so status works even before sudoers is set up.
+    argv = ["systemctl", "show", *(UNITS[k][0] for k in keys), "--no-pager"]
+    for prop in _STATUS_PROPS:
+        argv += ["-p", prop]
+    return argv
+
+
+def _parse_status(text: str, keys: List[str], host: str) -> List[UnitStatus]:
+    """Turn `systemctl show` output into one UnitStatus per requested unit.
+
+    systemctl prints a block of Key=value lines per unit, with a blank line
+    between blocks.
+    """
+    blocks: Dict[str, Dict[str, str]] = {}
+    block: Dict[str, str] = {}
+    stray: List[str] = []
+    for line in [*text.splitlines(), ""]:
+        if not line.strip():
+            if block:
+                blocks[block.get("Id", "")] = block
+                block = {}
+            continue
+        k, sep, v = line.partition("=")
+        if sep:
+            block[k.strip()] = v.strip()
+        else:
+            stray.append(line.strip())
+
+    out = []
+    for key in keys:
+        unit, label = UNITS[key]
+        st = UnitStatus(key=key, unit=unit, label=label)
+        out.append(st)
+        props = blocks.get(f"{unit}.service")
+        if props is None:
+            st.error = "\n".join(stray) or f"No status for {unit} from {host}"
+            continue
+        st.active  = props.get("ActiveState") or st.active
+        st.sub     = props.get("SubState", "")
+        st.enabled = props.get("UnitFileState", "")
+        st.since   = props.get("ActiveEnterTimestamp", "")
+        if not st.enabled:
+            # systemd reports an empty UnitFileState for a unit it has never
+            # seen — that means the unit file was never installed.
+            st.error = f"{unit} is not installed on {host}"
+            st.active = "missing"
+    return out
+
+
+def _unreachable(keys: List[str], error: str) -> List[UnitStatus]:
+    return [UnitStatus(key=k, unit=UNITS[k][0], label=UNITS[k][1],
+                       active="unreachable", error=error) for k in keys]
+
+
+def _not_found_hint(exe: str) -> str:
+    if exe == "ssh":
+        return ("OpenSSH client not found. On Windows 11 install it with:\n"
+                "  Add-WindowsCapability -Online -Name OpenSSH.Client~~~~0.0.1.0")
+    return f"{exe} not found on PATH."
+
+
 # ---------------------------------------------------------------------------
 # Controller
 # ---------------------------------------------------------------------------
@@ -169,17 +240,22 @@ class ServiceController:
 
     # -- command construction ------------------------------------------
 
+    def _ssh(self, *options: str) -> List[str]:
+        """The ssh command line up to and including the destination."""
+        ssh = ["ssh", "-o", "BatchMode=yes",
+               "-o", "StrictHostKeyChecking=accept-new",
+               "-o", f"ConnectTimeout={int(max(5, self.target.timeout_s // 2))}",
+               *options]
+        if self.target.ssh_key:
+            ssh += ["-i", self.target.ssh_key]
+        ssh.append(f"{self.target.user}@{self.target.host}")
+        return ssh
+
     def _wrap(self, argv: List[str]) -> List[str]:
         """Prefix argv with an SSH invocation unless we are running locally."""
         if self.target.local:
             return argv
-        ssh = ["ssh", "-o", "BatchMode=yes",
-               "-o", "StrictHostKeyChecking=accept-new",
-               "-o", f"ConnectTimeout={int(max(5, self.target.timeout_s // 2))}"]
-        if self.target.ssh_key:
-            ssh += ["-i", self.target.ssh_key]
-        ssh.append(f"{self.target.user}@{self.target.host}")
-        return ssh + argv
+        return self._ssh() + argv
 
     def _run(self, argv: List[str]) -> Result:
         cmd = self._wrap(argv)
@@ -187,16 +263,16 @@ class ServiceController:
             proc = subprocess.run(
                 cmd,
                 capture_output=True,
-                text=True,
+                # The Pi speaks UTF-8 (`systemctl status` leads with "●");
+                # the Windows default codepage cannot decode that.
+                encoding="utf-8",
+                errors="replace",
                 timeout=self.target.timeout_s,
                 creationflags=_NO_WINDOW,
             )
         except FileNotFoundError:
-            exe = cmd[0]
-            hint = ("OpenSSH client not found. On Windows 11 install it with:\n"
-                    "  Add-WindowsCapability -Online -Name OpenSSH.Client~~~~0.0.1.0"
-                    ) if exe == "ssh" else f"{exe} not found on PATH."
-            return Result(False, 127, stderr=hint, command=" ".join(cmd))
+            return Result(False, 127, stderr=_not_found_hint(cmd[0]),
+                          command=" ".join(cmd))
         except subprocess.TimeoutExpired:
             return Result(False, 124,
                           stderr=f"Timed out after {self.target.timeout_s:.0f}s. "
@@ -248,37 +324,18 @@ class ServiceController:
         # sudo -n: never prompt. A prompt would hang forever behind the GUI.
         return self._run(["sudo", "-n", "systemctl", action, unit])
 
-    def status(self, key: str) -> UnitStatus:
-        unit, label = UNITS[key]
-        st = UnitStatus(key=key, unit=unit, label=label)
-        # One machine-readable call rather than parsing `systemctl status`.
-        # This needs no sudo, so status works even before sudoers is set up.
-        res = self._run([
-            "systemctl", "show", unit, "--no-pager",
-            "-p", "ActiveState", "-p", "SubState",
-            "-p", "UnitFileState", "-p", "ActiveEnterTimestamp",
-        ])
+    def statuses(self, keys: List[str]) -> List[UnitStatus]:
+        """Status of several units from a single call (one login over SSH)."""
+        res = self._run(_status_argv(keys))
         if not res.ok and not res.stdout:
-            st.active = "unreachable"
-            st.error = res.text
-            return st
-        for line in res.stdout.splitlines():
-            if "=" not in line:
-                continue
-            k, _, v = line.partition("=")
-            if   k == "ActiveState":          st.active  = v.strip()
-            elif k == "SubState":             st.sub     = v.strip()
-            elif k == "UnitFileState":        st.enabled = v.strip()
-            elif k == "ActiveEnterTimestamp": st.since   = v.strip()
-        if not st.enabled:
-            # systemd reports an empty UnitFileState for a unit it has never
-            # seen — that means the unit file was never installed.
-            st.error = f"{unit} is not installed on {self.target.host}"
-            st.active = "missing"
-        return st
+            return _unreachable(keys, res.text)
+        return _parse_status(res.stdout, keys, self.target.host)
+
+    def status(self, key: str) -> UnitStatus:
+        return self.statuses([key])[0]
 
     def status_all(self) -> List[UnitStatus]:
-        return [self.status(k) for k in UNITS]
+        return self.statuses(list(UNITS))
 
     def status_text(self, keys: List[str], lines: int = 8) -> Result:
         """The human-readable `systemctl status` block for one or more units.
@@ -303,27 +360,203 @@ class ServiceController:
 
 
 # ---------------------------------------------------------------------------
+# Status polling
+# ---------------------------------------------------------------------------
+
+#: Printed by the remote loop after each reply.
+_STATUS_END = "__xsphere_status_end__"
+
+#: What the long-lived connection runs on the Pi: print the status of every
+#: unit each time a line arrives on stdin, and exit when stdin closes.
+_STATUS_LOOP = ("while read -r _line; do "
+                + " ".join(_status_argv(list(UNITS)))
+                + f" 2>&1; echo; echo {_STATUS_END}; done")
+
+
+class StatusSession:
+    """Answers repeated status queries over one long-lived SSH connection.
+
+    Every SSH login makes sshd, systemd-logind and systemd write about a dozen
+    lines to the Pi's journal, and that journal is kept in RAM with a small
+    cap.  A login per unit per refresh filled it in a few hours and pushed out
+    everything else, the slow control service's own log lines included.  So
+    the periodic refresh logs in once and keeps the connection.
+
+    Windows OpenSSH has no ControlMaster, which is why this is a pipe to one
+    ssh process rather than connection sharing.  Start / stop / restart and
+    the log views still log in each time (ServiceController._run): those only
+    happen when someone clicks.
+    """
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._target: Optional[Target] = None
+        self._proc: Optional[subprocess.Popen] = None
+        self._lines: "queue.Queue[Optional[str]]" = queue.Queue()
+        self._stderr: List[str] = []
+        self._err_pump: Optional[threading.Thread] = None
+        self._closed = False
+
+    def poll(self, target: Target) -> List[UnitStatus]:
+        """Status of every unit on `target`. Blocks for at most its timeout."""
+        if target.local:
+            return ServiceController(target).status_all()
+        keys = list(UNITS)
+        with self._lock:
+            if target != self._target:
+                self._drop()
+                self._target = target
+            error = "Closed."
+            try:
+                # A connection that went away since the last poll (the Pi was
+                # rebooted, this PC slept) is replaced once.  A new one that
+                # fails is reported, and the caller decides when to try again.
+                for _ in range(2):
+                    if self._closed:
+                        break
+                    reused = self._proc is not None
+                    if not reused:
+                        error = self._connect()
+                        if error:
+                            break
+                    reply, error = self._ask()
+                    if reply is not None:
+                        return _parse_status(reply, keys, target.host)
+                    said = self._drop()
+                    error = error or said
+                    if not reused:
+                        break
+            finally:
+                # close() does not wait for the lock, so it can miss a
+                # connection that was being opened while it ran.
+                if self._closed:
+                    self._drop()
+            error += ServiceController(target)._diagnose(
+                Result(False, 255, stderr=error))
+            return _unreachable(keys, error)
+
+    def close(self) -> None:
+        """Hang up. Safe from any thread, including while a poll is running."""
+        self._closed = True
+        proc = self._proc
+        if proc is not None:
+            self._hang_up(proc)
+
+    # -- internals: call with the lock held -------------------------------
+
+    def _connect(self) -> str:
+        """Start ssh. Returns an error message, or "" once it is running."""
+        # ServerAlive: notice a dead link ourselves instead of leaving an ssh
+        # process blocked on it forever. These probes are not logged.
+        cmd = ServiceController(self._target)._ssh(
+            "-T", "-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=3")
+        try:
+            proc = subprocess.Popen(cmd + [_STATUS_LOOP],
+                                    stdin=subprocess.PIPE,
+                                    stdout=subprocess.PIPE,
+                                    stderr=subprocess.PIPE,
+                                    creationflags=_NO_WINDOW)
+        except FileNotFoundError:
+            return _not_found_hint(cmd[0])
+
+        # Pipes cannot be read with a timeout on Windows, so threads do the
+        # reading. Each connection gets its own queue: nothing a dead
+        # connection said can be taken for the reply of its replacement.
+        lines: "queue.Queue[Optional[str]]" = queue.Queue()
+        stderr: List[str] = []
+
+        def _pump_out():
+            for raw in proc.stdout:
+                lines.put(raw.decode("utf-8", "replace").rstrip("\r\n"))
+            lines.put(None)              # ssh has exited
+
+        def _pump_err():
+            for raw in proc.stderr:
+                stderr.append(raw.decode("utf-8", "replace"))
+
+        threading.Thread(target=_pump_out, daemon=True).start()
+        self._err_pump = threading.Thread(target=_pump_err, daemon=True)
+        self._err_pump.start()
+        self._proc, self._lines, self._stderr = proc, lines, stderr
+        return ""
+
+    def _ask(self) -> Tuple[Optional[str], str]:
+        """One query. Returns (reply, "") or (None, why) — why may be empty,
+        in which case ssh exited and its stderr has the reason."""
+        try:
+            self._proc.stdin.write(b"\n")
+            self._proc.stdin.flush()
+        except (OSError, ValueError):
+            return None, ""
+        timeout_s = self._target.timeout_s
+        deadline = time.monotonic() + timeout_s
+        reply: List[str] = []
+        while True:
+            try:
+                line = self._lines.get(
+                    timeout=max(0.0, deadline - time.monotonic()))
+            except queue.Empty:
+                return None, (f"Timed out after {timeout_s:.0f}s. "
+                              f"Is {self._target.host} reachable?")
+            if line is None:
+                return None, ""
+            if line == _STATUS_END:
+                return "\n".join(reply), ""
+            reply.append(line)
+
+    def _drop(self) -> str:
+        """End the connection, if there is one, and return what ssh said."""
+        proc, self._proc = self._proc, None
+        if proc is None:
+            return ""
+        self._hang_up(proc)
+        if self._err_pump is not None:
+            self._err_pump.join(timeout=1.0)
+        said = "".join(self._stderr).strip()
+        return said or (f"SSH connection to {self._target.host} closed "
+                        f"(exit {proc.returncode}).")
+
+    @staticmethod
+    def _hang_up(proc: subprocess.Popen) -> None:
+        # Closing stdin ends the remote loop, so ssh logs out by itself; kill
+        # it only if it does not.
+        try:
+            proc.stdin.close()
+        except (OSError, ValueError):
+            pass
+        try:
+            proc.wait(timeout=1.0)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            try:
+                proc.wait(timeout=2.0)
+            except subprocess.TimeoutExpired:
+                pass
+
+
+# ---------------------------------------------------------------------------
 # Tk panel
 # ---------------------------------------------------------------------------
 
 def _build_panel(parent, controller: "ServiceController", **kw):
     """Construct the service control panel. Imports Tk lazily so the
     controller stays usable on a headless Pi."""
-    import queue
-    import threading
     import tkinter as tk
     from tkinter import messagebox, scrolledtext, ttk
 
     class ServicePanel(ttk.Frame):
         POLL_MS = 5000          # status refresh interval
         # ... and the interval while the target cannot be reached at all.
-        # Every poll is a fresh SSH login, so polling a host that is refusing
-        # our key at the normal rate is a steady stream of failed logins.
+        # A refresh normally rides the connection StatusSession keeps open,
+        # but while that cannot be set up every poll is a fresh SSH login, so
+        # polling a host that is refusing our key at the normal rate is a
+        # steady stream of failed logins.
         POLL_UNREACHABLE_MS = 30000
 
         def __init__(self, master, ctrl: ServiceController, **kw):
             super().__init__(master, **kw)
             self._ctrl = ctrl
+            self._session = StatusSession()
             self._q: "queue.Queue" = queue.Queue()
             self._rows: Dict[str, dict] = {}
             self._busy = 0
@@ -540,7 +773,7 @@ def _build_panel(parent, controller: "ServiceController", **kw):
                          "test", "testing…")
 
         def refresh(self) -> None:
-            self._submit(lambda c: c.status_all(), "status")
+            self._submit(lambda c: self._session.poll(c.target), "status")
 
         def _reschedule(self) -> None:
             if self._auto_job is not None:
@@ -641,6 +874,7 @@ def _build_panel(parent, controller: "ServiceController", **kw):
                     self.after_cancel(self._auto_job)
                 except Exception:
                     pass
+            self._session.close()
             super().destroy()
 
     return ServicePanel(parent, controller, **kw)
@@ -710,7 +944,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     keys = list(UNITS) if args.service == "all" else [args.service]
 
     if args.action == "status":
-        for st in (ctrl.status(k) for k in keys):
+        for st in ctrl.statuses(keys):
             mark = "OK  " if st.is_running else ("FAIL" if st.is_failed else "--  ")
             detail = st.error or f"{st.active} ({st.sub}), {st.enabled} at boot"
             print(f"[{mark}] {st.label:<28} {detail}")

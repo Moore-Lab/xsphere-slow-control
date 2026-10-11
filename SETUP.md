@@ -117,6 +117,23 @@ sudo systemctl status xsphere-slowcontrol
 journalctl -u xsphere-slowcontrol -f
 ```
 
+### 2e. Keep the journal on disk
+
+xbox-pi's `/etc/systemd/journald.conf` sets `Storage=volatile`: the journal lives
+in RAM (about 75 MB) and is lost on every reboot. This drop-in overrides that and
+keeps up to 1 GB under `/var/log/journal`, so `journalctl -u xsphere-slowcontrol`
+still has the lines from before a reboot or power cut.
+
+```bash
+sudo mkdir -p /etc/systemd/journald.conf.d
+sudo cp /home/xbox/xsphere-slow-control/slowcontrol/xsphere-journald.conf \
+        /etc/systemd/journald.conf.d/xsphere.conf
+sudo systemctl restart systemd-journald
+sudo journalctl --flush        # move what is in RAM onto disk
+```
+
+Restarting `systemd-journald` does not restart any other service.
+
 ---
 
 ## Step 3 — Omega RDXL6SD-USB logger
