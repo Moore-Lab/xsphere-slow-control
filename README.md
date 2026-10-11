@@ -137,7 +137,7 @@ See `slowcontrol/STATE_LAYER_PLAN.md` for the full field reference.
 
 ### Starting and stopping the services from the DAQ PC
 
-`slowcontrol.servicectl` is a small window with Start / Restart / Stop / Logs for `xsphere-slowcontrol` and `xsphere-webcontrol`, a status dot per service, and the full `systemctl status` text in its output pane (on open, after each action, and on **Print Status**). It runs the commands on xbox-pi over SSH.
+`slowcontrol.servicectl` is a small window with Start / Restart / Stop / Logs for `xsphere-slowcontrol` and `xsphere-webcontrol`, a status dot per service, and the full `systemctl status` text in its output pane (on open, after each action, and on **Print Status**). It runs the commands on xbox-pi over SSH. The status dots refresh every 5 s over one SSH connection that stays open with the window, so leaving it open adds nothing to the Pi's journal; each button press is a login of its own.
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\scripts\Install-Shortcut.ps1 -NoStartMenu
