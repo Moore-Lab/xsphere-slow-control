@@ -203,7 +203,7 @@ Three coaxial capacitance probes, each connected to a dedicated FDC1004 IC on an
 ### 3.5 Pumping
 
 - **GHS pump:** Leybold turbo-based pumping stand (manual gate valve between turbo and system). It pumps the gas handling system, science chamber included. The turbo is a TURBOVAC 90 i (cat. no. 810041V1000, pump serial 31003077799): 1200 Hz = 72,000 rpm at full speed, 24 V DC drive.
-- **Outer vacuum pump:** Same model Leybold stand (manual gate valve)
+- **Outer vacuum pump:** Same model Leybold stand (manual gate valve). Its turbo is a second TURBOVAC 90 i, pump serial 31003045053.
 - **Monitoring:** each turbo's frequency converter has a USB port (CDC serial, USS protocol, 19200 8E1) that goes to xbox-pi, where `TurbovacDriver` (`slowcontrol/drivers/turbovac.py`) reads it every 2 s: rotor frequency and setpoint, motor current, supply voltage, drive power, motor / bearing / converter temperature, operating state, warnings, operating hours and the pump's error memory. Things that matter when reading the numbers:
   - **Read-only by construction.** The driver can only build parameter-read telegrams with an all-zero control word, so it cannot start, stop or re-tune a pump; the pumps are operated at the stand as before (no bus master holds control of the GHS pump — status bit 15 is clear — so its start comes in at the converter's X1 connector). By the manual the same link *would* carry control — control word bit 10 takes control away from X1, bit 0 is start/stop, and a master that then goes quiet for 10 s (parameter 182) hands control back. None of that has been tried, and none of it is sent.
   - **A pump is recognised by its own serial number** (parameter 355 = the nameplate; `turbovac.pumps` in `config.yaml`). Both converters report the same USB serial number and `/dev/ttyACM*` follows plug-in order, so nothing on the USB side tells them apart.
@@ -627,7 +627,7 @@ In the new architecture, all `PLC *` topics are replaced by the Python service r
 ### Phase 4 — Advanced Modules
 - [ ] Temperature gradient scanner plugin (integrate with wind camera analysis)
 - [ ] Mass scale RS-232 driver (LN2 dewar mass tracking)
-- [x] Leybold turbo pump monitoring over USB (read-only; GHS pump connected, outer vacuum pump to follow)
+- [x] Leybold turbo pump monitoring over USB (read-only; GHS and outer vacuum pumps both connected and pinned by serial number)
 
 ### Phase 5 — Documentation
 - [ ] Update Notion pages (Computer & Network, Slow Control sections)

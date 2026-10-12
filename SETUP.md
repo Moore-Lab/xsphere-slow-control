@@ -243,11 +243,11 @@ turbovac:
   enabled: true
   pumps:
     ghs:   {label: "GHS turbo — gas handling system + science chamber", serial: "31003077799"}
-    outer: {label: "Outer vacuum turbo", serial: ""}
+    outer: {label: "Outer vacuum turbo", serial: "31003045053"}
 ```
 
 An entry with an empty `serial` takes the one TURBOVAC on USB that no other
-entry names, which is how a newly connected pump first shows up. Its block on
+entry names, which is how a new or replacement pump first shows up. Its block on
 the Control page then says `not pinned` and shows the serial number it read:
 copy that into `config.yaml` and restart the service, so the entry can never
 end up on the wrong pump. The names `ghs` and `outer` are fixed — `state.yaml`,

@@ -730,6 +730,8 @@ def test_config_yaml_names_this_pump_as_the_ghs_pump():
     assert cfg.pumps["ghs"].serial == GHS               # the pump read on 2026-10-11
     assert "gas handling" in cfg.pumps["ghs"].label and "science chamber" in cfg.pumps["ghs"].label
     assert "outer" in cfg.pumps["outer"].label.lower()
+    assert cfg.pumps["outer"].serial == "31003045053"   # the pump plugged in on 2026-10-12
+    assert all(pump.serial for pump in cfg.pumps.values())      # both pinned: nothing left to chance
     # each pump in the config has its rows in the registry
     ids = {s.id for s in load_state_schema(default_schema_path()).states}
     for name in cfg.pumps:
