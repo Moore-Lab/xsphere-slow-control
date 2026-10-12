@@ -12,6 +12,7 @@ Also accepts write commands for:
   - Valve automation enables (DS1101-1106)
   - Pneumatic valve desired state (DS151, DS152, DS153)
   - Level sensor raw values (DF251, DF252) — written from MQTT callbacks
+  - Cryostat level probe voltage (DF333) and its age (DF254) — likewise
     so the PLC's autofill ladder logic stays current
 
 # ==========================================================================
@@ -159,6 +160,26 @@ LEVEL_SOURCE_TOPICS = {
     "ballast":    "xsphere/sensors/level/ballast",
     "primary_xe": "xsphere/sensors/level/primary_xe",
 }
+
+# The cryostat's internal LN level probe is read over USB by LevelProbeDriver
+# (drivers/levelprobe.py), which publishes the voltage the probe's analog
+# output stands for on xsphere/sensors/level_probe/{vessel}.  We write that
+# voltage to DF333 — the "digital" copy of the cryostat level.  The ladder's
+# XV3 fill-status rungs compare it with the same 1.0 / 2.3 limits as DF303,
+# the filtered analog input, which stays as the "analog" copy.  It is not
+# filtered in the ladder; the probe's firmware already takes a median.
+#
+# Separately we write the age of that reading in seconds — 0-4 while the probe
+# is talking, climbing (to LEVEL_PROBE_AGE_MAX_S) once it stops — for a ladder
+# rung that wants to know the voltage has gone stale.  The voltage register is
+# left at its last value when that happens.
+REG_LEVEL_PROBE_WRITE = {
+    "cryostat":   _df(333),  # DF333 cryostat level, digital copy (V, written by us)
+}
+REG_LEVEL_PROBE_AGE = {
+    "cryostat":   _df(254),  # DF254 age of DF333's reading (s, written by us)
+}
+LEVEL_PROBE_AGE_MAX_S = 9999.0
 
 # --- LabJack T7 temperatures mirrored into PLC DF registers (written by us) ---
 # The LabJack publishes its RTD/TC values over MQTT; we forward them into these
@@ -340,6 +361,10 @@ class PlcDriver(SensorDriver):
         self._modbus_lock = threading.Lock()
         # Cache latest level values received from ESP32 MQTT topics
         self._level_raw: Dict[str, float] = {}
+        # Latest level-probe voltage per vessel, with the monotonic time it
+        # arrived: (volts, ts).  See REG_LEVEL_PROBE_WRITE.
+        self._level_probe: Dict[str, Tuple[float, float]] = {}
+        self._level_probe_stale: Dict[str, bool] = {}
         # Cache latest LabJack temperatures received over MQTT (°C), keyed by
         # channel number — RTD absolute, TC gradient (ΔT) — to mirror into the PLC
         self._labjack_rtd_c: Dict[int, float] = {}
@@ -407,6 +432,8 @@ class PlcDriver(SensorDriver):
         # Subscribe to level sensor topics so we can forward to PLC
         for vessel, topic in LEVEL_SOURCE_TOPICS.items():
             self._mqtt.subscribe(topic, self._on_level_message)
+        self._mqtt.subscribe(sensor_topic("level_probe", "+"),
+                             self._on_level_probe_message)
 
         # Subscribe to LabJack temperature topics so we can mirror them into
         # PLC DF registers (RTD absolute °C → DF210-212; TC gradient °C → DF213-216).
@@ -607,6 +634,27 @@ class PlcDriver(SensorDriver):
             val = self._level_raw.get(vessel)
             if val is not None:
                 self._write_float(addr, val)
+
+        # Level probe read over USB: voltage → DF333 while it is fresh, and
+        # the age of that reading → DF254 always.
+        now = time.monotonic()
+        stale_s = self._config.level_probe.stale_s
+        for vessel, addr in REG_LEVEL_PROBE_WRITE.items():
+            got = self._level_probe.get(vessel)
+            age = LEVEL_PROBE_AGE_MAX_S if got is None else min(
+                now - got[1], LEVEL_PROBE_AGE_MAX_S)
+            stale = age > stale_s
+            if not stale:
+                self._write_float(addr, got[0])
+            self._write_float(REG_LEVEL_PROBE_AGE[vessel], round(age, 1))
+            if got is not None and stale != self._level_probe_stale.get(vessel, False):
+                self._level_probe_stale[vessel] = stale
+                if stale:
+                    log.warning("[plc] %s level probe: no reading for %.0f s — "
+                                "PLC register holds the last voltage (%.3f V)",
+                                vessel, age, got[0])
+                else:
+                    log.info("[plc] %s level probe: readings are back", vessel)
 
     def _write_labjack_to_plc(self) -> None:
         """Mirror the latest LabJack temperatures into PLC DF registers (°C),
@@ -970,6 +1018,18 @@ class PlcDriver(SensorDriver):
                 self._level_raw[vessel] = float(raw)
             except (TypeError, ValueError):
                 pass
+
+    def _on_level_probe_message(self, topic: str, payload: dict) -> None:
+        """Cache the level-probe voltage published by LevelProbeDriver."""
+        # topic: xsphere/sensors/level_probe/{vessel}
+        vessel = topic.split("/")[-1]
+        volts = payload.get("voltage_v") if isinstance(payload, dict) else None
+        try:
+            volts = float(volts)
+        except (TypeError, ValueError):
+            return
+        if volts == volts and vessel in REG_LEVEL_PROBE_WRITE:      # not NaN
+            self._level_probe[vessel] = (volts, time.monotonic())
 
     def _on_labjack_rtd(self, topic: str, payload: dict) -> None:
         """Cache a LabJack RTD — value_c (°C) for the PLC mirror DF210-212 and
