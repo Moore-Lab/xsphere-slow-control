@@ -152,6 +152,25 @@ class TurbovacConfig:
 
 
 @dataclass
+class LevelProbeConfig:
+    """Cryostat LN level probe (MPR121 ESP32), read over its USB serial port.
+    See slowcontrol/drivers/levelprobe.py."""
+    enabled: bool = False
+    port: str = "/dev/serial/by-id/usb-1a86_USB_Serial-if00-port0"
+    baud_rate: int = 9600
+    timeout_s: float = 1.0
+    # Names the MQTT topic (xsphere/sensors/level_probe/<vessel>) and picks the
+    # PLC register the voltage is written to (REG_LEVEL_PROBE_WRITE in plc.py).
+    vessel: str = "cryostat"
+    # voltage = pwm / pwm_max * v_ref — what the ESP32's PWM pin averages to.
+    pwm_max: int = 255
+    v_ref: float = 3.3
+    # No line from the sensor for this long ⇒ the reading is stale: the status
+    # topic says so, and the PLC driver stops refreshing the PLC register.
+    stale_s: float = 15.0
+
+
+@dataclass
 class VesselAutofillConfig:
     level_high: float = 2.5         # close valve above this (0-10 scale)
     level_low: float = 0.5          # open valve below this (0-10 scale)
@@ -196,6 +215,7 @@ class ServiceConfig:
     omega: OmegaConfig = field(default_factory=OmegaConfig)
     nge: NgeConfig = field(default_factory=NgeConfig)
     turbovac: TurbovacConfig = field(default_factory=TurbovacConfig)
+    level_probe: LevelProbeConfig = field(default_factory=LevelProbeConfig)
     autovalve: AutovalveConfig = field(default_factory=AutovalveConfig)
     gradient: GradientConfig = field(default_factory=GradientConfig)
     # Raw `labjack:` block from the YAML, passed through to the LabJack T7
@@ -311,6 +331,19 @@ def load(path: str = "config.yaml") -> ServiceConfig:
             timeout_s=float(t.get("timeout_s", cfg.turbovac.timeout_s)),
             slow_interval_s=float(t.get("slow_interval_s", cfg.turbovac.slow_interval_s)),
             pumps=pumps,
+        )
+
+    if "level_probe" in raw:
+        lp = raw["level_probe"] or {}
+        cfg.level_probe = LevelProbeConfig(
+            enabled=bool(lp.get("enabled", cfg.level_probe.enabled)),
+            port=str(lp.get("port", cfg.level_probe.port)),
+            baud_rate=int(lp.get("baud_rate", cfg.level_probe.baud_rate)),
+            timeout_s=float(lp.get("timeout_s", cfg.level_probe.timeout_s)),
+            vessel=str(lp.get("vessel", cfg.level_probe.vessel)),
+            pwm_max=int(lp.get("pwm_max", cfg.level_probe.pwm_max)),
+            v_ref=float(lp.get("v_ref", cfg.level_probe.v_ref)),
+            stale_s=float(lp.get("stale_s", cfg.level_probe.stale_s)),
         )
 
     if "autovalve" in raw:
