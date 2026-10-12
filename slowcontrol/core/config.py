@@ -156,7 +156,14 @@ class LevelProbeConfig:
     """Cryostat LN level probe (MPR121 ESP32), read over its USB serial port.
     See slowcontrol/drivers/levelprobe.py."""
     enabled: bool = False
-    port: str = "/dev/serial/by-id/usb-1a86_USB_Serial-if00-port0"
+    # "auto": listen to every USB-serial adapter whose chip is `usb_id` and
+    # take the one that prints the probe's lines — no port to keep up to date.
+    # Or a device path, to use that port without looking.
+    port: str = "auto"
+    usb_id: str = "1a86:7523"       # CH340, the chip on the probe's ESP32 board
+    # How long an adapter may stay silent before the search moves on (the
+    # probe prints a line every ~3.5 s).
+    identify_s: float = 10.0
     baud_rate: int = 9600
     timeout_s: float = 1.0
     # Names the MQTT topic (xsphere/sensors/level_probe/<vessel>) and picks the
@@ -338,6 +345,8 @@ def load(path: str = "config.yaml") -> ServiceConfig:
         cfg.level_probe = LevelProbeConfig(
             enabled=bool(lp.get("enabled", cfg.level_probe.enabled)),
             port=str(lp.get("port", cfg.level_probe.port)),
+            usb_id=str(lp.get("usb_id", cfg.level_probe.usb_id)),
+            identify_s=float(lp.get("identify_s", cfg.level_probe.identify_s)),
             baud_rate=int(lp.get("baud_rate", cfg.level_probe.baud_rate)),
             timeout_s=float(lp.get("timeout_s", cfg.level_probe.timeout_s)),
             vessel=str(lp.get("vessel", cfg.level_probe.vessel)),
