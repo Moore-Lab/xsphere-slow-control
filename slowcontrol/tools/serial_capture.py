@@ -240,7 +240,8 @@ def main(argv=None) -> int:
                     time.sleep(0.5)
                     continue
                 try:
-                    # exclusive: nothing else on the Pi may read this console by mistake
+                    # exclusive is an advisory lock: a second capture (or anything
+                    # else that asks for it) is refused rather than sharing the bytes
                     link = serial.Serial(port, args.baud, timeout=1.0, exclusive=True)
                 except Exception as exc:
                     if str(exc) != last_error:
