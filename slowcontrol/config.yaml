@@ -117,13 +117,14 @@ turbovac:
 # See slowcontrol/drivers/levelprobe.py.
 level_probe:
   enabled: true
-  # Named by the USB socket it is plugged into — port 3 of the hub — because
-  # nothing else tells it apart: its CH340 USB-serial chip has no serial
-  # number, and the gas handling cart's ESP32 (same chip, plugged into the Pi
-  # since 2026-10-12 for its serial console) answers to the same by-id name.
-  # If the probe's cable is moved to another socket, put that socket's
-  # /dev/serial/by-path/ name here (`ls -l /dev/serial/by-path/`).
-  port: /dev/serial/by-path/platform-xhci-hcd.0-usb-0:1.3:1.0-port0
+  # No port is named.  The board's CH340 USB chip has no serial number, so on
+  # the USB side nothing but the socket it is in tells it from the other CH340
+  # board on the Pi (the gas handling cart's ESP32) — and cables get moved.
+  # The service listens to each CH340 adapter and takes the one that prints
+  # the probe's lines, so the probe can be in any socket.  (To force a port
+  # anyway, put its /dev/... path here instead of "auto".)
+  port: auto
+  usb_id: "1a86:7523"      # which adapters to listen to: CH340
   baud_rate: 9600
   vessel: cryostat
   pwm_max: 255

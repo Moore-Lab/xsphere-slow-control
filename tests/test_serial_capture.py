@@ -12,7 +12,7 @@ import re
 import pytest
 
 from slowcontrol.tools import serial_capture as sc
-from slowcontrol.tools.serial_capture import Capture, DailyLog
+from slowcontrol.tools.serial_capture import Capture, DailyLog, Finder
 
 ROUTINE = re.compile(r"^(Temperature: |Pressure: |CH[0-9])")
 BLOCK = (b"Temperature: 23.80 \xc2\xb0C, Humidity: 47.00 %\r\n"
@@ -132,3 +132,84 @@ def test_only_usb_serial_adapters_are_candidates(monkeypatch):
     monkeypatch.setattr(sc.glob, "glob", lambda pattern: list(ttys))
     monkeypatch.setattr(sc.os.path, "realpath", lambda p: ttys[p])
     assert sc.usb_serial_adapters() == {"/dev/serial/by-path/a-usb-0:1.3:1.0-port0": "ttyUSB0"}
+
+
+# ── --match: finding the adapter by what it prints ───────────────────────────
+
+class FakePort:
+    """An adapter: read() hands out one queued chunk per call, each taking `dt`."""
+
+    def __init__(self, clock, chunks, dt=0.1):
+        self.clock, self.chunks, self.dt = clock, list(chunks), dt
+        self.closed = False
+        self.in_waiting = 0
+
+    def read(self, n):
+        self.clock[0] += self.dt
+        return self.chunks.pop(0) if self.chunks else b""
+
+    def close(self):
+        self.closed = True
+
+
+class Ports:
+    def __init__(self):
+        self.clock = [0.0]
+        self.present = {}               # tty → FakePort, or None for "locked by something else"
+        self.plugged = {}
+        self.opens = []
+        self.finder = Finder(re.compile(r"^CH[0-9]: .* V "), self.open, lambda: sorted(self.present),
+                             plugged_in_at=lambda tty: self.plugged.get(tty, 0),
+                             clock=lambda: self.clock[0])
+
+    def plug(self, tty, chunks=None, dt=0.1):
+        self.present[tty] = None if chunks is None else FakePort(self.clock, chunks, dt)
+        self.plugged[tty] = self.plugged.get(tty, 0) + 1
+
+    def open(self, tty):
+        self.opens.append(tty)
+        if self.present[tty] is None:
+            raise OSError("Could not exclusively lock port")
+        return self.present[tty]
+
+
+PROBE_LINE = b"median delta = 742.453125 | pwm = 129\r\n"
+
+
+def test_finder_takes_the_adapter_that_matches():
+    ports = Ports()
+    ports.plug("/dev/ttyUSB0", [PROBE_LINE] * 3, dt=3.5)       # the level probe, unclaimed
+    ports.plug("/dev/ttyUSB1", [BLOCK])
+    port, link, seen = ports.finder.find()
+    assert port == "/dev/ttyUSB1" and seen == BLOCK and not link.closed
+    assert ports.present["/dev/ttyUSB0"].closed                 # listened to, then let go
+
+
+def test_finder_skips_an_adapter_something_else_is_reading():
+    ports = Ports()
+    ports.plug("/dev/ttyUSB0")                                  # the service has the level probe
+    ports.plug("/dev/ttyUSB1", [BLOCK[:30], BLOCK[30:]])
+    port, link, seen = ports.finder.find()
+    assert port == "/dev/ttyUSB1" and seen == BLOCK
+    assert ports.opens == ["/dev/ttyUSB0", "/dev/ttyUSB1"]
+
+
+def test_finder_leaves_a_foreign_adapter_alone_until_it_is_replugged():
+    ports = Ports()
+    ports.plug("/dev/ttyUSB0", [b"something else\r\n"] * 100)
+    assert ports.finder.find() == (None, None, b"")
+    ports.clock[0] += 3600
+    assert ports.finder.find() == (None, None, b"")
+    assert ports.opens == ["/dev/ttyUSB0"]                      # not opened a second time
+    ports.plug("/dev/ttyUSB0", [BLOCK])                         # a different board in that place
+    assert ports.finder.find()[0] == "/dev/ttyUSB0"
+
+
+def test_finder_tries_a_quiet_adapter_again_later():
+    ports = Ports()
+    ports.plug("/dev/ttyUSB0", [], dt=1.0)
+    assert ports.finder.find() == (None, None, b"")
+    assert ports.finder.find() == (None, None, b"") and ports.opens == ["/dev/ttyUSB0"]
+    ports.clock[0] += sc.RETRY_S + 1
+    ports.present["/dev/ttyUSB0"].chunks = [BLOCK]
+    assert ports.finder.find()[0] == "/dev/ttyUSB0"
