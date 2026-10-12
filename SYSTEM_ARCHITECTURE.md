@@ -202,9 +202,13 @@ Three coaxial capacitance probes, each connected to a dedicated FDC1004 IC on an
 
 ### 3.5 Pumping
 
-- **GHS pump:** Leybold turbo-based pumping stand (manual gate valve between turbo and system)
+- **GHS pump:** Leybold turbo-based pumping stand (manual gate valve between turbo and system). It pumps the gas handling system, science chamber included. The turbo is a TURBOVAC 90 i (cat. no. 810041V1000, pump serial 31003077799): 1200 Hz = 72,000 rpm at full speed, 24 V DC drive.
 - **Outer vacuum pump:** Same model Leybold stand (manual gate valve)
-- **Serial interface:** Not currently implemented — future work (low priority)
+- **Monitoring:** each turbo's frequency converter has a USB port (CDC serial, USS protocol, 19200 8E1) that goes to xbox-pi, where `TurbovacDriver` (`slowcontrol/drivers/turbovac.py`) reads it every 2 s: rotor frequency and setpoint, motor current, supply voltage, drive power, motor / bearing / converter temperature, operating state, warnings, operating hours and the pump's error memory. Things that matter when reading the numbers:
+  - **Read-only by construction.** The driver can only build parameter-read telegrams with an all-zero control word, so it cannot start, stop or re-tune a pump; the pumps are operated at the stand as before (no bus master holds control of the GHS pump — status bit 15 is clear — so its start comes in at the converter's X1 connector). By the manual the same link *would* carry control — control word bit 10 takes control away from X1, bit 0 is start/stop, and a master that then goes quiet for 10 s (parameter 182) hands control back. None of that has been tried, and none of it is sent.
+  - **A pump is recognised by its own serial number** (parameter 355 = the nameplate; `turbovac.pumps` in `config.yaml`). Both converters report the same USB serial number and `/dev/ttyACM*` follows plug-in order, so nothing on the USB side tells them apart.
+  - **The converter's USB side is powered by the pump's 24 V supply.** A pump switched off at its supply disappears from USB and reads as "not connected".
+  - **"Normal operation"** means at or above 90 % of the setpoint frequency (parameter 25). The pump's own limits: bearing warning 55 °C / error 61 °C, motor warning 80 °C / error 100 °C, converter warning 60 °C / error 65 °C.
 - **RGA:** SRS 200, serial connection to DAQ computer — out of scope for slow control
 
 ---
@@ -301,7 +305,7 @@ Specific flows:
           ┌────────▼───────┐   │  - PLC (Modbus TCP, direct)    │
           │  InfluxDB 2.x  │   │  - Omega (already running)     │
           └────────┬───────┘   │  - Scale RS-232 (future)       │
-                   │           │  - Leybold serial (future)     │
+                   │           │  - Turbo pumps (USB, read)     │
           ┌────────▼───────┐   │                                │
           │    Grafana     │   │  Controllers                   │
           │  (monitoring)  │   │  - PID wrapper + gradient mgr  │
@@ -371,7 +375,7 @@ Modeled on the usphere-DAQ pattern. Each plugin is a self-contained Python modul
 
 **Future plugins:**
 - `scale_reader` — LN2 dewar mass scale (RS-232)
-- `pump_monitor` — Leybold pumping stand status (serial)
+- `pump_monitor` — Leybold pumping stand status. Done, as a driver rather than a plugin: `TurbovacDriver` (see §3.5)
 
 ### 6.5 MQTT Topic Schema (slowcontrol-v2)
 
@@ -391,6 +395,13 @@ xsphere/sensors/environment/{location}/{parameter}      {"value": <f>}
     location : ghs   parameter : temperature | humidity | baro_pressure
 xsphere/sensors/level/{vessel}                          {"raw": <f>, "filtered": <f>}
     vessel : cryostat | primary_xe | ballast    (FDC1004, pF; scaling done in Python)
+xsphere/sensors/turbo/{pump}                            {"state","frequency_hz","setpoint_hz","current_a","voltage_v","power_w",
+                                                         "motor_temp_c","bearing_temp_c","converter_temp_c","drive_on","normal","turning",
+                                                         "accelerating","decelerating","fault","warning","remote","status_word",
+                                                         "warning_bits","operating_hours","start_count","error_count","last_error_code"}
+    pump : ghs (gas handling system + science chamber) | outer (outer vacuum)
+    state : stopped | accelerating | normal | running | decelerating | coasting | error
+    (silent while the pump is unreachable or switched off at its supply)
 
 # ── Status ────────────────────────────────────────────────────────────────
 xsphere/status/service/heartbeat          {"uptime_s": <int>}                 (retained)
@@ -400,6 +411,8 @@ xsphere/status/pneumatic/{name}            {"state","desired","relay"}  1 = valv
 xsphere/status/nge                         {"connected","hold","master","model","serial","firmware","error","event",…}  heater supply (retained; not ingested by Telegraf)
 xsphere/status/nge/{channel}               {"output","desired","armed","voltage_set_v","current_limit_a","voltage_v","current_a","power_w","mode","trip","dropouts",…}
     channel : 1 | 2 | 3 (= heater n)   mode : off | cv | cc   trip : none | ovp | opp | fuse   (retained; silent while the supply is unreachable)
+xsphere/status/turbo/{pump}                {"connected","label","pinned","configured_serial","pump_serial","product","catalog_no","firmware","port","error","event","warnings","last_error","last_error_hz","last_error_hours",…}
+    turbo pump link, identity and error memory (retained; not ingested by Telegraf).  There are no turbo commands: the pumps are read, never operated.
 xsphere/status/ghs_esp32                   {"uptime_s","rssi","ip"}            (device health; not ingested by Telegraf)
 xsphere/status/level_{vessel}              {"uptime_s","rssi","ip","vessel"}   (device health; not ingested by Telegraf)
 xsphere/alerts/{rule}                      # Interlock alerts
@@ -610,7 +623,7 @@ In the new architecture, all `PLC *` topics are replaced by the Python service r
 ### Phase 4 — Advanced Modules
 - [ ] Temperature gradient scanner plugin (integrate with wind camera analysis)
 - [ ] Mass scale RS-232 driver (LN2 dewar mass tracking)
-- [ ] Leybold pumping stand serial interface
+- [x] Leybold turbo pump monitoring over USB (read-only; GHS pump connected, outer vacuum pump to follow)
 
 ### Phase 5 — Documentation
 - [ ] Update Notion pages (Computer & Network, Slow Control sections)
@@ -625,7 +638,7 @@ In the new architecture, all `PLC *` topics are replaced by the Python service r
 - **Telegraf vs. direct InfluxDB write in Python service:** Telegraf handles all raw sensor data ingestion; Python service may write its own derived quantities (e.g., gradient ΔT, controller state) directly to InfluxDB or publish them to MQTT for Telegraf to pick up. TBD.
 - **Gradiometer upgrade timeline:** If TC channels are converted to differential gradiometers, the Omega logger will need firmware/config updates and the Grafana dashboard will need new panels. This is a hardware change that should be coordinated with software updates.
 - **Scale model and RS-232 protocol:** To be looked up from manual when prioritized.
-- **Pumping stand serial interface:** Same — low priority, look up model specs when prioritized.
+- **Turbo pump control:** monitoring is in place (§3.5). Starting, stopping or standby over the same USB link is possible but deliberately not implemented — it would take control away from the stand's own start input, and it needs a decision on what a pump should do when the Pi goes quiet.
 
 ---
 

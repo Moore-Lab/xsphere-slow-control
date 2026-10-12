@@ -139,6 +139,21 @@
       V / A / W are instantaneous and catch the heater mid-PWM-cycle; the Register page has their 60 s averages.</small>
   </section>
 
+  <!-- Turbo pumps (read-only) -->
+  <section class="card">
+    <h2>Turbo pumps — Leybold TURBOVAC (read-only)</h2>
+    <div id="turbo"></div>
+    <small class="hint"><b>Nothing here operates a pump.</b> The slow control reads each pump over its USB port and cannot start,
+      stop or re-tune it — the pumps are run at the pumping stand as before.
+      A pump is recognised by <b>its own serial number</b> (<code>turbovac.pumps</code> in <code>config.yaml</code>), not by
+      the USB port it is on, so swapping cables cannot swap the names. A pump whose 24 V supply is off is not on USB at all
+      and shows as not connected. <code>NORMAL</code> means at normal-operation speed (90 % of the setpoint and above);
+      <code>RUNNING</code> means the drive is on but the rotor is held below that. The temperatures are the pump's own
+      (motor, bearing, converter); “last entry” is the newest line of the pump's error memory, with how many
+      running-hours ago it was made; “last event” is the latest change the service saw — a pump found or lost, a change
+      of state, a new error entry.</small>
+  </section>
+
 
 </main>
 
@@ -203,6 +218,9 @@ const ZONES   = [["top","Zone 1 — top clamp (rtd2)"],["bottom","Zone 2 — bot
 const PNEUMATIC = [["pneumatic_ballast","Ballast valve — normally open (Y105)"],["pneumatic_pump","Pump valve — normally closed (Y106)"],["pneumatic_bottle","Bottle valve — normally open (Y107)"]];
 // Heater supply channels: [NGE channel, label].  Channel n feeds heater n.
 const NGE = [[1,"Ch 1 → heater 1 (zone 1, top)"],[2,"Ch 2 → heater 2 (zone 2, bottom)"],[3,"Ch 3 → heater 3 (zone 3, nozzle)"]];
+// Turbo pumps: [name under turbovac.pumps in config.yaml, title].  Read-only.
+const TURBOS = [["ghs","GHS turbo — gas handling system + science chamber"],["outer","Outer vacuum turbo"]];
+function turboRaw(n){ const r = RAW["xsphere/status/turbo/"+n]; return (r && r.payload) || {}; }
 let built = false;
 // One valve block.  `sid` is the state carrying the control; its commanded
 // twin is `${sid}_desired`.  `auto` adds the LN₂ autofill enable toggles;
@@ -267,6 +285,20 @@ function build(){
         <input type="number" id="ng${n}-i" step="0.05" min="0" max="3">
         <button onclick="ngeSet('nge_ch${n}_current_limit','ng${n}-i')">set</button>
         <span id="ng${n}-i-cur" class="cur"></span></div>
+    </div>`).join("");
+
+  $("turbo").innerHTML = TURBOS.map(([n,name])=>`
+    <div class="blk">
+      <div class="row"><span class="title">${name}</span></div>
+      <div class="row">
+        <span class="kv"><span class="dot" id="tb-${n}-dot"></span><span id="tb-${n}-state" class="num">–</span></span>
+        <span id="tb-${n}-speed" class="num"></span>
+        <span id="tb-${n}-meas" style="flex:1;color:var(--mut);font-size:.82rem;text-align:right"></span></div>
+      <div class="row"><span id="tb-${n}-temps" class="cur"></span></div>
+      <div class="row"><span id="tb-${n}-note" class="cur"></span></div>
+      <div class="row"><span id="tb-${n}-last" class="cur"></span></div>
+      <div class="row"><span id="tb-${n}-id" class="cur"></span></div>
+      <div class="row"><span id="tb-${n}-event" class="cur"></span></div>
     </div>`).join("");
   built = true;
 }
@@ -424,6 +456,61 @@ function update(d){
     // the supply caps the limit at 33.6 W / V: say so when it did
     const asked = raw.current_request_a, capped = il && il.value!=null && asked!=null && asked - il.value > 0.0015;
     setCur("ng"+n+"-i-cur", "current "+fmtNum(il&&il.value)+" A" + (capped ? " — "+fmtNum(asked)+" A asked, capped by the supply" : ""), il);
+  });
+
+  // Turbo pumps — read-only.  The registry carries the readings and how fresh
+  // they are; identity, warnings and the pump's error memory come from the
+  // raw status.
+  TURBOS.forEach(([n])=>{
+    const p="turbo_"+n+"_", con=st[p+"connected"], state=st[p+"state"], f=st[p+"frequency"], setp=st[p+"setpoint"];
+    const raw=turboRaw(n), el = id => $("tb-"+n+"-"+id);
+    const known = !!con && con.value!==null && con.freshness!=="invalid";
+    const up = known && con.value===true;
+    // With the pump unreachable the last readings say nothing about now.
+    const live = up && state && state.value!==null && state.freshness!=="invalid";
+    const sv = live ? state.value : null, se = el("state");
+    el("dot").className = "dot"+(sv==="normal" ? " on" : "");
+    if (!known){ se.textContent = "no data — is turbovac enabled in config.yaml?"; se.style.color = "var(--mut)"; }
+    else if (!up){
+      // A pump nobody has plugged in yet is not an alarm; one that is pinned
+      // in config.yaml and missing is.
+      const waiting = raw.pinned===false;
+      se.textContent = waiting ? "not connected yet" : "⚠ NOT CONNECTED"; se.style.color = waiting ? "var(--mut)" : "var(--bad)";
+    }
+    else if (!live){ se.textContent = "?"; se.style.color = "var(--mut)"; }
+    else {
+      se.textContent = sv.toUpperCase();
+      se.style.color = sv==="normal" ? "var(--ok)" : sv==="error" ? "var(--bad)" : sv==="stopped" ? "var(--mut)" : "var(--warn)";
+    }
+    const num = s => (live && s && s.value!==null && s.freshness!=="invalid") ? s.value : null;
+    const hz = num(f), sp = num(setp);
+    el("speed").textContent = hz===null ? "" : (Math.round(hz)+" Hz" + (sp ? " of "+Math.round(sp) : "") + " · "+(hz*60).toLocaleString("en-US")+" rpm");
+    el("speed").style.color = live && f && f.freshness==="stale" ? "var(--warn)" : "";
+    // the pump reports V, A and W to one decimal and its temperatures in whole °C
+    const q = (key, unit, dp, lab) => { const v = num(st[p+key]); return v===null ? "" : `<span class="kv">${lab ? `<span class="k">${lab}</span>` : ""}<span class="num">${v.toFixed(dp)}</span> ${unit}</span>`; };
+    el("meas").innerHTML = q("voltage","V",1) + q("current","A",1) + q("power","W",1);
+    el("temps").innerHTML = q("motor_temp","°C",0,"motor") + q("bearing_temp","°C",0,"bearing") + q("converter_temp","°C",0,"converter");
+    // one line of what needs saying about this pump, most urgent first
+    const ne = el("note"); let note = "", tone = "";
+    const fault = st[p+"fault"], warn = st[p+"warning"];
+    if (known && !up){ note = raw.error || ""; }
+    else if (live && fault && fault.value===true){ note = "⚠ error: " + (raw.last_error || "see the pump"); tone = "var(--bad)"; }
+    else if (live && warn && warn.value===true){ note = "⚠ warning: " + ((raw.warnings||[]).join(", ") || "see the pump"); tone = "var(--bad)"; }
+    else if (up && raw.pinned===false){ note = "not pinned — put serial: \"" + (raw.pump_serial||"?") + "\" under turbovac.pumps." + n + " in config.yaml"; tone = "var(--warn)"; }
+    else if (live && ((RAW["xsphere/sensors/turbo/"+n]||{}).payload||{}).remote){ note = "a bus master holds control of this pump"; }
+    ne.textContent = note; ne.style.color = tone;
+    const ago = (raw.operating_hours!=null && raw.last_error_hours!=null) ? raw.operating_hours - raw.last_error_hours : null;
+    el("last").textContent = !up || raw.last_error_code==null ? "" :
+      raw.last_error_code===0 ? "error memory: empty" :
+      "last entry: " + raw.last_error_code + " — " + (raw.last_error||"?")
+        + (raw.last_error_hz!=null ? " at "+raw.last_error_hz+" Hz" : "")
+        + (ago!==null ? ", "+ago.toFixed(ago<10?1:0)+" running-hours ago" : "")
+        + (raw.error_count!=null ? " ("+raw.error_count+" in all)" : "");
+    el("id").textContent = !up ? "" :
+      [raw.product, raw.pump_serial ? "serial "+raw.pump_serial : "", raw.firmware ? "fw "+raw.firmware : "",
+       raw.operating_hours!=null ? Math.round(raw.operating_hours).toLocaleString("en-US")+" h run" : "",
+       raw.start_count!=null ? raw.start_count+" starts" : "", raw.port].filter(Boolean).join(" · ");
+    el("event").textContent = raw.event ? ("last event " + hhmm(raw.event_utc) + " — " + raw.event) : "";
   });
 
 }

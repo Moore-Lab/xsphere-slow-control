@@ -124,6 +124,34 @@ class NgeConfig:
 
 
 @dataclass
+class TurbovacPumpConfig:
+    # Shown on the Control page and in the log.
+    label: str = ""
+    # The pump's own serial number (parameter 355, on its nameplate), which is
+    # how a USB port is matched to this entry.  "" = not pinned: the entry
+    # takes the one TURBOVAC on USB that no other entry has pinned.
+    serial: str = ""
+
+
+@dataclass
+class TurbovacConfig:
+    """Leybold TURBOVAC i / iX turbo pumps, read — never operated — over each
+    pump's USB port.  See slowcontrol/drivers/turbovac.py."""
+    enabled: bool = False
+    poll_interval_s: float = 2.0
+    # Per telegram.  The pump answers in milliseconds; this only bounds how
+    # long a poll waits on one that has stopped answering.
+    timeout_s: float = 0.5
+    # How often the counters, the setpoint and the error memory are re-read.
+    # (They are also re-read whenever a pump raises or clears an error or
+    # warning.)
+    slow_interval_s: float = 60.0
+    # name → pump.  The names are part of the MQTT topics
+    # (xsphere/sensors/turbo/<name>) and of the state ids in state.yaml.
+    pumps: Dict[str, TurbovacPumpConfig] = field(default_factory=dict)
+
+
+@dataclass
 class VesselAutofillConfig:
     level_high: float = 2.5         # close valve above this (0-10 scale)
     level_low: float = 0.5          # open valve below this (0-10 scale)
@@ -167,6 +195,7 @@ class ServiceConfig:
     plc: PlcConfig = field(default_factory=PlcConfig)
     omega: OmegaConfig = field(default_factory=OmegaConfig)
     nge: NgeConfig = field(default_factory=NgeConfig)
+    turbovac: TurbovacConfig = field(default_factory=TurbovacConfig)
     autovalve: AutovalveConfig = field(default_factory=AutovalveConfig)
     gradient: GradientConfig = field(default_factory=GradientConfig)
     # Raw `labjack:` block from the YAML, passed through to the LabJack T7
@@ -264,6 +293,24 @@ def load(path: str = "config.yaml") -> ServiceConfig:
             default_current_a=float(n.get("default_current_a", cfg.nge.default_current_a)),
             max_voltage_v=float(n.get("max_voltage_v", cfg.nge.max_voltage_v)),
             max_current_a=float(n.get("max_current_a", cfg.nge.max_current_a)),
+        )
+
+    if "turbovac" in raw:
+        t = raw["turbovac"] or {}
+        pumps = {}
+        for name, pc in (t.get("pumps") or {}).items():
+            pc = pc or {}
+            pumps[str(name)] = TurbovacPumpConfig(
+                label=str(pc.get("label") or ""),
+                # str(): an unquoted serial number in the YAML arrives as an int
+                serial=str(pc.get("serial") or "").strip(),
+            )
+        cfg.turbovac = TurbovacConfig(
+            enabled=bool(t.get("enabled", cfg.turbovac.enabled)),
+            poll_interval_s=float(t.get("poll_interval_s", cfg.turbovac.poll_interval_s)),
+            timeout_s=float(t.get("timeout_s", cfg.turbovac.timeout_s)),
+            slow_interval_s=float(t.get("slow_interval_s", cfg.turbovac.slow_interval_s)),
+            pumps=pumps,
         )
 
     if "autovalve" in raw:

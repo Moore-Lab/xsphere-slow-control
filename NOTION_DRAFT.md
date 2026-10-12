@@ -162,7 +162,7 @@ The GHS ESP32 also reads ambient conditions: BMP3XX (barometric pressure + tempe
 
 ### Pumping
 
-Two Leybold turbo-based pumping stands (same model), one for the GHS/Xe system, one for the outer vacuum. Manual gate valves between turbo and chamber. Serial interface to pumping stands is not yet implemented (planned future work).
+Two Leybold turbo-based pumping stands (same model), one for the GHS/Xe system, one for the outer vacuum. Manual gate valves between turbo and chamber. The slow control reads each turbo (TURBOVAC 90 i) over its USB port — speed, current, power, temperatures, state, error memory — but does not operate it.
 
 ### RGA
 
@@ -252,7 +252,7 @@ An experimental automation module that sweeps vertical and longitudinal temperat
 
 ### 6. Future Integrations (lower priority)
 - LN2 dewar mass scale (RS-232)
-- Leybold pumping stand serial interface
+- Leybold turbo pump control over USB (monitoring is in place)
 - Thermocouple → gradiometer hardware upgrade
 
 ---

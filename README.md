@@ -17,6 +17,10 @@ xenon cryostat used in levitated-particle physics experiments.
   valves — the autofill ladder runs on the PLC; the Python service forwards
   level readings and exposes manual/arm controls
 - **Monitors pressure and vacuum** from the gas-handling-system (GHS) ESP32
+- **Watches the turbo pumps** — the Leybold TURBOVAC 90 i on the gas handling
+  system (science chamber included) and the one on the outer vacuum, each read
+  over its USB port: speed, current, power, temperatures, state, warnings and
+  the pump's own error memory. Read-only — it cannot start or stop a pump
 - **Holds a centralized state view** — the StateStore subscribes to every
   source topic, computes per-state freshness + moving averages + derived
   quantities, and republishes a consolidated snapshot on
@@ -90,6 +94,15 @@ Every control widget shows the **current** value of the thing it controls next t
 - Stopping the slow-control service leaves the supply exactly as it is.
 - While the supply is unreachable (`⚠ NOT CONNECTED`), `off` is remembered — the channel stays off when the supply returns — and `on` and setpoint changes are refused rather than queued.
 - Each control is also a Sequencer target. `nge.resource: sim` in `config.yaml` runs all of this against a built-in simulated supply.
+
+**Turbo pumps — Leybold TURBOVAC (read-only)**
+
+- One block per pump: **GHS turbo** (gas handling system + science chamber) and **Outer vacuum turbo**. There is nothing to click — the slow control reads the pumps and cannot start, stop or re-tune them; they are run at the pumping stand as before.
+- The first line is the pump's state and speed: `NORMAL` (at normal-operation speed — 90 % of the setpoint and above), `ACCELERATING`, `DECELERATING`, `RUNNING` (drive on, but the rotor is held below normal-operation speed), `COASTING`, `STOPPED` or `ERROR`, then `1200 Hz of 1200 · 72,000 rpm`, then supply voltage, motor current and drive power. Below it are the pump's own temperatures — motor, bearing, converter.
+- A red line appears when the pump has an error or a warning active, saying which. `last entry` is the newest line of the pump's own error memory, with the speed it happened at and how many running-hours ago; the service also logs a line (`journalctl -u xsphere-slowcontrol | grep turbovac`) whenever a pump changes state or adds an entry.
+- **Which pump is which** is decided by each pump's own serial number (on its nameplate; `turbovac.pumps` in `config.yaml`), never by the USB port — both pumps look identical on USB, so swapping the cables cannot swap the names. A block that says `not pinned` is a pump the service picked up only because it was the one unassigned TURBOVAC on USB: put the serial number it shows into `config.yaml` and restart the service.
+- `⚠ NOT CONNECTED` means that pump is not on USB. Its USB port runs off the pump's own 24 V supply, so this is also what a pump switched off at its supply looks like. The service finds it again within a few seconds of it coming back.
+- Everything shown is also on the Register page (group *turbo*) and in InfluxDB (measurement `turbo`, tag `pump`).
 
 **Gradient**
 
@@ -186,6 +199,7 @@ Common things and what they mean:
 - **`pid_*_setpoint` set has no effect** — gradient mode is probably `gradient`; switch to `absolute` first (or use the gradient card).
 - **`supply: DOWN` / heater supply `⚠ NOT CONNECTED`** — the card shows the reason. `cannot open /dev/nge100` means the supply is off, its USB cable is out, or the udev rule is missing (`ls -l /dev/nge100`; SETUP.md step 3f). The supply carries on as it was; the service picks it up again within seconds of it reappearing.
 - **A heater supply channel shows `ON · CC`** — it is current-limited, which is expected for a 36 W heater on a 33.6 W channel (see the control-page notes above).
+- **A turbo pump shows `⚠ NOT CONNECTED`** — the card says why. `pump serial … is not on USB` means that pump's 24 V supply is off or its USB cable is out (`lsusb -d 25e9:0bb8` on the Pi prints one line per pump that is on USB); `found instead: serial …` means a TURBOVAC is there but it is not the one `config.yaml` names. Nothing about the pump itself changes either way — the service only reads it.
 
 ## System overview
 
@@ -196,6 +210,7 @@ Common things and what they mean:
   PLC ──Modbus TCP──► Python slow control service             │
                     │   · PlcDriver  (poll + command)         │
   NGE103 ──USB-TMC──►   · NgeDriver  (heater supply)          │
+  Turbo pumps ──USB─►   · TurbovacDriver  (read-only)         │
                     │   · LabJackT7Controller                 │
                     │   · GradientController, AutoValve, …    │
                     │   · StateStore  →  xsphere/state/snapshot │
@@ -227,7 +242,8 @@ xsphere-slow-control/
 │   ├── SESSION_LOG.md          ← running record of state-layer sessions
 │   ├── xsphere-slowcontrol.service
 │   ├── core/  (config, mqtt, service orchestrator)
-│   ├── drivers/  (PLC Modbus TCP; NGE heater supply + its simulator)
+│   ├── drivers/  (PLC Modbus TCP; NGE heater supply and TURBOVAC turbo pump
+│   │              monitor, each with its simulator)
 │   ├── 99-xsphere-nge.rules    ← udev rule for the heater supply (/dev/nge100)
 │   ├── controllers/  (gradient, autovalve [disabled], interlocks)
 │   ├── plugins/  (gradient_scanner)
@@ -245,7 +261,8 @@ xsphere-slow-control/
 ├── LJ-python-controller/       ← LabJack T7 plugin (pip install -e .)
 │
 ├── tests/                      ← offline tests (python -m pytest tests -q); the
-│                                 heater supply ones run against the simulator
+│                                 heater supply and turbo pump ones run against
+│                                 their simulators
 │
 ├── telegraf/                   ← Telegraf MQTT→InfluxDB pipeline
 │   ├── telegraf.conf           ← template; the container reads a deployed copy
@@ -292,6 +309,8 @@ All sensor/status payloads are JSON.  Full schema and payload shapes:
 | `xsphere/sensors/vacuum/ghs/{1,2}` | GHS ESP32→broker | `{"value"}` (mbar) |
 | `xsphere/sensors/environment/ghs/{temperature\|humidity\|baro_pressure}` | GHS ESP32→broker | `{"value"}` |
 | `xsphere/sensors/level/{vessel}` | FDC1004 ESP32→broker | `{"raw","filtered"}` (pF) |
+| `xsphere/sensors/turbo/{ghs\|outer}` | Python→broker | turbo pump readings: `{"state","frequency_hz","setpoint_hz","current_a","voltage_v","power_w","motor_temp_c","bearing_temp_c","converter_temp_c","normal","fault","warning","operating_hours",…}` (not published while the pump is unreachable) |
+| `xsphere/status/turbo/{ghs\|outer}` | Python→broker | turbo pump link and identity: `{"connected","pinned","pump_serial","product","port","error","event","warnings","last_error",…}` (retained) |
 | `xsphere/status/pid/{zone}` | PLC driver→broker | `{"setpoint_k","pv_k","output_pct","kp","ki","kd"}` (retained) |
 | `xsphere/status/valve/{vessel}` | Python→broker | `{"state","desired","auto_open","auto_close"}` (retained) |
 | `xsphere/status/pneumatic/{name}` | Python→broker | `{"state","desired","relay"}` — valve open / commanded open / relay energised (retained) |

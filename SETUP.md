@@ -218,6 +218,46 @@ nothing — except the protection settings described in the README (over-power
 protection and electronic fuse off, OVP level at maximum), unless
 `nge.disable_auto_off` is `false`.
 
+### 3g. Turbo pumps — Leybold TURBOVAC 90 i (USB, read-only)
+
+Each pump's frequency converter has a USB B socket; run a USB cable (5 m at
+most) from it to xbox-pi, directly or through a hub. Nothing needs installing:
+the converter is a standard USB serial device (`25e9:0bb8`, kernel driver
+`cdc_acm`), `xbox` can open it through the `dialout` group from step 3a, and
+ModemManager leaves it alone. Leybold asks for interface cables to be plugged
+and unplugged with the pump stopped and unpowered.
+
+```bash
+lsusb -d 25e9:0bb8        # one line per pump that is on USB and powered
+ls -l /dev/ttyACM*        # one tty each
+```
+
+The two pumps cannot be told apart by anything on the USB side — they report
+the same USB serial number, and `/dev/ttyACM0` / `1` just follow plug-in order
+— so the `turbovac:` block in `slowcontrol/config.yaml` names each pump by
+**its own serial number** (on the nameplate; the pump reports the same number
+when asked):
+
+```yaml
+turbovac:
+  enabled: true
+  pumps:
+    ghs:   {label: "GHS turbo — gas handling system + science chamber", serial: "31003077799"}
+    outer: {label: "Outer vacuum turbo", serial: ""}
+```
+
+An entry with an empty `serial` takes the one TURBOVAC on USB that no other
+entry names, which is how a newly connected pump first shows up. Its block on
+the Control page then says `not pinned` and shows the serial number it read:
+copy that into `config.yaml` and restart the service, so the entry can never
+end up on the wrong pump. The names `ghs` and `outer` are fixed — `state.yaml`,
+`telegraf.conf` and the Control page refer to them.
+
+The service only ever reads the pumps (see the top of
+`slowcontrol/drivers/turbovac.py`). `journalctl -u xsphere-slowcontrol | grep
+turbovac` shows what it found, and from then on every change of pump state and
+every new entry in a pump's error memory.
+
 ---
 
 ## Step 4 — Telegraf (MQTT → InfluxDB pipeline)

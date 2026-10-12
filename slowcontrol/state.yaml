@@ -248,6 +248,181 @@ groups:
       source: {topic: xsphere/sensors/vacuum/ghs/2, key: value}
       period_s: 10.0
 
+  # ── Turbo pumps (Leybold TURBOVAC 90 i, read over USB) ──────────────────
+  # Read by the TurbovacDriver (drivers/turbovac.py), which cannot operate a
+  # pump — so nothing here has a `control`.  A pump is recognised by its own
+  # serial number (turbovac.pumps in config.yaml), not by its USB port:
+  #   ghs    the gas handling system, science chamber included
+  #   outer  the outer (insulation) vacuum
+  # `_state` is stopped | accelerating | normal | running | decelerating |
+  # coasting | error ("running" = drive on, below normal-operation speed and
+  # holding).  Temperatures are the pump's own, in °C.  Nothing arrives on the
+  # sensor topic while a pump is unreachable or switched off at its supply, so
+  # its rows go stale instead of lying; `_connected` says which it is.
+  turbo:
+    turbo_ghs_connected:
+      kind: binary
+      label: "GHS turbo (gas handling + science chamber) — USB link up"
+      source: {topic: xsphere/status/turbo/ghs, key: connected}
+    turbo_ghs_state:
+      kind: enum
+      values: [stopped, accelerating, normal, running, decelerating, coasting, error]
+      label: "GHS turbo state"
+      source: {topic: xsphere/sensors/turbo/ghs, key: state}
+    turbo_ghs_frequency:
+      kind: analog
+      unit: Hz
+      label: "GHS turbo rotor frequency"
+      source: {topic: xsphere/sensors/turbo/ghs, key: frequency_hz}
+      period_s: 4.0        # turbovac.poll_interval_s is 2
+    turbo_ghs_setpoint:
+      kind: analog
+      unit: Hz
+      label: "GHS turbo frequency setpoint"
+      source: {topic: xsphere/sensors/turbo/ghs, key: setpoint_hz}
+      period_s: 4.0
+      avg_windows_s: []
+    turbo_ghs_current:
+      kind: analog
+      unit: A
+      label: "GHS turbo motor current"
+      source: {topic: xsphere/sensors/turbo/ghs, key: current_a}
+      period_s: 4.0
+    turbo_ghs_voltage:
+      kind: analog
+      unit: V
+      label: "GHS turbo supply voltage"
+      source: {topic: xsphere/sensors/turbo/ghs, key: voltage_v}
+      period_s: 4.0
+    turbo_ghs_power:
+      kind: analog
+      unit: W
+      label: "GHS turbo drive input power"
+      source: {topic: xsphere/sensors/turbo/ghs, key: power_w}
+      period_s: 4.0
+    turbo_ghs_motor_temp:
+      kind: analog
+      unit: "°C"
+      label: "GHS turbo motor temperature"
+      source: {topic: xsphere/sensors/turbo/ghs, key: motor_temp_c}
+      period_s: 4.0
+    turbo_ghs_bearing_temp:
+      kind: analog
+      unit: "°C"
+      label: "GHS turbo bearing temperature"
+      source: {topic: xsphere/sensors/turbo/ghs, key: bearing_temp_c}
+      period_s: 4.0
+    turbo_ghs_converter_temp:
+      kind: analog
+      unit: "°C"
+      label: "GHS turbo converter temperature"
+      source: {topic: xsphere/sensors/turbo/ghs, key: converter_temp_c}
+      period_s: 4.0
+    turbo_ghs_normal:
+      kind: binary
+      label: "GHS turbo at normal-operation speed"
+      source: {topic: xsphere/sensors/turbo/ghs, key: normal}
+    turbo_ghs_fault:
+      kind: binary
+      label: "GHS turbo error active"
+      source: {topic: xsphere/sensors/turbo/ghs, key: fault}
+    turbo_ghs_warning:
+      kind: binary
+      label: "GHS turbo warning active"
+      source: {topic: xsphere/sensors/turbo/ghs, key: warning}
+    turbo_ghs_operating_hours:
+      kind: analog
+      unit: h
+      label: "GHS turbo operating hours"
+      source: {topic: xsphere/sensors/turbo/ghs, key: operating_hours}
+      period_s: 4.0
+      avg_windows_s: []
+    turbo_ghs_last_error:
+      kind: text
+      label: "GHS turbo most recent entry in its error memory"
+      source: {topic: xsphere/status/turbo/ghs, key: last_error}
+    turbo_outer_connected:
+      kind: binary
+      label: "Outer vacuum turbo — USB link up"
+      source: {topic: xsphere/status/turbo/outer, key: connected}
+    turbo_outer_state:
+      kind: enum
+      values: [stopped, accelerating, normal, running, decelerating, coasting, error]
+      label: "Outer vacuum turbo state"
+      source: {topic: xsphere/sensors/turbo/outer, key: state}
+    turbo_outer_frequency:
+      kind: analog
+      unit: Hz
+      label: "Outer vacuum turbo rotor frequency"
+      source: {topic: xsphere/sensors/turbo/outer, key: frequency_hz}
+      period_s: 4.0
+    turbo_outer_setpoint:
+      kind: analog
+      unit: Hz
+      label: "Outer vacuum turbo frequency setpoint"
+      source: {topic: xsphere/sensors/turbo/outer, key: setpoint_hz}
+      period_s: 4.0
+      avg_windows_s: []
+    turbo_outer_current:
+      kind: analog
+      unit: A
+      label: "Outer vacuum turbo motor current"
+      source: {topic: xsphere/sensors/turbo/outer, key: current_a}
+      period_s: 4.0
+    turbo_outer_voltage:
+      kind: analog
+      unit: V
+      label: "Outer vacuum turbo supply voltage"
+      source: {topic: xsphere/sensors/turbo/outer, key: voltage_v}
+      period_s: 4.0
+    turbo_outer_power:
+      kind: analog
+      unit: W
+      label: "Outer vacuum turbo drive input power"
+      source: {topic: xsphere/sensors/turbo/outer, key: power_w}
+      period_s: 4.0
+    turbo_outer_motor_temp:
+      kind: analog
+      unit: "°C"
+      label: "Outer vacuum turbo motor temperature"
+      source: {topic: xsphere/sensors/turbo/outer, key: motor_temp_c}
+      period_s: 4.0
+    turbo_outer_bearing_temp:
+      kind: analog
+      unit: "°C"
+      label: "Outer vacuum turbo bearing temperature"
+      source: {topic: xsphere/sensors/turbo/outer, key: bearing_temp_c}
+      period_s: 4.0
+    turbo_outer_converter_temp:
+      kind: analog
+      unit: "°C"
+      label: "Outer vacuum turbo converter temperature"
+      source: {topic: xsphere/sensors/turbo/outer, key: converter_temp_c}
+      period_s: 4.0
+    turbo_outer_normal:
+      kind: binary
+      label: "Outer vacuum turbo at normal-operation speed"
+      source: {topic: xsphere/sensors/turbo/outer, key: normal}
+    turbo_outer_fault:
+      kind: binary
+      label: "Outer vacuum turbo error active"
+      source: {topic: xsphere/sensors/turbo/outer, key: fault}
+    turbo_outer_warning:
+      kind: binary
+      label: "Outer vacuum turbo warning active"
+      source: {topic: xsphere/sensors/turbo/outer, key: warning}
+    turbo_outer_operating_hours:
+      kind: analog
+      unit: h
+      label: "Outer vacuum turbo operating hours"
+      source: {topic: xsphere/sensors/turbo/outer, key: operating_hours}
+      period_s: 4.0
+      avg_windows_s: []
+    turbo_outer_last_error:
+      kind: text
+      label: "Outer vacuum turbo most recent entry in its error memory"
+      source: {topic: xsphere/status/turbo/outer, key: last_error}
+
   # ── Ambient on the GHS panel (DHT11 + BMP3XX) ───────────────────────────
   environment:
     env_ghs_temp:
