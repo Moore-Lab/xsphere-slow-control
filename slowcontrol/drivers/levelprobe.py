@@ -59,7 +59,9 @@ def pwm_to_volts(pwm: int, pwm_max: int = 255, v_ref: float = 3.3) -> float:
 
 def _open_serial(port: str, baud: int, timeout_s: float):
     import serial       # deferred so the tests need no pyserial
-    return serial.Serial(port, baud, timeout=timeout_s)
+    # exclusive: an advisory lock, so that this and anything else that asks for
+    # one (tools/serial_capture.py) can never end up sharing a port's bytes.
+    return serial.Serial(port, baud, timeout=timeout_s, exclusive=True)
 
 
 class LevelProbeDriver(SensorDriver):

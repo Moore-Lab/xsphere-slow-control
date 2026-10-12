@@ -243,7 +243,7 @@ turbovac:
   enabled: true
   pumps:
     ghs:   {label: "GHS turbo — gas handling system + science chamber", serial: "31003077799"}
-    outer: {label: "Outer vacuum turbo", serial: ""}
+    outer: {label: "Outer vacuum turbo", serial: "31003045053"}
 ```
 
 An entry with an empty `serial` takes the one TURBOVAC on USB that no other
