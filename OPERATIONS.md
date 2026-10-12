@@ -371,8 +371,8 @@ cd ~/xsphere-slow-control
 TOKEN=$(grep '^INFLUX_TOKEN=' .env | cut -d= -f2-)
 curl -s 'http://localhost:8087/api/v2/query?org=xbox-server' \
   -H "Authorization: Token $TOKEN" -H 'Content-Type: application/vnd.flux' \
-  --data-binary 'from(bucket:"xsphere") |> range(start:-2m) |> toFloat()
-    |> group(columns:["_measurement"]) |> count()
+  --data-binary 'from(bucket:"xsphere") |> range(start:-2m) |> count()
+    |> group(columns:["_measurement"]) |> sum()
     |> keep(columns:["_measurement","_value"])'
 ```
 
