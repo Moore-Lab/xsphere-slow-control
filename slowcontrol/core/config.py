@@ -135,9 +135,19 @@ class TurbovacPumpConfig:
 
 @dataclass
 class TurbovacConfig:
-    """Leybold TURBOVAC i / iX turbo pumps, read — never operated — over each
-    pump's USB port.  See slowcontrol/drivers/turbovac.py."""
+    """Leybold TURBOVAC i / iX turbo pumps over each pump's USB port: read,
+    and — only if `allow_control` — started and stopped.  See
+    slowcontrol/drivers/turbovac.py."""
     enabled: bool = False
+    # False: the driver can only read, and listens to no command.  True: a
+    # pump can be held on or off from the Control page
+    # (xsphere/commands/turbo/<name>/mode).
+    allow_control: bool = False
+    # A pump the service was holding on or off is held again when the service
+    # gets it back (its own restart, a USB glitch) — if it was out of touch
+    # for no longer than this.  After longer, the pump has gone back to its
+    # stand by itself (it does that after 10 s) and is left there.
+    resume_max_s: float = 120.0
     poll_interval_s: float = 2.0
     # Per telegram.  The pump answers in milliseconds; this only bounds how
     # long a poll waits on one that has stopped answering.
@@ -334,6 +344,9 @@ def load(path: str = "config.yaml") -> ServiceConfig:
             )
         cfg.turbovac = TurbovacConfig(
             enabled=bool(t.get("enabled", cfg.turbovac.enabled)),
+            # `is True`: only a literal YAML true switches pump control on.
+            allow_control=t.get("allow_control", cfg.turbovac.allow_control) is True,
+            resume_max_s=float(t.get("resume_max_s", cfg.turbovac.resume_max_s)),
             poll_interval_s=float(t.get("poll_interval_s", cfg.turbovac.poll_interval_s)),
             timeout_s=float(t.get("timeout_s", cfg.turbovac.timeout_s)),
             slow_interval_s=float(t.get("slow_interval_s", cfg.turbovac.slow_interval_s)),

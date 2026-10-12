@@ -1,12 +1,15 @@
 """
-Offline tests for the turbo pump monitor, against simulated pumps.
+Offline tests for the turbo pump driver, against simulated pumps.
 
     python -m pytest tests/test_turbovac.py -q          (from the repo root)
 
 slowcontrol/drivers/turbovac_sim.py answers the way the real TURBOVAC 90 i
-did, so these pin the driver to that behaviour with no pump attached.  Every
-test also ends with a check that no simulated pump was sent anything but a
-read — the driver must not be able to operate a pump.
+did, so these pin the driver to that behaviour with no pump attached.
+
+Every test ends with two checks on every simulated pump it made: that nothing
+reached it but reads carrying one of the three control words the driver may
+send, and — unless the test switched pump control on — that the only control
+word it ever saw was 0x0000, i.e. that it was read and nothing else.
 """
 
 import json
@@ -17,7 +20,8 @@ import pytest
 
 from slowcontrol.core.config import ServiceConfig, TurbovacPumpConfig, load
 from slowcontrol.drivers import turbovac as tv_mod
-from slowcontrol.drivers.turbovac import (ACCESS_NONE, ACCESS_READ, ACCESS_READ_FIELD, Identity,
+from slowcontrol.drivers.turbovac import (ACCESS_NONE, ACCESS_READ, ACCESS_READ_FIELD,
+                                          CONTROL_LOCAL, CONTROL_START, CONTROL_STOP, Identity,
                                           Reply, Turbovac, TurbovacDriver, TurbovacFrameError,
                                           TurbovacLinkError, parse_reply, read_telegram,
                                           state_of)
@@ -85,19 +89,23 @@ class Clock:
 
 class Rig:
     """A Pi's worth of USB ports with simulated pumps on them, one broker, and
-    the driver.  As shipped in config.yaml: `ghs` pinned to the real pump's
-    serial number, `outer` not pinned yet."""
+    the driver.  `ghs` is pinned to the real pump's serial number and `outer`
+    is not pinned (as the config was before the second pump arrived); pump
+    control is off unless the rig is made with `control=True`."""
 
-    def __init__(self, clock, sims):
+    def __init__(self, clock, sims, control=False):
         self.clock = clock
         self._sims = sims
+        self.control = control
         self.mqtt = FakeMqtt()
         self.config = ServiceConfig()
         self.config.turbovac.enabled = True
+        self.config.turbovac.allow_control = control
         self.config.turbovac.pumps = {
             "ghs": TurbovacPumpConfig("GHS turbo", GHS),
             "outer": TurbovacPumpConfig("Outer vacuum turbo", ""),
         }
+        self.state_path = str(sims.dir / "turbovac_state.json")
         self.ports = {}                     # tty → the simulated pump on it
         self.opens = []                     # every tty the driver opened, in order
         self.driver = None
@@ -105,6 +113,7 @@ class Rig:
     def pump(self, port, serial=GHS, **kwargs):
         """A new pump, plugged into `port`."""
         sim = SimTurbovac(pump_serial=serial, **kwargs)
+        sim.may_be_commanded = self.control
         self._sims.append(sim)
         self.ports[port] = sim
         return sim
@@ -125,11 +134,31 @@ class Rig:
         return self.ports[port]
 
     def start(self):
+        """A (re)start of the service: a new driver on a new broker session."""
+        self.mqtt.subs = [s for s in self.mqtt.subs if getattr(s[1], "__self__", None)
+                          is not self.driver]
         self.driver = TurbovacDriver(self.config, self.mqtt,
                                      list_ports=lambda: sorted(self.ports),
-                                     open_link=self._open)
+                                     open_link=self._open, state_path=self.state_path)
         self.driver.connect()
         return self.driver
+
+    def restart(self, away_s):
+        """Stop the service, stay away for `away_s`, start it and poll once."""
+        self.driver.disconnect()
+        self.clock.advance(away_s)
+        for sim in self.ports.values():
+            sim.settle()                    # what the pumps did meanwhile
+        self.start()
+        self.tick()
+
+    def cmd(self, name, mode):
+        self.mqtt.publish(f"xsphere/commands/turbo/{name}/mode", {"mode": mode})
+
+    def saved(self):
+        """What is on disk for the next start of the service."""
+        with open(self.state_path) as fh:
+            return json.load(fh)["pumps"]
 
     def tick(self, n=1, dt=2.0):
         for _ in range(n):
@@ -146,14 +175,26 @@ class Rig:
         return self.mqtt.count.get(f"xsphere/sensors/turbo/{name}", 0)
 
 
+def words(sim, since=0):
+    """The control word of every telegram `sim` was sent from `since` on."""
+    return [int.from_bytes(t[11:13], "big") for t in sim.log[since:]]
+
+
+class _Sims(list):
+    """The simulated pumps one test made, and a directory for its files."""
+
+
 @pytest.fixture(autouse=True)
-def sims():
-    """Every simulated pump a test makes — and, afterwards, the proof that
-    none of them was sent anything but a read."""
-    made = []
+def sims(tmp_path):
+    """Every simulated pump a test makes — and, afterwards, the proof of what
+    did and did not reach them."""
+    made = _Sims()
+    made.dir = tmp_path
     yield made
     for sim in made:
-        assert sim.violations == [], "the driver sent a pump something other than a read"
+        assert sim.violations == [], "the driver sent a pump something it must never send"
+        if not sim.may_be_commanded:
+            assert sim.control_words <= {CONTROL_LOCAL}, "a pump was commanded with control off"
 
 
 @pytest.fixture
@@ -220,18 +261,57 @@ def test_out_of_range_parameters_are_refused_before_they_reach_the_wire(pnu, ind
         read_telegram(ACCESS_READ, pnu, index)
 
 
-def test_the_sim_tells_on_anything_that_is_not_a_read():
-    # the telegram that would take control and stop the pump (control word 0x0400)
-    stop = bytearray(read_telegram())
-    stop[11] = 0x04
-    stop[23] ^= 0x04
-    write = bytearray(read_telegram(ACCESS_READ, 24))
-    write[3] = (2 << 4) | (write[3] & 0x0F)           # access code 2: write a 16-bit value
-    write[23] = tv_mod._bcc(write)
-    for bad in (stop, write):
+def _with(telegram, control=None, access=None, setpoint=None):
+    """`telegram` with fields the driver itself would never produce."""
+    t = bytearray(telegram)
+    if control is not None:
+        t[11:13] = control.to_bytes(2, "big")
+    if access is not None:
+        t[3] = (access << 4) | (t[3] & 0x0F)
+    if setpoint is not None:
+        t[13:15] = setpoint.to_bytes(2, "big")
+    t[23] = tv_mod._bcc(t)
+    return bytes(t)
+
+
+@pytest.mark.parametrize("bad", [
+    _with(read_telegram(), control=0x0001),                 # start without taking control
+    _with(read_telegram(), control=0x0480),                 # error reset
+    _with(read_telegram(), control=0x0500),                 # standby
+    _with(read_telegram(), control=0x0441, setpoint=700),   # a speed setpoint
+    _with(read_telegram(), control=0x0401, setpoint=700),
+    _with(read_telegram(), control=0x8401),                 # a 24 V output
+    _with(read_telegram(ACCESS_READ, 24), access=2),        # write a 16-bit parameter
+    _with(read_telegram(ACCESS_READ, 8), access=2),         # … "save to non-volatile memory"
+    _with(read_telegram(ACCESS_READ_FIELD, 134, 0), access=7),
+])
+def test_the_sim_tells_on_anything_the_driver_must_never_send(bad):
+    sim = SimTurbovac()
+    sim.exchange(bad)
+    assert len(sim.violations) == 1
+
+
+@pytest.mark.parametrize("control", [CONTROL_LOCAL, CONTROL_STOP, CONTROL_START])
+def test_the_three_control_words_and_what_carries_them(control):
+    for access, pnu, index in ((ACCESS_NONE, 0, 0), (ACCESS_READ, 4, 0), (ACCESS_READ_FIELD, 355, 3)):
+        telegram = read_telegram(access, pnu, index, control)
+        assert int.from_bytes(telegram[11:13], "big") == control
+        assert not any(telegram[7:11]) and not any(telegram[13:23])     # no value, no setpoint
+        assert telegram[:11] == read_telegram(access, pnu, index)[:11]   # the read is the same read
         sim = SimTurbovac()
-        sim.exchange(bytes(bad))
-        assert len(sim.violations) == 1
+        sim.exchange(telegram)
+        assert sim.violations == []
+    assert (CONTROL_LOCAL, CONTROL_STOP, CONTROL_START) == (0x0000, 0x0400, 0x0401)
+
+
+@pytest.mark.parametrize("control", [0x0001, 0x0002, 0x0040, 0x0080, 0x0100, 0x0402, 0x0441, 0x0480,
+                                     0x0500, 0x0C00, 0x1400, 0x8400, 0xFFFF, -1, 0x10401,
+                                     True, False, None, "on", 1025.0])
+def test_no_other_control_word_can_be_built(control):
+    with pytest.raises(ValueError):
+        read_telegram(ACCESS_NONE, 0, 0, control)
+    with pytest.raises(ValueError):
+        Turbovac(SimTurbovac()).hold(control)
 
 
 def test_a_damaged_reply_is_rejected():
@@ -610,7 +690,7 @@ def test_a_different_pump_on_an_unpinned_entry_starts_its_error_count_afresh(rig
 
 def test_warnings_are_named(rig):
     rig.ghs.warning_bits = (1 << 11) | (1 << 0)
-    rig.ghs.remote = True
+    rig.ghs.other_master = True                         # something else has taken the bus
     rig.tick()
     r = rig.reading()
     assert (r["warning"], r["warning_bits"], r["remote"], r["fault"]) == (1, 2049, 1, 0)
@@ -650,14 +730,19 @@ def test_values_a_pump_will_not_give_are_left_out_not_invented(clock, sims):
 # Read-only, as seen from the bus
 # ---------------------------------------------------------------------------
 
-def test_the_driver_listens_to_no_commands(rig):
+def test_with_control_off_the_driver_listens_to_no_commands(rig):
     assert rig.mqtt.subs == []
+    assert rig.status()["control_allowed"] is False and rig.status()["mode"] == "local"
     sent = len(rig.ghs.log)
-    for topic in ("xsphere/commands/turbo/ghs/start", "xsphere/commands/turbo/ghs/stop",
-                  "xsphere/commands/turbovac/ghs/setpoint", "xsphere/commands/turbo/ghs/state"):
-        rig.mqtt.publish(topic, {"state": 0, "value": 0})
-    assert len(rig.ghs.log) == sent
-    assert rig.ghs.drive_on and rig.ghs.frequency == 1200
+    for topic, payload in (("xsphere/commands/turbo/ghs/mode", {"mode": "off"}),
+                           ("xsphere/commands/turbo/ghs/mode", {"mode": "on"}),
+                           ("xsphere/commands/turbo/ghs/stop", {"state": 0}),
+                           ("xsphere/commands/turbovac/ghs/setpoint", {"value": 0})):
+        rig.mqtt.publish(topic, payload)
+    rig.tick(3)
+    assert words(rig.ghs, sent) == [CONTROL_LOCAL] * (len(rig.ghs.log) - sent)
+    assert rig.ghs.drive_on and rig.ghs.frequency == 1200 and not rig.ghs.remote
+    assert not os.path.exists(rig.state_path)
 
 
 def test_everything_sent_in_a_long_eventful_session_was_a_read(rig):
@@ -675,6 +760,361 @@ def test_everything_sent_in_a_long_eventful_session_was_a_read(rig):
 
 
 # ---------------------------------------------------------------------------
+# Start and stop
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def ctl(clock, sims):
+    """Both pumps connected and pinned, pump control allowed, nothing commanded."""
+    r = Rig(clock, sims, control=True)
+    r.config.turbovac.pumps["outer"].serial = OUTER
+    r.ghs = r.pump("/dev/ttyACM0", GHS)
+    r.outer = r.pump("/dev/ttyACM1", OUTER)
+    r.start()
+    r.tick()
+    return r
+
+
+def test_a_pump_nobody_has_commanded_is_only_ever_read(ctl):
+    ctl.tick(40)
+    assert ctl.ghs.control_words == {CONTROL_LOCAL} and ctl.outer.control_words == {CONTROL_LOCAL}
+    for name in ("ghs", "outer"):
+        s = ctl.status(name)
+        assert (s["mode"], s["mode_utc"], s["control_allowed"]) == ("local", None, True)
+        assert ctl.reading(name)["remote"] == 0 and ctl.reading(name)["state"] == "normal"
+    assert [pattern for pattern, _ in ctl.mqtt.subs] == ["xsphere/commands/turbo/+/mode"]
+    assert not os.path.exists(ctl.state_path)
+
+
+def test_off_stops_that_pump_and_every_telegram_from_then_on_says_so(ctl):
+    sent, sent_outer = len(ctl.ghs.log), len(ctl.outer.log)
+    ctl.cmd("ghs", "off")
+    assert not ctl.ghs.drive_on and ctl.ghs.remote      # it heard at once, not at the next poll
+    assert words(ctl.ghs, sent) == [CONTROL_STOP]
+    s = ctl.status("ghs")
+    assert s["mode"] == "off" and s["mode_utc"] and s["event"].startswith("OFF — told to stop")
+
+    ctl.tick(5)
+    after = words(ctl.ghs, sent)
+    assert len(after) > 25 and set(after) == {CONTROL_STOP}     # the reads in between too
+    r = ctl.reading("ghs")
+    assert (r["state"], r["drive_on"], r["remote"], r["decelerating"]) == ("decelerating", 0, 1, 1)
+    assert ctl.status("ghs")["mode"] == "off"
+
+    # the other pump was not touched
+    assert set(words(ctl.outer, sent_outer)) == {CONTROL_LOCAL}
+    assert ctl.outer.drive_on and not ctl.outer.remote and ctl.status("outer")["mode"] == "local"
+
+
+def test_on_starts_it_again(ctl):
+    ctl.cmd("ghs", "off")
+    ctl.tick()
+    ctl.ghs.frequency = 400                             # it has run down some way
+    sent = len(ctl.ghs.log)
+    ctl.cmd("ghs", "on")
+    assert ctl.ghs.drive_on and ctl.ghs.remote
+    ctl.tick(3)
+    assert set(words(ctl.ghs, sent)) == {CONTROL_START}
+    r = ctl.reading("ghs")
+    assert (r["state"], r["drive_on"], r["remote"], r["frequency_hz"]) == ("accelerating", 1, 1, 400)
+    assert ctl.status("ghs")["mode"] == "on"
+    assert ctl.status("ghs")["event"] == "decelerating → accelerating at 400 Hz"
+
+
+def test_local_hands_the_pump_back_to_its_stand(ctl):
+    ctl.cmd("ghs", "off")
+    ctl.tick(3)
+    sent = len(ctl.ghs.log)
+    ctl.cmd("ghs", "local")
+    assert ctl.status("ghs")["mode"] == "local"
+    assert "handed back to its stand" in ctl.status("ghs")["event"]
+    ctl.tick(2)                                         # 4 s on: the pump has not let go yet
+    assert ctl.ghs.remote and not ctl.ghs.drive_on
+    ctl.tick(5)                                         # 14 s on: it has, and its stand says run
+    assert set(words(ctl.ghs, sent)) == {CONTROL_LOCAL}
+    assert not ctl.ghs.remote and ctl.ghs.drive_on
+    assert ctl.reading("ghs")["remote"] == 0 and ctl.reading("ghs")["drive_on"] == 1
+    assert ctl.saved() == {}
+
+
+def test_holding_off_is_not_a_lock_if_the_service_goes_quiet(ctl):
+    ctl.cmd("ghs", "off")
+    ctl.tick(3)
+    ctl.clock.advance(15)                               # the service hangs for 15 s
+    ctl.ghs.settle()
+    assert ctl.ghs.drive_on and not ctl.ghs.remote      # … and the stand has started the pump
+    ctl.tick()                                          # the service is back: off again
+    assert not ctl.ghs.drive_on and ctl.ghs.remote
+    assert ctl.status("ghs")["mode"] == "off"
+
+
+def test_with_the_stand_saying_stop_a_pump_held_on_runs_only_while_the_service_talks(ctl):
+    ctl.ghs.x1_start = False                            # the stand's own start is off
+    ctl.ghs.settle()
+    ctl.ghs.standstill()
+    ctl.tick()
+    assert ctl.reading("ghs")["state"] == "stopped"
+
+    ctl.cmd("ghs", "on")
+    ctl.tick(3)
+    assert ctl.ghs.drive_on and ctl.reading("ghs")["state"] == "accelerating"
+    assert ctl.ghs.params[38] == 109                    # the pump counted a start
+
+    ctl.clock.advance(15)
+    ctl.ghs.settle()
+    assert not ctl.ghs.drive_on                         # nobody talking: back to the stand, which says stop
+
+
+@pytest.mark.parametrize("topic, payload", [
+    ("ghs/mode", {"mode": "ON"}),
+    ("ghs/mode", {"mode": "off "}),
+    ("ghs/mode", {"mode": "start"}),
+    ("ghs/mode", {"mode": 0}),
+    ("ghs/mode", {"mode": 1}),
+    ("ghs/mode", {"mode": True}),
+    ("ghs/mode", {"mode": False}),
+    ("ghs/mode", {"mode": None}),
+    ("ghs/mode", {"mode": ["off"]}),
+    ("ghs/mode", {"state": 0}),
+    ("ghs/mode", {}),
+    ("ghs/mode", "off"),
+    ("ghs/mode", 0),
+    ("ghs/mode", None),
+    ("nosuchpump/mode", {"mode": "off"}),
+    ("GHS/mode", {"mode": "off"}),
+    ("ghs/stop", {"mode": "off"}),
+    ("ghs/mode/extra", {"mode": "off"}),
+])
+def test_anything_but_the_three_exact_commands_changes_nothing(ctl, topic, payload):
+    ctl.mqtt.publish("xsphere/commands/turbo/" + topic, payload)
+    ctl.tick(2)
+    assert ctl.ghs.control_words == {CONTROL_LOCAL} and ctl.outer.control_words == {CONTROL_LOCAL}
+    assert ctl.ghs.drive_on and ctl.outer.drive_on
+    assert ctl.status("ghs")["mode"] == "local" and ctl.status("outer")["mode"] == "local"
+
+
+def test_on_and_off_are_refused_for_a_pump_that_is_not_there(ctl):
+    sim = ctl.unplug("/dev/ttyACM1")
+    ctl.tick()
+    for mode in ("off", "on"):
+        ctl.cmd("outer", mode)
+        s = ctl.status("outer")
+        assert s["mode"] == "local" and s["event"] == f"{mode.upper()} ignored — the pump is not connected"
+    ctl.plug("/dev/ttyACM1", sim)                       # … and nothing was queued for its return
+    ctl.tick(6)
+    assert ctl.status("outer")["connected"] is True and ctl.status("outer")["mode"] == "local"
+    assert sim.control_words == {CONTROL_LOCAL} and sim.drive_on
+
+
+def test_a_pump_that_is_not_pinned_by_serial_number_cannot_be_commanded(clock, sims):
+    rig = Rig(clock, sims, control=True)                # `outer` has no serial number here
+    rig.pump("/dev/ttyACM0", GHS)
+    outer = rig.pump("/dev/ttyACM1", OUTER)
+    rig.start()
+    rig.tick()
+    assert rig.status("outer")["connected"] is True and rig.status("outer")["pinned"] is False
+    rig.cmd("outer", "off")
+    rig.tick(2)
+    assert "not pinned to a serial number" in rig.status("outer")["event"]
+    assert rig.status("outer")["mode"] == "local"
+    assert outer.control_words == {CONTROL_LOCAL} and outer.drive_on
+
+
+def test_a_service_restart_carries_on_holding(ctl):
+    ctl.cmd("ghs", "off")
+    ctl.tick(2)
+    assert ctl.saved()["ghs"]["mode"] == "off" and ctl.saved()["ghs"]["pump_serial"] == GHS
+    sent, sent_outer = len(ctl.ghs.log), len(ctl.outer.log)
+
+    ctl.restart(away_s=6)
+    assert not ctl.ghs.drive_on and ctl.ghs.remote      # the pump never noticed
+    s = ctl.status("ghs")
+    assert s["mode"] == "off" and s["event"] == "holding it OFF again after 8 s out of touch"
+    after = words(ctl.ghs, sent)
+    first = after.index(CONTROL_STOP)
+    # until it has said who it is, a pump is only read …
+    assert set(after[:first]) == {CONTROL_LOCAL} and first <= 24
+    # … and from then on everything says stop again, the rest of its identification included
+    assert set(after[first:]) == {CONTROL_STOP} and len(after) - first > 40
+    assert set(words(ctl.outer, sent_outer)) == {CONTROL_LOCAL}
+
+    ctl.cmd("ghs", "on")                                # and the same for a pump held on
+    ctl.tick(2)
+    ctl.restart(away_s=6)
+    assert ctl.ghs.drive_on and ctl.ghs.remote and ctl.status("ghs")["mode"] == "on"
+    assert ctl.status("ghs")["event"] == "holding it ON again after 8 s out of touch"
+
+
+def test_a_restart_longer_than_the_pumps_patience_stops_it_again(ctl):
+    ctl.cmd("ghs", "off")
+    ctl.tick(2)
+    ctl.driver.disconnect()
+    ctl.clock.advance(40)                               # a reboot of the Pi, say
+    ctl.ghs.settle()
+    assert ctl.ghs.drive_on and not ctl.ghs.remote      # the stand started it meanwhile
+    ctl.start()
+    ctl.tick()
+    assert not ctl.ghs.drive_on and ctl.ghs.remote
+    assert ctl.status("ghs")["mode"] == "off"
+    assert ctl.status("ghs")["event"] == "holding it OFF again after 42 s out of touch"
+
+
+@pytest.mark.parametrize("mode", ["off", "on"])
+def test_a_long_absence_ends_the_hold(ctl, mode):
+    ctl.cmd("ghs", mode)
+    ctl.tick(2)
+    sent = len(ctl.ghs.log)
+    ctl.restart(away_s=600)
+    s = ctl.status("ghs")
+    assert s["mode"] == "local" and s["connected"] is True
+    assert s["event"] == (f"no longer holding it {mode.upper()}: out of touch for 10 min, "
+                          "so its stand has had the pump since")
+    ctl.tick(5)
+    assert set(words(ctl.ghs, sent)) == {CONTROL_LOCAL}
+    assert ctl.ghs.drive_on and not ctl.ghs.remote      # running, as its stand has it
+    assert ctl.saved() == {}
+
+
+def test_a_hold_is_never_carried_over_to_a_different_pump(ctl):
+    ctl.cmd("ghs", "off")
+    ctl.tick(2)
+    ctl.driver.disconnect()
+    ctl.unplug("/dev/ttyACM0")
+    other = ctl.pump("/dev/ttyACM0", OTHER)             # the pump was exchanged …
+    ctl.config.turbovac.pumps["ghs"].serial = OTHER     # … and config.yaml brought up to date
+    ctl.clock.advance(20)
+    ctl.start()
+    ctl.tick(3)
+    s = ctl.status("ghs")
+    assert s["connected"] is True and s["pump_serial"] == OTHER and s["mode"] == "local"
+    assert s["event"] == f"no longer holding it OFF: it was set on pump {GHS}, and this is {OTHER}"
+    assert other.control_words == {CONTROL_LOCAL} and other.drive_on
+
+
+def test_a_usb_glitch_does_not_end_the_hold(ctl):
+    ctl.cmd("ghs", "off")
+    ctl.tick(2)
+    ctl.ghs.mute()
+    ctl.tick()
+    s = ctl.status("ghs")
+    assert s["connected"] is False and s["mode"] == "off"       # still meant, though unreachable
+    ctl.ghs.mute(False)
+    sent = len(ctl.ghs.log)
+    ctl.tick(4)
+    assert ctl.status("ghs")["connected"] is True and ctl.status("ghs")["mode"] == "off"
+    assert "holding it OFF again" in ctl.status("ghs")["event"]
+    assert words(ctl.ghs, sent)[-1] == CONTROL_STOP and not ctl.ghs.drive_on
+
+
+def test_a_pump_power_cycled_while_held_off_is_stopped_again_if_it_is_back_soon(ctl):
+    ctl.cmd("ghs", "off")
+    ctl.tick(2)
+    ctl.ghs.power_off()                                 # supply off: the USB port goes with it
+    del ctl.ports["/dev/ttyACM0"]
+    ctl.tick(8)
+    assert ctl.status("ghs")["connected"] is False
+    ctl.ports["/dev/ttyACM0"] = ctl.ghs
+    ctl.ghs.power_on()                                  # back: control bits cleared, stand says run
+    assert ctl.ghs.drive_on and not ctl.ghs.remote
+    ctl.tick(4)
+    assert not ctl.ghs.drive_on and ctl.ghs.remote and ctl.status("ghs")["mode"] == "off"
+
+
+def test_the_state_file(ctl):
+    assert not os.path.exists(ctl.state_path)           # nothing held, nothing written
+    ctl.cmd("ghs", "off")
+    ctl.cmd("outer", "on")
+    saved = ctl.saved()
+    assert set(saved) == {"ghs", "outer"}
+    assert (saved["ghs"]["mode"], saved["ghs"]["pump_serial"]) == ("off", GHS)
+    assert (saved["outer"]["mode"], saved["outer"]["pump_serial"]) == ("on", OUTER)
+    t0 = saved["ghs"]["last_contact"]
+
+    ctl.tick(20)                                        # 40 s: the time of last contact follows
+    assert 30 <= ctl.saved()["ghs"]["last_contact"] - t0 <= 40
+    ctl.driver.disconnect()                             # … and is exact at a clean stop
+    assert ctl.saved()["ghs"]["last_contact"] - t0 == 40
+
+    ctl.start()
+    ctl.tick()
+    ctl.cmd("ghs", "local")
+    assert set(ctl.saved()) == {"outer"}
+
+
+def test_an_unreadable_state_file_means_every_pump_is_left_alone(ctl):
+    ctl.cmd("ghs", "off")
+    ctl.tick(2)
+    ctl.driver.disconnect()
+    with open(ctl.state_path, "w") as fh:
+        fh.write("{not json")
+    sent = len(ctl.ghs.log)
+    ctl.clock.advance(5)
+    ctl.start()
+    ctl.tick(3)
+    assert ctl.status("ghs")["mode"] == "local" and ctl.status("ghs")["connected"] is True
+    assert set(words(ctl.ghs, sent)) == {CONTROL_LOCAL}
+
+
+def test_switching_control_off_in_the_config_ends_a_hold(ctl):
+    ctl.cmd("ghs", "off")
+    ctl.tick(2)
+    ctl.driver.disconnect()
+    sent = len(ctl.ghs.log)
+    ctl.config.turbovac.allow_control = False
+    ctl.clock.advance(5)
+    ctl.start()
+    ctl.tick(8)
+    assert ctl.status("ghs")["mode"] == "local" and ctl.status("ghs")["control_allowed"] is False
+    assert set(words(ctl.ghs, sent)) == {CONTROL_LOCAL}
+    assert ctl.mqtt.subs == []
+    assert ctl.ghs.drive_on                             # its stand has it back
+
+
+def test_a_pump_that_does_not_take_the_command_is_reported(ctl):
+    ctl.ghs.deaf = True
+    ctl.cmd("ghs", "off")
+    ctl.tick(2)
+    assert "does not report" not in ctl.status("ghs")["event"]
+    ctl.tick(2)
+    assert ctl.status("ghs")["event"] == ("told to stay OFF, but the pump does not report that "
+                                          "the bus has control of it")
+    assert ctl.status("ghs")["mode"] == "off" and ctl.ghs.drive_on
+
+
+def test_a_driver_fault_does_not_lose_a_hold(ctl, monkeypatch):
+    ctl.cmd("ghs", "off")
+    ctl.tick(2)
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("bug")
+
+    monkeypatch.setattr(ctl.driver, "_read_slow", boom)
+    ctl.ghs.warning_bits = 1                            # makes the next poll read the slow set
+    ctl.tick()                                          # must not raise
+    assert ctl.status("ghs")["connected"] is False and ctl.status("ghs")["mode"] == "off"
+    monkeypatch.undo()
+    monkeypatch.setattr(tv_mod, "time", ctl.clock)
+    ctl.tick(31)                                        # tried again a minute later
+    assert ctl.status("ghs")["connected"] is True and ctl.status("ghs")["mode"] == "off"
+    assert not ctl.ghs.drive_on and ctl.ghs.remote
+
+
+def test_a_long_session_of_commands_sends_nothing_but_the_three_words(ctl):
+    script = ["off", "on", "off", "local", "on", "local", "off", "off", "on", "on", "local"]
+    for i, mode in enumerate(script):
+        ctl.cmd("ghs" if i % 3 else "outer", mode)
+        ctl.tick(7)
+        if i == 4:
+            ctl.ghs.garble(1)
+        if i == 6:
+            ctl.restart(away_s=4)
+    assert len(ctl.ghs.log) > 400 and len(ctl.outer.log) > 400
+    assert ctl.ghs.control_words == {CONTROL_LOCAL, CONTROL_STOP, CONTROL_START}
+    assert ctl.outer.control_words <= {CONTROL_LOCAL, CONTROL_STOP, CONTROL_START}
+    assert ctl.ghs.violations == [] and ctl.outer.violations == []
+
+
+# ---------------------------------------------------------------------------
 # The registry and the shipped config describe what the driver publishes
 # ---------------------------------------------------------------------------
 
@@ -689,9 +1129,13 @@ def test_state_yaml_matches_the_driver(rig):
     turbo = {sid: st for sid, st in states.items() if st["group"] == "turbo"}
     ghs = {sid: st for sid, st in turbo.items() if sid.startswith("turbo_ghs_")}
     outer = {sid: st for sid, st in turbo.items() if sid.startswith("turbo_outer_")}
-    assert len(ghs) == 15 and len(outer) == 15 and len(turbo) == 30
+    assert len(ghs) == 17 and len(outer) == 17 and len(turbo) == 34
     assert {sid[len("turbo_ghs_"):] for sid in ghs} == {sid[len("turbo_outer_"):] for sid in outer}
-    assert not any("control" in st for st in turbo.values())        # read-only
+    # the mode — local / on / off — is the one thing about a pump that can be set
+    assert {sid for sid, st in turbo.items() if "control" in st} == {"turbo_ghs_mode",
+                                                                     "turbo_outer_mode"}
+    assert ghs["turbo_ghs_mode"]["values"] == ["local", "on", "off"]
+    assert ghs["turbo_ghs_mode"]["value"] == "local" and ghs["turbo_ghs_remote"]["value"] is False
 
     for sid, st in ghs.items():
         assert st["value"] is not None and st["freshness"] == "fresh", sid
@@ -712,8 +1156,24 @@ def test_state_yaml_matches_the_driver(rig):
     # the pump that is not there: "not connected" is known, the rest is not
     assert outer["turbo_outer_connected"]["value"] is False
     for sid, st in outer.items():
-        if sid != "turbo_outer_connected":
+        if sid == "turbo_outer_mode":
+            assert st["value"] == "local", sid          # known without the pump: nobody holds it
+        elif sid != "turbo_outer_connected":
             assert st["value"] is None and st["freshness"] == "invalid", sid
+
+    # the registry's control moves the pump it names, when pump control is on
+    ctl = Rig(rig.clock, rig._sims, control=True)
+    ctl.config.turbovac.pumps["outer"].serial = OUTER
+    pump, other = ctl.pump("/dev/ttyACM0", GHS), ctl.pump("/dev/ttyACM1", OUTER)
+    ctl.start()
+    ctl.tick()
+    for sid, mode, running in (("turbo_ghs_mode", "off", False), ("turbo_ghs_mode", "on", True),
+                               ("turbo_ghs_mode", "local", True)):
+        control = turbo[sid]["control"]
+        ctl.mqtt.publish(control["topic"], {k: (mode if v == "$value" else v)
+                                            for k, v in control["payload"].items()})
+        assert ctl.status("ghs")["mode"] == mode and pump.drive_on is running
+    assert other.control_words == {CONTROL_LOCAL}
 
     # every state the driver can be in is one the registry allows
     allowed = set(ghs["turbo_ghs_state"]["values"])
@@ -725,7 +1185,7 @@ def test_state_yaml_matches_the_driver(rig):
 def test_config_yaml_names_this_pump_as_the_ghs_pump():
     repo = os.path.normpath(os.path.join(os.path.dirname(__file__), ".."))
     cfg = load(os.path.join(repo, "slowcontrol", "config.yaml")).turbovac
-    assert cfg.enabled is True
+    assert cfg.enabled is True and cfg.allow_control is True and cfg.resume_max_s == 120.0
     assert list(cfg.pumps) == ["ghs", "outer"]
     assert cfg.pumps["ghs"].serial == GHS               # the pump read on 2026-10-11
     assert "gas handling" in cfg.pumps["ghs"].label and "science chamber" in cfg.pumps["ghs"].label
@@ -744,6 +1204,7 @@ def test_a_serial_number_written_without_quotes_is_still_text(tmp_path):
                     "    ghs: {label: GHS, serial: 31003077799}\n    outer:\n")
     cfg = load(str(path)).turbovac
     assert cfg.enabled is True and cfg.poll_interval_s == 5.0
+    assert cfg.allow_control is False                   # reading is all it does unless told
     assert cfg.pumps["ghs"].serial == GHS and cfg.pumps["ghs"].label == "GHS"
     assert cfg.pumps["outer"].serial == "" and cfg.pumps["outer"].label == ""
     assert ServiceConfig().turbovac.enabled is False    # off unless config.yaml says so

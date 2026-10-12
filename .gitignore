@@ -20,6 +20,8 @@ slowcontrol/pv_interlock.json
 slowcontrol/pv_interlock.json.tmp
 slowcontrol/nge_state.json
 slowcontrol/nge_state.json.tmp
+slowcontrol/turbovac_state.json
+slowcontrol/turbovac_state.json.tmp
 
 # Editor / OS
 *.swp

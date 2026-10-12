@@ -265,12 +265,18 @@ groups:
       source: {topic: xsphere/sensors/vacuum/ghs/2, key: value}
       period_s: 10.0
 
-  # ── Turbo pumps (Leybold TURBOVAC 90 i, read over USB) ──────────────────
-  # Read by the TurbovacDriver (drivers/turbovac.py), which cannot operate a
-  # pump — so nothing here has a `control`.  A pump is recognised by its own
-  # serial number (turbovac.pumps in config.yaml), not by its USB port:
+  # ── Turbo pumps (Leybold TURBOVAC 90 i, over USB) ───────────────────────
+  # Read by the TurbovacDriver (drivers/turbovac.py).  A pump is recognised by
+  # its own serial number (turbovac.pumps in config.yaml), not by its USB port:
   #   ghs    the gas handling system, science chamber included
   #   outer  the outer (insulation) vacuum
+  # The one thing that can be set is `_mode` — who has the pump:
+  #   local  its stand; the service only reads
+  #   on     the service holds it running
+  #   off    the service holds it stopped
+  # and only while turbovac.allow_control is true.  Holding is not locking: a
+  # pump that hears nothing from the service for 10 s goes back to its stand.
+  # `_remote` is the pump's own word on whether a bus master has it.
   # `_state` is stopped | accelerating | normal | running | decelerating |
   # coasting | error ("running" = drive on, below normal-operation speed and
   # holding).  Temperatures are the pump's own, in °C.  Nothing arrives on the
@@ -281,6 +287,12 @@ groups:
       kind: binary
       label: "GHS turbo (gas handling + science chamber) — USB link up"
       source: {topic: xsphere/status/turbo/ghs, key: connected}
+    turbo_ghs_mode:
+      kind: enum
+      values: [local, "on", "off"]     # quoted: bare on / off are YAML for true / false
+      label: "GHS turbo — who has it (local = its stand; on / off = held by the slow control)"
+      source:  {topic: xsphere/status/turbo/ghs, key: mode}
+      control: {topic: xsphere/commands/turbo/ghs/mode, payload: {mode: $value}}
     turbo_ghs_state:
       kind: enum
       values: [stopped, accelerating, normal, running, decelerating, coasting, error]
@@ -347,6 +359,10 @@ groups:
       kind: binary
       label: "GHS turbo warning active"
       source: {topic: xsphere/sensors/turbo/ghs, key: warning}
+    turbo_ghs_remote:
+      kind: binary
+      label: "GHS turbo reports a bus master in control"
+      source: {topic: xsphere/sensors/turbo/ghs, key: remote}
     turbo_ghs_operating_hours:
       kind: analog
       unit: h
@@ -362,6 +378,12 @@ groups:
       kind: binary
       label: "Outer vacuum turbo — USB link up"
       source: {topic: xsphere/status/turbo/outer, key: connected}
+    turbo_outer_mode:
+      kind: enum
+      values: [local, "on", "off"]     # quoted: bare on / off are YAML for true / false
+      label: "Outer vacuum turbo — who has it (local = its stand; on / off = held by the slow control)"
+      source:  {topic: xsphere/status/turbo/outer, key: mode}
+      control: {topic: xsphere/commands/turbo/outer/mode, payload: {mode: $value}}
     turbo_outer_state:
       kind: enum
       values: [stopped, accelerating, normal, running, decelerating, coasting, error]
@@ -428,6 +450,10 @@ groups:
       kind: binary
       label: "Outer vacuum turbo warning active"
       source: {topic: xsphere/sensors/turbo/outer, key: warning}
+    turbo_outer_remote:
+      kind: binary
+      label: "Outer vacuum turbo reports a bus master in control"
+      source: {topic: xsphere/sensors/turbo/outer, key: remote}
     turbo_outer_operating_hours:
       kind: analog
       unit: h
