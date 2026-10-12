@@ -28,7 +28,7 @@
         "x": 0,
         "y": 0
       },
-      "id": 24,
+      "id": 25,
       "title": "New row",
       "type": "row"
     },
@@ -129,7 +129,7 @@
             "type": "influxdb",
             "uid": "${DS_INFLUX}"
           },
-          "query": "from(bucket: \"xsphere\")\r\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\r\n  |> filter(fn: (r) => r[\"_measurement\"] == \"service_heartbeat\" or r[\"_measurement\"] == \"temperature\")\r\n  |> filter(fn: (r) => r[\"_field\"] == \"value_k\")\r\n  |> filter(fn: (r) => r[\"channel\"] == \"1\" or r[\"channel\"] == \"3\" or r[\"channel\"] == \"2\" or r[\"channel\"] == \"4\" or r[\"channel\"] == \"5\" or r[\"channel\"] == \"6\")\r\n  |> filter(fn: (r) => r[\"sensor_type\"] == \"rtd\")\r\n  |> filter(fn: (r) => r[\"source\"] == \"labjack_cal\" or r[\"source\"] == \"plc\")\r\n  |> filter(fn: (r) => r[\"system\"] == \"xsphere\")\r\n  |> filter(fn: (r) => r[\"topic\"] == \"xsphere/sensors/temperature/labjack_cal/rtd/1\" or r[\"topic\"] == \"xsphere/sensors/temperature/labjack_cal/rtd/2\" or r[\"topic\"] == \"xsphere/sensors/temperature/labjack_cal/rtd/3\" or r[\"topic\"] == \"xsphere/sensors/temperature/plc/rtd/4\" or r[\"topic\"] == \"xsphere/sensors/temperature/plc/rtd/5\" or r[\"topic\"] == \"xsphere/sensors/temperature/plc/rtd/6\")\r\n  |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false)\r\n  |> map(fn: (r) => ({\r\n      _time: r._time,\r\n      _value: r._value,\r\n      _field: if r.channel == \"1\" then \"LJ1 - Nozzle (cal)\"\r\n        else if r.channel == \"2\" then \"LJ2 - Top Cube (cal)\"\r\n        else if r.channel == \"3\" then \"LJ3 - Bottom Cube (cal)\"\r\n        else if r.channel == \"4\" then \"PLC1 - Tree\"\r\n        else if r.channel == \"5\" then \"PLC2 - Top Clamp\"\r\n        else if r.channel == \"6\" then \"PLC3 - Bottom Clamp\"\r\n        else r._field\r\n    }))\r\n  |> yield(name: \"mean\")",
+          "query": "from(bucket: \"xsphere\")\r\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\r\n  |> filter(fn: (r) => r[\"_measurement\"] == \"service_heartbeat\" or r[\"_measurement\"] == \"temperature\")\r\n  |> filter(fn: (r) => r[\"_field\"] == \"value_k\")\r\n  |> filter(fn: (r) => r[\"channel\"] == \"1\" or r[\"channel\"] == \"3\" or r[\"channel\"] == \"2\" or r[\"channel\"] == \"4\" or r[\"channel\"] == \"6\")\r\n  |> filter(fn: (r) => r[\"sensor_type\"] == \"rtd\")\r\n  |> filter(fn: (r) => r[\"source\"] == \"labjack_cal\" or r[\"source\"] == \"plc\")\r\n  |> filter(fn: (r) => r[\"system\"] == \"xsphere\")\r\n  |> filter(fn: (r) => r[\"topic\"] == \"xsphere/sensors/temperature/labjack_cal/rtd/1\" or r[\"topic\"] == \"xsphere/sensors/temperature/labjack_cal/rtd/2\" or r[\"topic\"] == \"xsphere/sensors/temperature/labjack_cal/rtd/3\" or r[\"topic\"] == \"xsphere/sensors/temperature/plc/rtd/4\" or r[\"topic\"] == \"xsphere/sensors/temperature/plc/rtd/5\" or r[\"topic\"] == \"xsphere/sensors/temperature/plc/rtd/6\")\r\n  |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false)\r\n  |> map(fn: (r) => ({\r\n      _time: r._time,\r\n      _value: r._value,\r\n      _field: if r.channel == \"1\" then \"LJ1 - Nozzle (cal)\"\r\n        else if r.channel == \"2\" then \"LJ2 - Top Cube (cal)\"\r\n        else if r.channel == \"3\" then \"LJ3 - Bottom Cube (cal)\"\r\n        else if r.channel == \"4\" then \"PLC1 - Tree\"\r\n        else if r.channel == \"5\" then \"PLC2 - Top Clamp\"\r\n        else if r.channel == \"6\" then \"PLC3 - Bottom Clamp\"\r\n        else r._field\r\n    }))\r\n  |> yield(name: \"mean\")",
           "refId": "A"
         }
       ],
@@ -839,14 +839,111 @@
       "type": "timeseries"
     },
     {
+      "datasource": {
+        "type": "influxdb",
+        "uid": "${DS_INFLUX}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "Temperature (K)",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 0,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "showValues": false,
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        }
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 19,
+        "x": 0,
+        "y": 37
+      },
+      "id": 24,
+      "options": {
+        "annotations": {
+          "clustering": -1,
+          "multiLane": false
+        },
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "pluginVersion": "13.0.1",
+      "targets": [
+        {
+          "datasource": {
+            "type": "influxdb",
+            "uid": "${DS_INFLUX}"
+          },
+          "query": "from(bucket: \"xsphere\")\r\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\r\n  |> filter(fn: (r) => r[\"_measurement\"] == \"pid_state\")\r\n  |> filter(fn: (r) => r[\"_field\"] == \"setpoint_k\")\r\n  |> filter(fn: (r) => r[\"system\"] == \"xsphere\")\r\n  |> filter(fn: (r) => r[\"topic\"] == \"xsphere/status/pid/bottom\" or r[\"topic\"] == \"xsphere/status/pid/nozzle\" or r[\"topic\"] == \"xsphere/status/pid/top\")\r\n  |> filter(fn: (r) => r[\"zone\"] == \"bottom\" or r[\"zone\"] == \"nozzle\" or r[\"zone\"] == \"top\")\r\n  |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false)\r\n  |> map(fn: (r) => ({\r\n      _time: r._time,\r\n      _value: r._value,\r\n      _field: if r.zone == \"nozzle\" then \"Nozzle Setpoint\"\r\n        else if r.zone == \"top\" then \"Top Cube Setpoint\"\r\n        else if r.zone == \"bottom\" then \"Bottom Cube Setpoint\"\r\n        else r._field\r\n    }))\r\n  |> yield(name: \"mean\")\r\n",
+          "refId": "A"
+        }
+      ],
+      "title": "Zone SP",
+      "type": "timeseries"
+    },
+    {
       "collapsed": false,
       "gridPos": {
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 37
+        "y": 42
       },
-      "id": 25,
+      "id": 26,
       "title": "PT",
       "type": "row"
     },
@@ -902,7 +999,7 @@
         "h": 9,
         "w": 8,
         "x": 0,
-        "y": 38
+        "y": 43
       },
       "id": 19,
       "options": {
@@ -1001,7 +1098,7 @@
         "h": 9,
         "w": 8,
         "x": 8,
-        "y": 38
+        "y": 43
       },
       "id": 20,
       "options": {
@@ -1054,9 +1151,9 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 47
+        "y": 52
       },
-      "id": 26,
+      "id": 27,
       "title": "misc",
       "type": "row"
     },
@@ -1124,7 +1221,7 @@
         "h": 9,
         "w": 16,
         "x": 0,
-        "y": 48
+        "y": 53
       },
       "id": 2,
       "options": {
@@ -1190,7 +1287,7 @@
         "h": 7,
         "w": 8,
         "x": 16,
-        "y": 48
+        "y": 53
       },
       "id": 12,
       "options": {
@@ -1287,7 +1384,7 @@
         "h": 9,
         "w": 8,
         "x": 16,
-        "y": 55
+        "y": 60
       },
       "id": 21,
       "options": {
@@ -1364,7 +1461,7 @@
         "h": 7,
         "w": 14,
         "x": 0,
-        "y": 57
+        "y": 62
       },
       "id": 22,
       "options": {
@@ -1421,7 +1518,7 @@
         "h": 7,
         "w": 2,
         "x": 14,
-        "y": 57
+        "y": 62
       },
       "id": 23,
       "options": {
@@ -1460,6 +1557,27 @@
   "tags": [
     "xsphere"
   ],
+  "templating": {
+    "list": [
+      {
+        "allowCustomValue": true,
+        "current": {
+          "text": "InfluxDB-xsphere",
+          "value": "InfluxDB-xsphere"
+        },
+        "hide": 0,
+        "includeAll": false,
+        "multi": false,
+        "name": "DS_INFLUX",
+        "options": [],
+        "query": "influxdb",
+        "refresh": 1,
+        "regex": "",
+        "skipUrlSync": false,
+        "type": "datasource"
+      }
+    ]
+  },
   "time": {
     "from": "now-3h",
     "to": "now"
@@ -1480,19 +1598,5 @@
   },
   "timezone": "browser",
   "title": "xsphere Slow Control",
-  "uid": "xsphere-slowcontrol",
-  "templating": {
-    "list": [
-      {
-        "name": "DS_INFLUX",
-        "type": "datasource",
-        "query": "influxdb",
-        "current": {
-          "text": "InfluxDB-xsphere",
-          "value": "InfluxDB-xsphere"
-        },
-        "hide": 0
-      }
-    ]
-  }
+  "uid": "xsphere-slowcontrol"
 }
