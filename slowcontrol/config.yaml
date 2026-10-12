@@ -103,11 +103,11 @@ turbovac:
       serial: "31003077799"      # TURBOVAC 90 i, cat. no. 810041V1000
     outer:
       label: "Outer vacuum turbo"
-      # Not connected yet.  While this is empty, the entry takes the one
-      # TURBOVAC on USB that is not pinned above — so the outer vacuum pump
-      # shows up as soon as it is plugged in.  Then put its serial number here
-      # (the Control page shows it) so that it is pinned like the GHS pump.
-      serial: ""
+      serial: "31003045053"      # TURBOVAC 90 i, cat. no. 810041V1000
+    # A pump's entry with serial: "" is "not pinned": it takes the one TURBOVAC
+    # on USB that no entry here names.  That is how to bring up a replacement
+    # pump — it shows up on the Control page with the serial number it
+    # reports, which then goes in here.
 
 # Cryostat LN level probe — the MPR121 sensor's ESP32, plugged into the Pi by
 # USB.  It prints "median delta = <count> | pwm = <0-255>" every ~3.5 s; the
