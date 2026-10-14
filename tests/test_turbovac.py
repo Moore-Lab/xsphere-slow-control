@@ -24,7 +24,7 @@ from slowcontrol.drivers.turbovac import (ACCESS_NONE, ACCESS_READ, ACCESS_READ_
                                           CONTROL_LOCAL, CONTROL_START, CONTROL_STOP, Identity,
                                           Reply, Turbovac, TurbovacDriver, TurbovacFrameError,
                                           TurbovacLinkError, parse_reply, read_telegram,
-                                          state_of)
+                                          state_of, watchdog_telegram)
 from slowcontrol.drivers.turbovac_sim import SimTurbovac
 from slowcontrol.state import default_schema_path, load_state_schema
 from slowcontrol.state.store import StateStore
@@ -93,10 +93,13 @@ class Rig:
     is not pinned (as the config was before the second pump arrived); pump
     control is off unless the rig is made with `control=True`."""
 
-    def __init__(self, clock, sims, control=False):
+    def __init__(self, clock, sims, control=False, arm=True):
         self.clock = clock
         self._sims = sims
         self.control = control
+        # With control on, every (re)start presses "enable control" — the gate
+        # that comes up shut — unless the test is about that gate.
+        self.arm_on_start = control and arm
         self.mqtt = FakeMqtt()
         self.config = ServiceConfig()
         self.config.turbovac.enabled = True
@@ -114,6 +117,7 @@ class Rig:
         """A new pump, plugged into `port`."""
         sim = SimTurbovac(pump_serial=serial, **kwargs)
         sim.may_be_commanded = self.control
+        sim.may_be_written = False          # only a keep_command pump's test says otherwise
         self._sims.append(sim)
         self.ports[port] = sim
         return sim
@@ -141,7 +145,16 @@ class Rig:
                                      list_ports=lambda: sorted(self.ports),
                                      open_link=self._open, state_path=self.state_path)
         self.driver.connect()
+        if self.arm_on_start:
+            self.arm()
         return self.driver
+
+    def arm(self, enabled=True):
+        """The Control page's "enable control" / "disable control"."""
+        self.mqtt.publish("xsphere/commands/turbo_control/enable", {"enabled": enabled})
+
+    def gate(self):
+        return self.mqtt.last.get("xsphere/status/turbo_control")
 
     def restart(self, away_s):
         """Stop the service, stay away for `away_s`, start it and poll once."""
@@ -193,8 +206,10 @@ def sims(tmp_path):
     yield made
     for sim in made:
         assert sim.violations == [], "the driver sent a pump something it must never send"
-        if not sim.may_be_commanded:
+        if not getattr(sim, "may_be_commanded", False):
             assert sim.control_words <= {CONTROL_LOCAL}, "a pump was commanded with control off"
+        if not getattr(sim, "may_be_written", False):
+            assert sim.writes == [], "a parameter was written on a pump that is not keep_command"
 
 
 @pytest.fixture
@@ -284,11 +299,50 @@ def _with(telegram, control=None, access=None, setpoint=None):
     _with(read_telegram(ACCESS_READ, 24), access=2),        # write a 16-bit parameter
     _with(read_telegram(ACCESS_READ, 8), access=2),         # … "save to non-volatile memory"
     _with(read_telegram(ACCESS_READ_FIELD, 134, 0), access=7),
+    _with(read_telegram(ACCESS_READ, 179), access=2),       # the fallback word: never
+    _with(watchdog_telegram(0), access=3),                  # 182 as a 32-bit write
+    _with(watchdog_telegram(0), control=0x0480),            # the one write, with an error reset
+    _with(watchdog_telegram(0), setpoint=700),
+    # 182 to 5 s, and 182 with an index: hand-made, the driver cannot build either
+    bytes.fromhex("02 16 00 20 b6 00 00 00 00 00 32 00 00 00 00 00 00 00 00 00 00 00 00 00"),
+    bytes.fromhex("02 16 00 20 b6 00 01 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00"),
 ])
 def test_the_sim_tells_on_anything_the_driver_must_never_send(bad):
     sim = SimTurbovac()
+    bad = bad[:23] + bytes([tv_mod._bcc(bad)])
     sim.exchange(bad)
     assert len(sim.violations) == 1
+
+
+@pytest.mark.parametrize("value, control", [(0, CONTROL_LOCAL), (100, CONTROL_LOCAL),
+                                            (0, CONTROL_START), (100, CONTROL_STOP)])
+def test_the_one_write_sets_parameter_182_to_0_or_100_and_nothing_else(value, control):
+    telegram = watchdog_telegram(value, control)
+    assert telegram[3:5] == bytes.fromhex("20b6")           # access 2, parameter 182
+    assert telegram[2] == telegram[5] == telegram[6] == 0   # address, reserved byte, index
+    assert telegram[7:11] == value.to_bytes(4, "big")       # 16-bit value in the low word
+    assert int.from_bytes(telegram[11:13], "big") == control
+    assert not any(telegram[13:23])                         # no setpoint, nothing else
+    # the head is that of a read of 182 but for the access code
+    assert telegram[:7] == _with(read_telegram(ACCESS_READ, 182, 0, control), access=2)[:7]
+    sim = SimTurbovac()
+    reply = parse_reply(sim.exchange(telegram))
+    assert (reply.code, reply.pnu, reply.number()) == (1, 182, value)    # as the manual has it
+    assert sim.params[182] == value and sim.violations == [] and sim.writes == [(182, value)]
+
+
+@pytest.mark.parametrize("value", [1, 50, 99, 101, 65535, -1, True, False, 0.0, 100.0, "0", None])
+def test_no_other_watchdog_value_can_be_built(value):
+    with pytest.raises(ValueError):
+        watchdog_telegram(value)
+    with pytest.raises(ValueError):
+        Turbovac(SimTurbovac()).set_watchdog(value)
+
+
+def test_the_one_write_carries_no_other_control_word():
+    for control in (0x0001, 0x0480, 0x0441, True, None):
+        with pytest.raises(ValueError):
+            watchdog_telegram(0, control)
 
 
 @pytest.mark.parametrize("control", [CONTROL_LOCAL, CONTROL_STOP, CONTROL_START])
@@ -334,6 +388,12 @@ def test_signed_and_wide_values():
 @pytest.mark.parametrize("word, state", [
     (0x0F04, "normal"),                     # as read from the pump at full speed
     (0x0B14, "accelerating"),
+    (0x8A14, "accelerating"),               # the outer pump run up from the bus, 2026-10-12
+    (0x8F14, "accelerating"),               # … just arrived at speed: says so for another ~40 s
+    (0x8A11, "coasting"),                   # … and stopped in mid run-up: "accelerating", drive off
+    (0x8A01, "coasting"),
+    (0x8F04, "normal"),
+    (0x8204, "running"),                    # the first second of a start
     (0x0A21, "decelerating"),               # drive off, running down
     (0x0B04, "running"),                    # drive on, below normal speed, holding
     (0x0A00, "coasting"),
@@ -782,7 +842,10 @@ def test_a_pump_nobody_has_commanded_is_only_ever_read(ctl):
         s = ctl.status(name)
         assert (s["mode"], s["mode_utc"], s["control_allowed"]) == ("local", None, True)
         assert ctl.reading(name)["remote"] == 0 and ctl.reading(name)["state"] == "normal"
-    assert [pattern for pattern, _ in ctl.mqtt.subs] == ["xsphere/commands/turbo/+/mode"]
+    assert [pattern for pattern, _ in ctl.mqtt.subs] == ["xsphere/commands/turbo/+/mode",
+                                                         "xsphere/commands/turbo_control/enable"]
+    assert ctl.ghs.writes == [] and ctl.outer.writes == []      # parameter 182 read, never set
+    assert ctl.status("ghs")["watchdog_s"] == 10.0 and ctl.status("ghs")["keeps_command"] is False
     assert not os.path.exists(ctl.state_path)
 
 
@@ -827,7 +890,7 @@ def test_local_hands_the_pump_back_to_its_stand(ctl):
     sent = len(ctl.ghs.log)
     ctl.cmd("ghs", "local")
     assert ctl.status("ghs")["mode"] == "local"
-    assert "handed back to its stand" in ctl.status("ghs")["event"]
+    assert ctl.status("ghs")["event"].startswith("released — in about 10 s it goes back to its stand")
     ctl.tick(2)                                         # 4 s on: the pump has not let go yet
     assert ctl.ghs.remote and not ctl.ghs.drive_on
     ctl.tick(5)                                         # 14 s on: it has, and its stand says run
@@ -1115,6 +1178,275 @@ def test_a_long_session_of_commands_sends_nothing_but_the_three_words(ctl):
 
 
 # ---------------------------------------------------------------------------
+# The gate: "enable control" / "disable control" on the Control page
+# ---------------------------------------------------------------------------
+
+WORD = {"on": "ON", "off": "OFF", "local": "RELEASE"}
+
+
+@pytest.fixture
+def shut(clock, sims):
+    """As `ctl`, but with the gate as every service start brings it up: shut."""
+    r = Rig(clock, sims, control=True, arm=False)
+    r.config.turbovac.pumps["outer"].serial = OUTER
+    r.ghs = r.pump("/dev/ttyACM0", GHS)
+    r.outer = r.pump("/dev/ttyACM1", OUTER)
+    r.start()
+    r.tick()
+    return r
+
+
+def test_the_gate_comes_up_shut_and_refuses_every_command(shut):
+    g = shut.gate()
+    assert (g["enabled"], g["since_utc"], g["refused"], g["control_allowed"]) == (0, None, 0, True)
+    for mode in ("off", "on", "local"):
+        shut.cmd("ghs", mode)
+        assert shut.status("ghs")["event"] == (f"{WORD[mode]} refused — turbo control is "
+                                               "disabled: enable it on the Control page first")
+    shut.tick(3)
+    assert shut.ghs.control_words == {CONTROL_LOCAL} and shut.ghs.drive_on
+    assert shut.status("ghs")["mode"] == "local" and shut.status("ghs")["control_enabled"] is False
+    g = shut.gate()
+    assert g["refused"] == 3 and (g["last_refused"]["pump"], g["last_refused"]["mode"]) == ("ghs", "local")
+    assert not os.path.exists(shut.state_path)
+
+
+def test_enabled_the_buttons_work_and_disabling_starts_or_stops_nothing(shut):
+    shut.arm(True)
+    assert shut.gate()["enabled"] == 1 and shut.gate()["since_utc"]
+    assert shut.status("ghs")["control_enabled"] is True
+    shut.cmd("ghs", "off")
+    shut.tick(2)
+    assert not shut.ghs.drive_on and shut.status("ghs")["mode"] == "off"
+    shut.arm(False)                                     # the hold stands …
+    shut.tick(10)                                       # (20 s: past the pump's watchdog)
+    assert not shut.ghs.drive_on and shut.ghs.remote and shut.status("ghs")["mode"] == "off"
+    assert shut.gate()["enabled"] == 0
+    shut.cmd("ghs", "on")                               # … and nothing more is taken
+    shut.tick(2)
+    assert not shut.ghs.drive_on and shut.status("ghs")["mode"] == "off"
+    assert shut.gate()["refused"] == 1
+
+
+@pytest.mark.parametrize("on, off", [(True, False), (1, 0)])
+def test_true_or_1_opens_the_gate_and_false_or_0_shuts_it(shut, on, off):
+    shut.arm(on)
+    assert shut.gate()["enabled"] == 1
+    shut.arm(off)
+    assert shut.gate()["enabled"] == 0
+
+
+@pytest.mark.parametrize("payload", [{"enabled": "true"}, {"enabled": 2}, {"enabled": None},
+                                     {"enabled": [True]}, {"enabled": 1.0}, {"enable": True}, {},
+                                     True, 1, "on", None])
+def test_nothing_else_opens_the_gate(shut, payload):
+    shut.mqtt.publish("xsphere/commands/turbo_control/enable", payload)
+    assert shut.gate()["enabled"] == 0
+    shut.cmd("ghs", "off")
+    assert shut.ghs.drive_on and shut.status("ghs")["mode"] == "local"
+
+
+def test_a_restart_shuts_the_gate_but_a_hold_carries_on(shut):
+    shut.arm(True)
+    shut.cmd("ghs", "off")
+    shut.tick(2)
+    shut.restart(away_s=4)
+    assert shut.gate()["enabled"] == 0 and shut.gate()["since_utc"] is None
+    # taking a hold up again after a restart is not a command, and is not gated
+    assert shut.status("ghs")["mode"] == "off" and not shut.ghs.drive_on and shut.ghs.remote
+    shut.cmd("ghs", "on")
+    shut.tick()
+    assert not shut.ghs.drive_on and "refused" in shut.status("ghs")["event"]
+
+
+def test_with_control_off_there_is_no_gate_to_open(rig):
+    assert rig.gate()["control_allowed"] is False and rig.gate()["enabled"] == 0
+    rig.arm(True)
+    rig.tick()
+    assert rig.gate()["enabled"] == 0
+
+
+# ---------------------------------------------------------------------------
+# keep_command: the pump keeps its last command without the service
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def keep(clock, sims):
+    """As `ctl`, with the outer pump keep_command — and, as on its stand since
+    2026-10-12, nothing on its X1 start input: whatever the bus does not hold
+    running is stopped."""
+    r = Rig(clock, sims, control=True)
+    r.config.turbovac.pumps["outer"].serial = OUTER
+    r.config.turbovac.pumps["outer"].keep_command = True
+    r.ghs = r.pump("/dev/ttyACM0", GHS)
+    r.outer = r.pump("/dev/ttyACM1", OUTER)
+    r.outer.may_be_written = True
+    r.outer.x1_start = False
+    r.outer.settle()
+    r.outer.standstill()
+    r.start()
+    r.tick()
+    return r
+
+
+def test_a_keep_command_pump_nobody_holds_is_only_read(keep):
+    keep.tick(40)
+    assert keep.outer.writes == [] and keep.outer.params[182] == 100
+    s = keep.status("outer")
+    assert (s["keeps_command"], s["watchdog_s"], s["mode"]) == (True, 10.0, "local")
+    assert keep.reading("outer")["watchdog_s"] == 10.0 and keep.reading("outer")["state"] == "stopped"
+    assert keep.status("ghs")["keeps_command"] is False
+
+
+def test_held_on_it_keeps_running_without_the_service(keep):
+    keep.cmd("outer", "on")
+    assert keep.outer.writes == [(182, 0)] and keep.outer.params[182] == 0
+    assert keep.outer.drive_on and keep.outer.remote
+    s = keep.status("outer")
+    assert s["watchdog_s"] == 0.0
+    assert s["event"] == ("ON — told to run, and held there — keeps that ON without the service "
+                          "too (its watchdog, parameter 182, is 0)")
+    keep.tick(3)
+    keep.driver.disconnect()                            # the service stops …
+    keep.clock.advance(3600)                            # … for an hour
+    keep.outer.settle()
+    assert keep.outer.drive_on and keep.outer.remote    # still running, still the bus's
+    keep.start()
+    keep.tick()
+    s = keep.status("outer")
+    assert s["mode"] == "on" and s["connected"] is True
+    assert s["event"] == "holding it ON again — it kept that by itself through 60 min out of touch"
+    assert keep.outer.writes == [(182, 0)]              # nothing more to set
+
+
+def test_held_off_it_stays_off_without_the_service_whatever_its_stand_says(keep):
+    keep.outer.x1_start = True                          # its stand saying run
+    keep.outer.settle()
+    keep.tick()
+    keep.cmd("outer", "off")
+    keep.tick(2)
+    assert keep.outer.writes == [(182, 0)] and not keep.outer.drive_on
+    keep.clock.advance(600)                             # the service hangs for 10 min
+    keep.outer.settle()
+    assert not keep.outer.drive_on and keep.outer.remote
+
+
+def test_released_it_gets_its_10_s_back_first_and_then_lets_go(keep):
+    keep.cmd("outer", "on")
+    keep.tick(3)
+    sent = len(keep.outer.log)
+    keep.cmd("outer", "local")
+    assert keep.outer.writes == [(182, 0), (182, 100)]
+    # read, write and read back while the hold still stood; only then the hold went
+    assert words(keep.outer, sent) == [CONTROL_START] * 3 + [CONTROL_LOCAL]
+    s = keep.status("outer")
+    assert s["mode"] == "local" and s["watchdog_s"] == 10.0
+    assert s["event"].startswith("released — in about 10 s it goes back to its stand")
+    assert s["event"].endswith("its watchdog (parameter 182) is back to 10 s: it lets go of a "
+                               "command once the service has gone quiet that long")
+    keep.tick(2)                                        # 4 s on: still held
+    assert keep.outer.remote and keep.outer.drive_on
+    keep.tick(5)                                        # 14 s on: let go, and X1 says stop
+    assert not keep.outer.remote and not keep.outer.drive_on
+    assert keep.saved() == {}
+
+
+def test_between_on_and_off_nothing_more_is_written(keep):
+    for mode in ("on", "off", "on", "off", "on"):
+        keep.cmd("outer", mode)
+        assert keep.status("outer")["event"].endswith(
+            f"keeps that {mode.upper()} without the service too (its watchdog, parameter 182, is 0)")
+        keep.tick(2)
+    assert keep.outer.writes == [(182, 0)]
+
+
+def test_a_supply_cycle_brings_back_the_10_s_and_a_hold_sets_0_again(keep):
+    keep.cmd("outer", "on")
+    keep.tick(2)
+    keep.outer.power_off()
+    del keep.ports["/dev/ttyACM1"]
+    keep.tick(8)
+    keep.ports["/dev/ttyACM1"] = keep.outer
+    keep.outer.power_on()
+    assert keep.outer.params[182] == 100 and not keep.outer.remote and not keep.outer.drive_on
+    keep.tick(4)                                        # back inside resume_max_s: held on again
+    assert keep.outer.drive_on and keep.outer.remote and keep.outer.params[182] == 0
+    assert keep.outer.writes == [(182, 0), (182, 0)] and keep.status("outer")["mode"] == "on"
+
+
+def test_after_a_long_supply_cut_it_is_not_started_again(keep):
+    keep.cmd("outer", "on")
+    keep.tick(2)
+    keep.outer.power_off()
+    del keep.ports["/dev/ttyACM1"]
+    keep.tick(100)                                      # 200 s without it
+    keep.ports["/dev/ttyACM1"] = keep.outer
+    keep.outer.power_on()
+    keep.tick(4)
+    s = keep.status("outer")
+    assert s["mode"] == "local" and s["event"].startswith("no longer holding it ON: out of touch for")
+    assert not keep.outer.drive_on and keep.outer.writes == [(182, 0)]
+
+
+def test_the_watchdog_is_put_right_if_it_moves_under_a_held_pump(keep):
+    keep.cmd("outer", "on")
+    keep.tick(2)
+    keep.outer.params[182] = 100                        # by whatever means
+    keep.tick(31)                                       # the slow reads come round (60 s)
+    assert keep.outer.params[182] == 0 and keep.outer.writes == [(182, 0), (182, 0)]
+
+
+def test_a_0_left_on_a_pump_nobody_holds_is_put_back_to_10_s(keep):
+    keep.cmd("outer", "on")
+    keep.tick(2)
+    keep.driver.disconnect()
+    os.remove(keep.state_path)                          # the service has forgotten the hold
+    keep.clock.advance(5)
+    keep.start()
+    keep.tick()
+    assert keep.status("outer")["mode"] == "local"
+    assert keep.outer.params[182] == 100 and keep.outer.writes == [(182, 0), (182, 100)]
+    keep.tick(6)
+    assert not keep.outer.remote and not keep.outer.drive_on    # back with X1: stop
+
+
+def test_a_pump_that_will_not_take_the_write_is_reported_once(keep, caplog):
+    keep.outer.read_only = {182}
+    keep.cmd("outer", "on")
+    s = keep.status("outer")
+    assert s["event"] == "its watchdog (parameter 182) will not go to 0 s — it reads 10 s"
+    assert keep.outer.drive_on and s["mode"] == "on"    # held all the same, while the service talks
+    keep.tick(70)                                       # two more slow reads
+    assert sum("will not go to 0 s" in r.getMessage() for r in caplog.records) == 1
+    assert keep.status("outer")["watchdog_s"] == 10.0
+
+
+def test_keep_command_needs_allow_control(clock, sims):
+    rig = Rig(clock, sims)                              # control off
+    rig.config.turbovac.pumps["outer"].serial = OUTER
+    rig.config.turbovac.pumps["outer"].keep_command = True
+    outer = rig.pump("/dev/ttyACM1", OUTER)
+    rig.start()
+    rig.tick(40)
+    assert outer.writes == [] and rig.status("outer")["keeps_command"] is False
+    assert rig.status("outer")["watchdog_s"] == 10.0
+
+
+def test_a_long_keep_session_sends_nothing_but_reads_three_words_and_the_one_write(keep):
+    script = ["on", "off", "local", "on", "on", "local", "off", "local"]
+    for i, mode in enumerate(script):
+        keep.cmd("outer", mode)
+        keep.tick(9)
+        if i == 3:
+            keep.restart(away_s=30)
+        if i == 4:
+            keep.outer.garble(1)
+    assert set(keep.outer.writes) == {(182, 0), (182, 100)}
+    assert keep.outer.violations == [] and keep.ghs.writes == []
+    assert keep.outer.params[182] == 100                # released at the end: as delivered
+
+
+# ---------------------------------------------------------------------------
 # The registry and the shipped config describe what the driver publishes
 # ---------------------------------------------------------------------------
 
@@ -1129,13 +1461,16 @@ def test_state_yaml_matches_the_driver(rig):
     turbo = {sid: st for sid, st in states.items() if st["group"] == "turbo"}
     ghs = {sid: st for sid, st in turbo.items() if sid.startswith("turbo_ghs_")}
     outer = {sid: st for sid, st in turbo.items() if sid.startswith("turbo_outer_")}
-    assert len(ghs) == 17 and len(outer) == 17 and len(turbo) == 34
+    assert len(ghs) == 18 and len(outer) == 18 and len(turbo) == 37
     assert {sid[len("turbo_ghs_"):] for sid in ghs} == {sid[len("turbo_outer_"):] for sid in outer}
-    # the mode — local / on / off — is the one thing about a pump that can be set
+    # the mode — local / on / off — is the one thing about a pump that can be set;
+    # the gate in front of it has no control on purpose (no Sequencer arming it)
     assert {sid for sid, st in turbo.items() if "control" in st} == {"turbo_ghs_mode",
                                                                      "turbo_outer_mode"}
     assert ghs["turbo_ghs_mode"]["values"] == ["local", "on", "off"]
     assert ghs["turbo_ghs_mode"]["value"] == "local" and ghs["turbo_ghs_remote"]["value"] is False
+    assert turbo["turbo_control_enabled"]["value"] is False     # shut, as at every start
+    assert ghs["turbo_ghs_watchdog"]["value"] == 10.0           # read, as delivered
 
     for sid, st in ghs.items():
         assert st["value"] is not None and st["freshness"] == "fresh", sid
@@ -1192,6 +1527,9 @@ def test_config_yaml_names_this_pump_as_the_ghs_pump():
     assert "outer" in cfg.pumps["outer"].label.lower()
     assert cfg.pumps["outer"].serial == "31003045053"   # the pump plugged in on 2026-10-12
     assert all(pump.serial for pump in cfg.pumps.values())      # both pinned: nothing left to chance
+    # The outer pump's TURBOLAB lead is out, so the service commands it and it is
+    # to keep that command without the Pi; the GHS pump is its TURBOLAB's, never written.
+    assert cfg.pumps["outer"].keep_command is True and cfg.pumps["ghs"].keep_command is False
     # each pump in the config has its rows in the registry
     ids = {s.id for s in load_state_schema(default_schema_path()).states}
     for name in cfg.pumps:
@@ -1207,4 +1545,25 @@ def test_a_serial_number_written_without_quotes_is_still_text(tmp_path):
     assert cfg.allow_control is False                   # reading is all it does unless told
     assert cfg.pumps["ghs"].serial == GHS and cfg.pumps["ghs"].label == "GHS"
     assert cfg.pumps["outer"].serial == "" and cfg.pumps["outer"].label == ""
+    assert cfg.pumps["ghs"].keep_command is False       # never unless config.yaml says so
     assert ServiceConfig().turbovac.enabled is False    # off unless config.yaml says so
+
+
+@pytest.mark.parametrize("text, keep", [("true", True), ("false", False), ("1", False),
+                                        ('"true"', False), ("", False)])
+def test_only_a_literal_true_makes_a_pump_keep_its_command(tmp_path, text, keep):
+    path = tmp_path / "config.yaml"
+    path.write_text("turbovac:\n  enabled: true\n  pumps:\n"
+                    f"    outer: {{serial: '31003045053', keep_command: {text or 'null'}}}\n")
+    assert load(str(path)).turbovac.pumps["outer"].keep_command is keep
+
+
+def test_telegraf_stores_the_gate_and_the_watchdog():
+    repo = os.path.normpath(os.path.join(os.path.dirname(__file__), ".."))
+    with open(os.path.join(repo, "telegraf", "telegraf.conf"), encoding="utf-8") as fh:
+        conf = fh.read()
+    assert 'topics      = ["xsphere/status/turbo_control"]' in conf
+    assert 'measurement_name = "turbo_control"' in conf
+    turbo_input = conf[conf.index('topics      = ["xsphere/sensors/turbo/+"]'):]
+    turbo_input = turbo_input[:turbo_input.index("[[inputs.mqtt_consumer]]")]
+    assert 'path     = "watchdog_s"' in turbo_input

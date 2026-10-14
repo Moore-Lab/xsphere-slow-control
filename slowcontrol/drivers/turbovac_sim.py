@@ -19,21 +19,30 @@ and the state registry can be exercised on a desk:
   • a telegram that is damaged gets no answer at all
 
 Who starts and stops it follows the manual (sections 4.3 and 5, parameters
-179 / 182) — this part has NOT been checked against a real pump yet:
+179 / 182).  The first three points were seen on the outer pump on
+2026-10-12, its TURBOLAB Core's RS 485 lead pulled; the rest is the manual's:
 
+  • a telegram whose control word has bit 10 set gives the bus control
+    within the poll; bit 0 of that word is then start / stop
+  • parameter 182 (10 s as delivered) after the last such telegram, control
+    goes back to the stand
+  • a pump on its TURBOLAB Core's RS 485 lead takes no notice of any of it —
+    the Core outranks USB — which `deaf` stands for
+  • with parameter 182 at 0 control never goes back: the pump keeps the last
+    command, however long nobody speaks
   • the stand's start input, `x1_start`, runs the pump unless a bus master
     has control
-  • a telegram whose control word has bit 10 set gives the bus control; bit 0
-    of that word is then start / stop
-  • 10 s without such a telegram and control goes back to the stand
   • switching the supply off and on (`power_off()` / `power_on()`) clears
-    the control bits, and takes the USB port away while it is off
+    the control bits and parameter 182 goes back to what is saved (10 s),
+    and the USB port is gone while it is off
   • the status word in a reply is the state before that telegram took effect
 
 It also keeps every telegram it is sent.  `violations` lists any that was
 something other than a read carrying one of the three control words the
-driver may send (0x0000, 0x0400, 0x0401), and `control_words` says which of
-those it has seen — the tests use both to hold the driver to what it claims.
+driver may send (0x0000, 0x0400, 0x0401) — or than the one write it may
+send, parameter 182 to 0 or 100 — `control_words` says which control words it
+has seen and `writes` which writes; the tests use them to hold the driver to
+what it claims.
 
 Drive it from a test: `start()`, `at_speed()`, `stop()`, `standstill()`,
 `trip(code)`, `log_error(code)`, `unplug()`, `plug()`, `power_off()`,
@@ -52,7 +61,8 @@ from slowcontrol.drivers.turbovac import (FRAME_LEN, LGE, STX, TEXT_LEN, Turbova
 
 _WIDE = (176, 184, 682)             # parameters answered as 32-bit values
 _ALLOWED_CONTROL = (0x0000, 0x0400, 0x0401)
-WATCHDOG_S = 10.0                   # parameter 182 as found on the real pumps
+_ALLOWED_WRITES = {182: (0, 100)}   # parameter → the values the driver may write
+WATCHDOG_SAVED = 100                # parameter 182 as found on the real pumps (0.1 s)
 RUN_UP_HZ_PER_S = 9.0               # only with `dynamics`: about 2¼ min to 1200 Hz
 RUN_DOWN_HZ_PER_S = 5.0             # … and about 4 min back down
 
@@ -84,8 +94,9 @@ class SimTurbovac:
         self.power = 12.9                   # W
         self.warning_bits = 0
         self.other_master = False           # some other bus master has control
-        self.deaf = False                   # ignores control words (for a test of that)
+        self.deaf = False                   # ignores control words: on its TURBOLAB's RS 485
         self.missing: set = set()           # parameters this pump "does not have"
+        self.read_only: set = set()         # parameters it will not let be written
 
         # who has it
         self.x1_start = True                # the stand says run
@@ -107,6 +118,8 @@ class SimTurbovac:
             171: [101, 101, 106, 101, 61, 106, 101, 2] + [0] * 246,
             174: [1081, 1164, 988, 1174, 1200, 731, 1152, 115] + [0] * 246,
             176: [651144, 608673, 395664, 395664, 384122, 362024, 362024, 53] + [0] * 246,
+            179: 0,
+            182: WATCHDOG_SAVED,
             184: 656050,
             313: _text(product),
             315: _text(converter_serial),
@@ -158,8 +171,10 @@ class SimTurbovac:
         self.drive_on, self.trend = False, (-1 if self.frequency else 0)
 
     def power_on(self) -> None:
-        """Supply back: the port returns and the stand has the pump."""
+        """Supply back: the port returns, the stand has the pump, and what was
+        written but never saved (parameter 182) is as saved again."""
         self.plugged = True
+        self.params[182] = WATCHDOG_SAVED
         self.settle()
 
     def garble(self, n: int = 1) -> None:
@@ -174,7 +189,8 @@ class SimTurbovac:
         """Bring the pump up to date with the clock: the watchdog, whoever has
         control now, and (with `dynamics`) the rotor."""
         now = _tv.time.monotonic()
-        if self.remote and now - self._remote_at > WATCHDOG_S:
+        patience = self.params[182] / 10.0  # 0: never — it keeps the last command
+        if self.remote and patience and now - self._remote_at > patience:
             self.remote = False             # nobody has spoken for it: back to the stand
         want = self._remote_start if self.remote else self.x1_start
         if want != self._commanded:
@@ -200,19 +216,33 @@ class SimTurbovac:
             self.power = round(self.motor_current * 16.0, 1)
         self._moved_at = now
 
+    @staticmethod
+    def _allowed(t: bytes) -> bool:
+        access, pnu = t[3] >> 4, struct.unpack_from(">H", t, 3)[0] & 0x7FF
+        if (t[2] or t[5] or any(t[13:23])
+                or struct.unpack_from(">H", t, 11)[0] not in _ALLOWED_CONTROL):
+            return False
+        if access in (0, 1, 6):
+            return not any(t[7:11])
+        value, = struct.unpack_from(">I", t, 7)
+        return access == 2 and t[6] == 0 and value in _ALLOWED_WRITES.get(pnu, ())
+
     @property
     def violations(self) -> List[str]:
         """Telegrams that were anything other than a read carrying one of the
-        control words the driver is allowed to send."""
-        return [t.hex(" ") for t in self.log
-                if (t[3] >> 4) not in (0, 1, 6) or t[2] or t[5]
-                or any(t[7:11]) or any(t[13:23])
-                or struct.unpack_from(">H", t, 11)[0] not in _ALLOWED_CONTROL]
+        control words the driver is allowed to send, or the one write."""
+        return [t.hex(" ") for t in self.log if not self._allowed(t)]
 
     @property
     def control_words(self) -> Set[int]:
         """Every control word this pump has been sent."""
         return {struct.unpack_from(">H", t, 11)[0] for t in self.log}
+
+    @property
+    def writes(self) -> List[tuple]:
+        """(parameter, value) of every write this pump has been sent."""
+        return [(struct.unpack_from(">H", t, 3)[0] & 0x7FF, struct.unpack_from(">I", t, 7)[0])
+                for t in self.log if (t[3] >> 4) in (2, 3, 7, 8)]
 
     # ── the link interface ─────────────────────────────────────────────────
 
@@ -226,7 +256,10 @@ class SimTurbovac:
         self.settle()
         pke, = struct.unpack_from(">H", telegram, 3)
         access, pnu, index = pke >> 12, pke & 0x7FF, telegram[6]
-        code, value = self._answer(access, pnu, index)
+        if access == 2:                     # write a 16-bit value
+            code, value = self._write(pnu, index, struct.unpack_from(">I", telegram, 7)[0])
+        else:
+            code, value = self._answer(access, pnu, index)
         reply = bytearray(FRAME_LEN)
         reply[0], reply[1] = STX, LGE
         struct.pack_into(">H", reply, 3, (code << 12) | (pnu if access else 0))
@@ -276,6 +309,20 @@ class SimTurbovac:
         if index:
             return 7, 3
         return (2 if wide else 1), value
+
+    def _write(self, pnu: int, index: int, value: int):
+        """(reply code, value) for a 16-bit write.  Only parameter 182 is
+        writable here (anything else is refused, and is a violation anyway)."""
+        if pnu != 182 or pnu in self.missing:
+            return 7, 1                     # parameter cannot be changed
+        if pnu in self.read_only:
+            return 8, 0                     # no permission to write
+        if index:
+            return 7, 3
+        if value > 0xFFFF:
+            return 7, 2                     # out of range
+        self.params[182] = value
+        return 1, value
 
     def _status_word(self) -> int:
         word = 1 << 9

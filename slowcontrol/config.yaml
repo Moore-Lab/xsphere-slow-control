@@ -97,24 +97,35 @@ nge:
 # topics, state.yaml, telegraf.conf and the Control page.
 turbovac:
   enabled: true
-  # true: the Control page's on / off buttons work.  The service then holds a
-  # pump on or off by repeating the command with every telegram; a pump that
-  # hears nothing for 10 s goes back to its stand by itself, so OFF from here
-  # is not a lock-out — to be sure a pump stays off, switch it off at the stand.
-  # false (or absent): read-only; the command topic does not exist.
+  # true: the Control page's on / off buttons work (once "enable control" has
+  # been pressed on the page — that gate comes up shut on every service
+  # start).  The service then holds a pump on or off by repeating the command
+  # with every telegram.  A pump on its TURBOLAB Core's RS 485 lead ignores
+  # all of it: the Core outranks USB.  Unless keep_command is set, a pump
+  # that hears nothing for 10 s goes back to its stand by itself, so OFF from
+  # here is not a lock-out.
+  # false (or absent): read-only; the command topics do not exist.
   allow_control: true
   # After a service restart or a USB glitch a pump is held on / off again only
   # if contact was lost for less than this (seconds); after longer it is left
-  # with its stand.  The held state is kept in slowcontrol/turbovac_state.json.
+  # with its stand — unless it is a keep_command pump that has kept the
+  # command by itself.  The held state is kept in slowcontrol/turbovac_state.json.
   resume_max_s: 120
   poll_interval_s: 2.0
   pumps:
     ghs:
       label: "GHS turbo — gas handling system + science chamber"
       serial: "31003077799"      # TURBOVAC 90 i, cat. no. 810041V1000
+      # On its TURBOLAB Core (RS 485 lead in): the Core starts and stops it.
     outer:
       label: "Outer vacuum turbo"
       serial: "31003045053"      # TURBOVAC 90 i, cat. no. 810041V1000
+      # Its TURBOLAB Core's RS 485 lead is out (since 2026-10-12), so the
+      # service is what starts and stops it.  keep_command: while it is held,
+      # its watchdog (parameter 182) is set to 0, so it stays running — or
+      # stopped — with the Pi or the service down.  Released, it gets its
+      # 10 s back: with nothing on its X1 socket it then stops.
+      keep_command: true
     # A pump's entry with serial: "" is "not pinned": it takes the one TURBOVAC
     # on USB that no entry here names.  That is how to bring up a replacement
     # pump — it shows up on the Control page with the serial number it

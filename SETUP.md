@@ -253,20 +253,35 @@ copy that into `config.yaml` and restart the service, so the entry can never
 end up on the wrong pump. The names `ghs` and `outer` are fixed — `state.yaml`,
 `telegraf.conf` and the Control page refer to them.
 
-`turbovac.allow_control: true` puts **on / off** buttons on the Control page;
-without it the service only reads. Start and stop are all it can ever send
-(see the top of `slowcontrol/drivers/turbovac.py`), and it sends them only to
-a pump that is pinned by serial number. Two things to know before relying on
-them:
+`turbovac.allow_control: true` puts **on / off / release** buttons on the
+Control page, behind an `enable control` lock that comes up shut at every
+service start; without it the service only reads. Start and stop are all it
+can ever send, plus one setting described below (see the top of
+`slowcontrol/drivers/turbovac.py`), and it sends them only to a pump that is
+pinned by serial number. Things to know before relying on them:
 
+- **A pump on its TURBOLAB Core's RS 485 lead is the Core's.** The Core's
+  controller talks to the pump over that 9-pin lead, which outranks USB, so
+  the buttons do nothing to it. For the slow control to start and stop a
+  pump, pull that lead (leave the 24 V lead in): the Core then shows `---`
+  and no longer switches that pump's backing pump, so power the backing pump
+  some other way. The outer pump has been run like this since 2026-10-12.
 - A pump held on or off from the Control page is held by the service
   repeating the command. If the pump hears nothing for 10 s — Pi down, service
-  stopped, cable out — it goes back to whatever its pumping stand says. With
-  the stand's start input active, a pump that was held **off** starts again.
-  The buttons are for convenience, not for making a pump safe to work on.
+  stopped, cable out — it lets go and does what its X1 start input says
+  (nothing plugged in = stop). With a start input active, a pump that was
+  held **off** starts again. The buttons are for convenience, not for making
+  a pump safe to work on.
+- **`keep_command: true`** under a pump in `turbovac.pumps` makes it keep the
+  command instead: while it is held, the service sets the pump's watchdog
+  (parameter 182) to 0, so it stays running — or stopped — with the Pi down.
+  Releasing it puts the 10 s back first. The value is never saved in the pump,
+  so a supply cycle also brings the 10 s back (and the pump comes up stopped).
+  Set it only on a pump whose RS 485 lead is out; the outer pump has it.
 - What was being held is kept in `slowcontrol/turbovac_state.json` (not in
-  git). After a service restart it is taken up again only if the pump was out
-  of touch for less than `turbovac.resume_max_s` (120 s).
+  git). After a service restart it is taken up again if the pump was out
+  of touch for less than `turbovac.resume_max_s` (120 s), or — a keep_command
+  pump — if it still reports the bus in control.
 
 `journalctl -u xsphere-slowcontrol | grep turbovac` shows what the service
 found, and from then on every command, every change of pump state and every

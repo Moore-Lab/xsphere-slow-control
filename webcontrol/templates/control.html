@@ -146,18 +146,25 @@
   <section class="card">
     <h2>Turbo pumps — Leybold TURBOVAC</h2>
     <div id="turbo"></div>
-    <small class="hint"><b>on</b> / <b>off</b> start and stop that pump over its USB link; <b>hand back to stand</b> returns it
-      to whatever its pumping stand tells it. While a pump is held on or off the slow control repeats the command with every
-      telegram, about every 2 s.
-      <b>Holding is not locking.</b> A pump that hears nothing from the Pi for 10 s goes back to its stand by itself — so if
-      the Pi, the service or the USB cable goes away, a pump held <b>off</b> starts again if its stand says run. To keep a
-      pump off for certain, switch it off at the stand. After a service restart the hold carries on if the pump was out of
-      touch for less than two minutes; after longer it is left with its stand and the card says so.
-      Start and stop are all that can be sent — never a speed or a setting — and only while
-      <code>turbovac.allow_control</code> is <code>true</code> in <code>config.yaml</code>.
+    <small class="hint"><b>On / off / release only work while turbo control is enabled</b> — the buttons at the top of the
+      card. The lock is in the turbo driver, so it holds for the Sequencer and anything else on the bus too; it comes up
+      <em>disabled</em> every time the slow-control service starts, and disabling it starts, stops or releases nothing.
+      Once it is on there is no per-click confirmation.
+      <b>on</b> / <b>off</b> start and stop that pump over its USB link and hold it there: the slow control repeats the
+      command with every telegram, about every 2 s. <b>release</b> gives it back, about 10 s later, to whatever else
+      commands it — its TURBOLAB, or its own X1 start input (nothing plugged in there means stop).
+      <b>A pump on its TURBOLAB Core's RS 485 lead ignores all of this</b>: the Core outranks USB, and the card says the
+      pump does not report the bus in control. The outer turbo's lead is out, so it is the slow control's.
+      <b>“keeps its command without the Pi”</b> (<code>keep_command</code> in <code>config.yaml</code>): while it is held,
+      that pump's watchdog (parameter 182) is 0, so it stays running — or stopped — with the Pi, the service or the USB
+      cable gone; released, it gets its 10 s back. Otherwise <b>holding is not locking</b>: a pump that hears nothing for
+      10 s lets go by itself. After a service restart a hold carries on if the pump was out of touch for less than two
+      minutes, or for any time if it kept the command itself; after longer it is left alone and the card says so.
+      Start, stop and that one watchdog setting are all that can be sent — never a speed or anything else — and only while
+      <code>turbovac.allow_control</code> is <code>true</code>.
       A pump is recognised by <b>its own serial number</b> (<code>turbovac.pumps</code>), not by the USB port it is on, so
-      swapping cables cannot swap the names or the buttons. A pump whose 24 V supply is off is not on USB at all and shows
-      as not connected. <code>NORMAL</code> means at normal-operation speed (90 % of the setpoint and above);
+      swapping cables cannot swap the names or the buttons. A pump whose supply is cut stays on USB while its rotor runs
+      down (it powers its own electronics), then shows as not connected. <code>NORMAL</code> means at normal-operation speed (90 % of the setpoint and above);
       <code>RUNNING</code> means the drive is on but the rotor is held below that. The temperatures are the pump's own
       (motor, bearing, converter); “last entry” is the newest line of the pump's error memory, with how many
       running-hours ago it was made; “last event” is the latest change the service saw — a pump found or lost, a command,
@@ -232,16 +239,13 @@ const NGE = [[1,"Ch 1 → heater 1 (zone 1, top)"],[2,"Ch 2 → heater 2 (zone 2
 // Turbo pumps: [name under turbovac.pumps in config.yaml, title].
 const TURBOS = [["ghs","GHS turbo — gas handling system + science chamber"],["outer","Outer vacuum turbo"]];
 function turboRaw(n){ const r = RAW["xsphere/status/turbo/"+n]; return (r && r.payload) || {}; }
-// on / off / local.  Starting or stopping a turbo is asked about first: a
-// stray click here costs a pump-down.
-function turboSet(n, mode){
-  const name = ((TURBOS.find(t => t[0]===n) || [])[1] || n).split(" — ")[0];
-  const ask = mode==="on"  ? "Start the " + name + "?\n\nThe slow control will hold it running."
-            : mode==="off" ? "Stop the " + name + "?\n\nIt will run down, and the slow control will hold it stopped."
-            : null;
-  if (ask && !confirm(ask)) return;
-  ctl("turbo_"+n+"_mode", mode);
-}
+// on / off / local (release).  No confirm: the enable / disable gate in front
+// of these is the safety step, as for the pneumatic valves.
+function turboSet(n, mode){ ctl("turbo_"+n+"_mode", mode); }
+// Enable / disable turbo control.  The gate itself is in the turbo driver (it
+// refuses on / off / release while shut, whoever sends them); this page only
+// locks its buttons to match.  Enabling starts or stops nothing by itself.
+function turboControl(on){ cmd("xsphere/commands/turbo_control/enable", {enabled: !!on}); }
 // Enable / disable pneumatic valve control.  The gate itself is in the PLC
 // driver (it refuses open / close while shut, whoever sends them); this page
 // only locks its buttons to match.  No confirm here on purpose: enabling
@@ -323,7 +327,16 @@ function build(){
         <span id="ng${n}-i-cur" class="cur"></span></div>
     </div>`).join("");
 
-  $("turbo").innerHTML = TURBOS.map(([n,name])=>`
+  $("turbo").innerHTML = `
+    <div class="blk">
+      <div class="row">
+        <span class="title" id="tc-state">turbo control …</span>
+        <span style="flex:1"></span>
+        <button id="tc-on"  onclick="turboControl(true)">enable control</button>
+        <button id="tc-off" onclick="turboControl(false)">disable control</button>
+      </div>
+      <div class="row"><span id="tc-note" class="cur"></span></div>
+    </div>` + TURBOS.map(([n,name])=>`
     <div class="blk">
       <div class="row"><span class="title">${name}</span></div>
       <div class="row">
@@ -333,7 +346,7 @@ function build(){
       <div class="row">
         <button id="tb-${n}-on"  onclick="turboSet('${n}','on')">on</button>
         <button id="tb-${n}-off" onclick="turboSet('${n}','off')">off</button>
-        <button id="tb-${n}-local" style="margin-left:.5rem" onclick="turboSet('${n}','local')">hand back to stand</button>
+        <button id="tb-${n}-local" style="margin-left:.5rem" onclick="turboSet('${n}','local')">release</button>
         <span id="tb-${n}-mode" class="cur"></span></div>
       <div class="row"><span id="tb-${n}-temps" class="cur"></span></div>
       <div class="row"><span id="tb-${n}-note" class="cur"></span></div>
@@ -517,6 +530,27 @@ function update(d){
     setCur("ng"+n+"-i-cur", "current "+fmtNum(il&&il.value)+" A" + (capped ? " — "+fmtNum(asked)+" A asked, capped by the supply" : ""), il);
   });
 
+  // Turbo control gate: on / off / release are locked unless the turbo driver
+  // says control is enabled and is still saying so.
+  const tcEn = st.turbo_control_enabled, tcRaw = (RAW["xsphere/status/turbo_control"]||{}).payload || {};
+  const tcKnown = !!tcEn && tcEn.value!==null && tcEn.freshness!=="invalid";
+  const tcOn = tcKnown && tcEn.value===true;
+  const tcEl = $("tc-state");
+  if (!tcKnown){ tcEl.textContent = "turbo control: ? — no word from the turbo driver, on / off / release locked"; tcEl.style.color = "var(--mut)"; }
+  else if (tcRaw.control_allowed===false){ tcEl.textContent = "turbo control: read-only — turbovac.allow_control is off in config.yaml"; tcEl.style.color = "var(--mut)"; }
+  else if (tcOn){ tcEl.textContent = "⚠ turbo control ENABLED — on / off / release act on the pumps"; tcEl.style.color = "var(--warn)"; }
+  else { tcEl.textContent = "turbo control disabled — on / off / release are locked"; tcEl.style.color = "var(--mut)"; }
+  $("tc-on").disabled = $("tc-off").disabled = tcRaw.control_allowed===false;
+  $("tc-on").className  = tcOn ? "held" : "";
+  $("tc-off").className = (tcKnown && !tcOn) ? "on" : "";
+  const tcBits = [];
+  if (tcKnown && tcRaw.since_utc) tcBits.push((tcOn ? "enabled" : "disabled") + " since " + hhmm(tcRaw.since_utc));
+  else if (tcKnown && !tcOn) tcBits.push("disabled since the service started");
+  if (tcRaw.last_refused) tcBits.push("last refused " + hhmm(tcRaw.last_refused.utc) + " — " + tcRaw.last_refused.pump + " → "
+    + ({on:"ON", off:"OFF", local:"RELEASE"}[tcRaw.last_refused.mode] || tcRaw.last_refused.mode)
+    + (tcRaw.refused > 1 ? " (" + tcRaw.refused + " refused in all)" : ""));
+  $("tc-note").textContent = tcBits.join(" · ");
+
   // Turbo pumps.  The registry carries the readings, how fresh they are and
   // the one control (the mode); identity, warnings and the pump's error
   // memory come from the raw status.
@@ -550,14 +584,17 @@ function update(d){
     const allowed = raw.control_allowed===true, rem = st[p+"remote"];
     el("on").className  = mv==="on"  ? "on"   : "";
     el("off").className = mv==="off" ? "held" : "";
-    el("on").disabled = el("off").disabled = !(allowed && up);
-    el("local").disabled = !(allowed && (mv==="on" || mv==="off"));
+    el("on").disabled = el("off").disabled = !(allowed && up && tcOn);
+    el("local").disabled = !(allowed && tcOn && (mv==="on" || mv==="off"));
     const since = raw.mode_utc ? " since " + hhmm(raw.mode_utc) : "";
+    // Whether a hold outlasts the Pi is the pump's own watchdog (parameter 182): 0 = keeps its command.
+    const wd = num(st[p+"watchdog"]), keeps = raw.keeps_command===true;
+    const lasting = wd===0 ? " — keeps it without the Pi" : (wd!==null ? " — lets go if the Pi is quiet " + wd + " s" : "");
     const me = el("mode");
     me.textContent = !known ? "" : !allowed ? "read-only — turbovac.allow_control is off in config.yaml"
-      : mv==="on"  ? "held ON by the slow control" + since
-      : mv==="off" ? "held OFF by the slow control" + since
-      : "with its stand — the slow control only reads";
+      : mv==="on"  ? "held ON by the slow control" + since + lasting
+      : mv==="off" ? "held OFF by the slow control" + since + lasting
+      : "released — the slow control only reads; its TURBOLAB or its X1 input decides" + (keeps ? " (once held, it keeps its command without the Pi)" : "");
     me.style.color = mv==="off" ? "var(--warn)" : "";
     // the pump reports V, A and W to one decimal and its temperatures in whole °C
     const q = (key, unit, dp, lab) => { const v = num(st[p+key]); return v===null ? "" : `<span class="kv">${lab ? `<span class="k">${lab}</span>` : ""}<span class="num">${v.toFixed(dp)}</span> ${unit}</span>`; };
@@ -571,7 +608,9 @@ function update(d){
     else if (live && warn && warn.value===true){ note = "⚠ warning: " + ((raw.warnings||[]).join(", ") || "see the pump"); tone = "var(--bad)"; }
     else if (up && raw.pinned===false){ note = "not pinned — put serial: \"" + (raw.pump_serial||"?") + "\" under turbovac.pumps." + n + " in config.yaml"; tone = "var(--warn)"; }
     else if (live && (mv==="on" || mv==="off") && rem && rem.value===false && rem.freshness==="fresh" && raw.mode_utc && Date.now() - new Date(raw.mode_utc) > 8000){
-      note = "⚠ told to stay " + mv.toUpperCase() + ", but the pump does not report that the bus has control of it"; tone = "var(--bad)"; }
+      note = "⚠ told to stay " + mv.toUpperCase() + ", but the pump does not report that the bus has control of it — is its TURBOLAB's RS 485 lead plugged in?"; tone = "var(--bad)"; }
+    else if (live && wd===0 && mv==="local"){
+      note = "⚠ its watchdog is 0: it keeps whatever it was last told, with or without the Pi" + (keeps ? "" : " — and keep_command is off for it in config.yaml"); tone = "var(--warn)"; }
     else if (live && mv==="on" && sv==="stopped"){ note = "held ON, but the pump is not starting — is there an error to clear at its stand?"; tone = "var(--warn)"; }
     else if (live && mv==="local" && rem && rem.value===true){ note = "the pump reports a bus master in control — it lets go about 10 s after the last command"; }
     ne.textContent = note; ne.style.color = tone;

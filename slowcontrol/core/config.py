@@ -131,6 +131,15 @@ class TurbovacPumpConfig:
     # how a USB port is matched to this entry.  "" = not pinned: the entry
     # takes the one TURBOVAC on USB that no other entry has pinned.
     serial: str = ""
+    # False: a pump held on / off by the service lets go 10 s after the
+    # service stops talking to it (its watchdog, parameter 182, as delivered).
+    # True: while it is held, the service sets that watchdog to 0, and the
+    # pump keeps its last command — running or stopped — with the Pi down, the
+    # service stopped or the USB cable out; released, it gets its 10 s back.
+    # Only for a pump the service actually commands: one on its TURBOLAB's
+    # RS 485 lead is commanded by the TURBOLAB, whatever this says.  Needs
+    # `allow_control`.
+    keep_command: bool = False
 
 
 @dataclass
@@ -146,7 +155,10 @@ class TurbovacConfig:
     # A pump the service was holding on or off is held again when the service
     # gets it back (its own restart, a USB glitch) — if it was out of touch
     # for no longer than this.  After longer, the pump has gone back to its
-    # stand by itself (it does that after 10 s) and is left there.
+    # stand by itself (it does that after 10 s) and is left there.  A
+    # `keep_command` pump that still reports the bus in control when it is
+    # found again has kept the command all along, and is held again however
+    # long it was.
     resume_max_s: float = 120.0
     poll_interval_s: float = 2.0
     # Per telegram.  The pump answers in milliseconds; this only bounds how
@@ -341,6 +353,8 @@ def load(path: str = "config.yaml") -> ServiceConfig:
                 label=str(pc.get("label") or ""),
                 # str(): an unquoted serial number in the YAML arrives as an int
                 serial=str(pc.get("serial") or "").strip(),
+                # `is True`, as for allow_control: only a literal YAML true
+                keep_command=pc.get("keep_command", False) is True,
             )
         cfg.turbovac = TurbovacConfig(
             enabled=bool(t.get("enabled", cfg.turbovac.enabled)),
