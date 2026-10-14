@@ -1527,9 +1527,9 @@ def test_config_yaml_names_this_pump_as_the_ghs_pump():
     assert "outer" in cfg.pumps["outer"].label.lower()
     assert cfg.pumps["outer"].serial == "31003045053"   # the pump plugged in on 2026-10-12
     assert all(pump.serial for pump in cfg.pumps.values())      # both pinned: nothing left to chance
-    # The outer pump's TURBOLAB lead is out, so the service commands it and it is
-    # to keep that command without the Pi; the GHS pump is its TURBOLAB's, never written.
-    assert cfg.pumps["outer"].keep_command is True and cfg.pumps["ghs"].keep_command is False
+    # Both pumps' TURBOLAB leads are out (outer 2026-10-12, GHS 2026-10-14), so the
+    # service commands them, and they are to keep that command without the Pi.
+    assert cfg.pumps["outer"].keep_command is True and cfg.pumps["ghs"].keep_command is True
     # each pump in the config has its rows in the registry
     ids = {s.id for s in load_state_schema(default_schema_path()).states}
     for name in cfg.pumps:

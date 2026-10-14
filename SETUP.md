@@ -265,7 +265,8 @@ pinned by serial number. Things to know before relying on them:
   the buttons do nothing to it. For the slow control to start and stop a
   pump, pull that lead (leave the 24 V lead in): the Core then shows `---`
   and no longer switches that pump's backing pump, so power the backing pump
-  some other way. The outer pump has been run like this since 2026-10-12.
+  some other way. The outer pump has been run like this since 2026-10-12,
+  the GHS pump since 2026-10-14.
 - A pump held on or off from the Control page is held by the service
   repeating the command. If the pump hears nothing for 10 s — Pi down, service
   stopped, cable out — it lets go and does what its X1 start input says
@@ -277,7 +278,7 @@ pinned by serial number. Things to know before relying on them:
   (parameter 182) to 0, so it stays running — or stopped — with the Pi down.
   Releasing it puts the 10 s back first. The value is never saved in the pump,
   so a supply cycle also brings the 10 s back (and the pump comes up stopped).
-  Set it only on a pump whose RS 485 lead is out; the outer pump has it.
+  Set it only on a pump whose RS 485 lead is out; both pumps have it.
 - What was being held is kept in `slowcontrol/turbovac_state.json` (not in
   git). After a service restart it is taken up again if the pump was out
   of touch for less than `turbovac.resume_max_s` (120 s), or — a keep_command

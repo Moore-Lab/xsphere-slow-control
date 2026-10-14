@@ -56,10 +56,11 @@ its RS 485 bus (X104), then USB, then the start input on its X1 socket
 Core stations, whose controller is an RS 485 master: with its 9-pin lead
 plugged in the Core starts and stops the pump, and everything this driver
 sends is ignored (the pump never reports the bus in control, and the status
-says so).  The outer pump's lead has been out since 2026-10-12, so it is
-ours: X1 has nothing in it, which means "stop" whenever nobody on the bus is
-holding it.  Seen that day: a held command takes effect within the poll, and
-a released pump lets go 10 s later.
+says so).  The outer pump's lead has been out since 2026-10-12 and the GHS
+pump's since 2026-10-14, so both are ours: nothing is plugged into their X1
+either, which means "stop" whenever nobody on the bus is holding them.  Seen
+on the outer pump: a held command takes effect within the poll, and a
+released pump lets go 10 s later.
 
 Holding a pump is not locking it — unless it keeps the command
 ───────────────────────────────────────────────────────────────

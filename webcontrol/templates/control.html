@@ -154,7 +154,7 @@
       command with every telegram, about every 2 s. <b>release</b> gives it back, about 10 s later, to whatever else
       commands it — its TURBOLAB, or its own X1 start input (nothing plugged in there means stop).
       <b>A pump on its TURBOLAB Core's RS 485 lead ignores all of this</b>: the Core outranks USB, and the card says the
-      pump does not report the bus in control. The outer turbo's lead is out, so it is the slow control's.
+      pump does not report the bus in control. Both turbos' leads are out (outer since 2026-10-12, GHS since 2026-10-14), so they are the slow control's.
       <b>“keeps its command without the Pi”</b> (<code>keep_command</code> in <code>config.yaml</code>): while it is held,
       that pump's watchdog (parameter 182) is 0, so it stays running — or stopped — with the Pi, the service or the USB
       cable gone; released, it gets its 10 s back. Otherwise <b>holding is not locking</b>: a pump that hears nothing for

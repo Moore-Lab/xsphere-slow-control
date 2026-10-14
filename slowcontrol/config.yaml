@@ -116,7 +116,9 @@ turbovac:
     ghs:
       label: "GHS turbo — gas handling system + science chamber"
       serial: "31003077799"      # TURBOVAC 90 i, cat. no. 810041V1000
-      # On its TURBOLAB Core (RS 485 lead in): the Core starts and stops it.
+      # Its TURBOLAB Core's lead is out (since 2026-10-14), so the service is
+      # what starts and stops it — see keep_command below the outer pump.
+      keep_command: true
     outer:
       label: "Outer vacuum turbo"
       serial: "31003045053"      # TURBOVAC 90 i, cat. no. 810041V1000
