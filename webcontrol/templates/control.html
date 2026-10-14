@@ -102,7 +102,7 @@
   <section class="card">
     <h2>Pneumatic valves — gas handling</h2>
     <div id="pneumatic"></div>
-    <small class="hint"><b>Open / close always mean the valve, not the relay.</b> Ballast and bottle are <b>normally open</b>: their relay is energised to <em>close</em> them, so with the PLC outputs off they sit open. The pump valve is normally closed. “actual” is worked out from the PLC output (Y105–Y107) read back, “desired” from the register (DS151–DS153), and “relay” is the output itself. The ladder has no auto-open, auto-close or timer behind these, so a valve stays where it was last put — through a service restart too.</small>
+    <small class="hint"><b>Open / close only work while valve control is enabled</b> — the buttons at the top of the card. The lock is in the PLC driver, so it holds for the Sequencer and anything else on the bus, not only this page; control comes up <em>disabled</em> every time the slow-control service starts, and disabling it moves no valve. Once control is on there is no per-click confirmation. <b>Open / close always mean the valve, not the relay.</b> Ballast and bottle are <b>normally open</b>: their relay is energised to <em>close</em> them, so with the PLC outputs off they sit open. The pump valve is normally closed. “actual” is worked out from the PLC output (Y105–Y107) read back, “desired” from the register (DS151–DS153), and “relay” is the output itself. The ladder has no auto-open, auto-close or timer behind these, so a valve stays where it was last put — through a service restart too.</small>
   </section>
 
   <!-- Heaters / PID -->
@@ -180,6 +180,7 @@ function fmtNum(v){
   if (a >= 0.01) return v.toFixed(3);
   return v.toExponential(2);
 }
+function hhmm(iso){ const t = new Date(iso); return isNaN(t) ? "" : t.toLocaleTimeString(); }
 
 // ---- command helpers -------------------------------------------------------
 let SNAP = {states:{}};                       // last snapshot.states
@@ -241,6 +242,12 @@ function turboSet(n, mode){
   if (ask && !confirm(ask)) return;
   ctl("turbo_"+n+"_mode", mode);
 }
+// Enable / disable pneumatic valve control.  The gate itself is in the PLC
+// driver (it refuses open / close while shut, whoever sends them); this page
+// only locks its buttons to match.  No confirm here on purpose: enabling
+// moves nothing by itself, and the valves are meant to be worked without a
+// dialog once control is on.
+function pneumaticControl(on){ cmd("xsphere/commands/pneumatic_control/enable", {enabled: !!on}); }
 let built = false;
 // One valve block.  `sid` is the state carrying the control; its commanded
 // twin is `${sid}_desired`.  `auto` adds the LN₂ autofill enable toggles;
@@ -264,7 +271,16 @@ function valveBlock(sid, name, auto, relay){
 }
 function build(){
   $("valves").innerHTML = VESSELS.map(([v,name])=>valveBlock("valve_"+v, name, true, false)).join("");
-  $("pneumatic").innerHTML = PNEUMATIC.map(([sid,name])=>valveBlock(sid, name, false, true)).join("");
+  $("pneumatic").innerHTML = `
+    <div class="blk">
+      <div class="row">
+        <span class="title" id="pn-state">valve control …</span>
+        <span style="flex:1"></span>
+        <button id="pn-on"  onclick="pneumaticControl(true)">enable control</button>
+        <button id="pn-off" onclick="pneumaticControl(false)">disable control</button>
+      </div>
+      <div class="row"><span id="pn-note" class="cur"></span></div>
+    </div>` + PNEUMATIC.map(([sid,name])=>valveBlock(sid, name, false, true)).join("");
 
   $("pid").innerHTML = ZONES.map(([z,name])=>`
     <div class="blk" data-z="${z}">
@@ -370,6 +386,25 @@ function update(d){
     $("vac-"+sid).textContent = ac && ac.value!==null ? (acOn?"armed":"disarmed") : "—"; $("vac-"+sid).className = acOn?"on":"";
   });
 
+  // Pneumatic valve control gate: the open / close buttons are locked unless
+  // the PLC driver says control is enabled and is still saying so.
+  const pnEn = st.pneumatic_control_enabled, pnRaw = (RAW["xsphere/status/pneumatic_control"]||{}).payload || {};
+  const pnKnown = !!pnEn && pnEn.value!==null && pnEn.freshness!=="invalid";
+  const pnOn = pnKnown && pnEn.value===true;
+  PNEUMATIC.forEach(([sid])=>{ $("vo-"+sid).disabled = $("vc-"+sid).disabled = !pnOn; });
+  const pnEl = $("pn-state");
+  if (!pnKnown){ pnEl.textContent = "valve control: ? — no word from the PLC driver, open / close locked"; pnEl.style.color = "var(--mut)"; }
+  else if (pnOn){ pnEl.textContent = "⚠ valve control ENABLED — open / close act on the gas valves"; pnEl.style.color = "var(--warn)"; }
+  else { pnEl.textContent = "valve control disabled — open / close are locked"; pnEl.style.color = "var(--mut)"; }
+  $("pn-on").className  = pnOn ? "held" : "";
+  $("pn-off").className = (pnKnown && !pnOn) ? "on" : "";
+  const pnBits = [];
+  if (pnKnown && pnRaw.since_utc) pnBits.push((pnOn ? "enabled" : "disabled") + " since " + hhmm(pnRaw.since_utc));
+  else if (pnKnown && !pnOn) pnBits.push("disabled since the service started");
+  if (pnRaw.last_refused) pnBits.push("last refused " + hhmm(pnRaw.last_refused.utc) + " — " + pnRaw.last_refused.valve + " → "
+    + (pnRaw.last_refused.state ? "OPEN" : "CLOSED") + (pnRaw.refused > 1 ? " (" + pnRaw.refused + " refused in all)" : ""));
+  $("pn-note").textContent = pnBits.join(" · ");
+
   // PV safety interlock
   const ilT = st.pv_interlock_tripped, ilMin = st.pv_interlock_min_k, ilMax = st.pv_interlock_max_k;
   const ilEl = $("il-state");
@@ -435,7 +470,6 @@ function update(d){
   // accepted, why a channel last dropped out) come from the raw status.
   const ngC = st.nge_connected, ngH = st.nge_hold, ng = ngeRaw();
   const ngEl = $("ng-state");
-  const hhmm = iso => { const t = new Date(iso); return isNaN(t) ? "" : t.toLocaleTimeString(); };
   if (!ngC || ngC.value===null || ngC.freshness==="invalid"){
     ngEl.textContent = "no data — is the supply enabled in config.yaml?"; ngEl.style.color = "var(--mut)";
   } else if (ngC.value){

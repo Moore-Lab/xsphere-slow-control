@@ -73,7 +73,8 @@ Every control widget shows the **current** value of the thing it controls next t
 - "actual" ● is worked out from the PLC output read back, "desired" from the register (DS151 / DS152 / DS153), and "relay" shows the output itself (`energised` / `off`). Seeing ballast `OPEN` with relay `off` is correct.
 - With the PLC outputs off — power loss, PLC in STOP — ballast and bottle sit **open** and the pump valve shut.
 - There is no auto-open, auto-close or timer behind these, in the ladder or in Python. A valve stays where it was last put, including through a restart of the slow-control service.
-- Each one is also a Sequencer target, like any other control on this page.
+- **Open / close only work while valve control is enabled** — the `enable control` / `disable control` buttons at the top of the card. The gate is in the PLC driver (`xsphere/commands/pneumatic_control/enable`; its state, when it was last switched and the commands it has refused are on `xsphere/status/pneumatic_control`), so it holds for the Sequencer and anything else on the bus, not only this page. Control comes up **disabled** every time the slow-control service starts, and disabling it moves no valve. Once it is on there is deliberately no per-click confirmation.
+- A Sequencer program can move them only while control is enabled, and cannot enable it itself: `pneumatic_control_enabled` has no control mapping in `state.yaml`.
 
 **Heaters — PID** (one block per zone — top / bottom / nozzle)
 
@@ -320,6 +321,8 @@ All sensor/status payloads are JSON.  Full schema and payload shapes:
 | `xsphere/status/pid/{zone}` | PLC driver→broker | `{"setpoint_k","pv_k","output_pct","kp","ki","kd"}` (retained) |
 | `xsphere/status/valve/{vessel}` | Python→broker | `{"state","desired","auto_open","auto_close"}` (retained) |
 | `xsphere/status/pneumatic/{name}` | Python→broker | `{"state","desired","relay"}` — valve open / commanded open / relay energised (retained) |
+| `xsphere/status/pneumatic_control` | Python→broker | `{"enabled","since_utc","refused","last_refused"}` — the gate on the pneumatic valve commands (retained, 1 Hz) |
+| `xsphere/commands/pneumatic_control/enable` | Dashboard→Python | `{"enabled": true\|false}` — open / shut that gate (Control page buttons) |
 | `xsphere/status/nge` | Python→broker | heater supply: `{"connected","hold","master","model","serial","error","event",…}` (retained) |
 | `xsphere/status/nge/{1\|2\|3}` | Python→broker | per channel: `{"output","desired","voltage_set_v","current_limit_a","voltage_v","current_a","power_w","mode","trip","dropouts",…}` (retained; not published while the supply is unreachable) |
 | `xsphere/status/service/heartbeat` | Python→broker | `{"uptime_s"}` (retained) |

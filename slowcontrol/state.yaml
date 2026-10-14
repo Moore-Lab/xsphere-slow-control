@@ -558,7 +558,18 @@ groups:
   # to CLOSE them; the pump valve is normally closed.  The PLC driver applies
   # that sense (PNEUMATIC_VALVES in drivers/plc.py), so controls and readouts
   # never have to.  `_relay` is the raw Y output, for when the two disagree.
+  #
+  # `pneumatic_control_enabled` is the gate in front of all three open / close
+  # commands: the PLC driver refuses them while it is false, and it comes up
+  # false on every service start.  It has no `control:` on purpose — only the
+  # Control page's enable / disable buttons switch it (they publish
+  # xsphere/commands/pneumatic_control/enable directly), so a Sequencer
+  # program cannot arm it for itself and the Register page shows it read-only.
   pneumatic:
+    pneumatic_control_enabled:
+      kind: binary
+      label: "Pneumatic valve control enabled (open / close acted on; off = valves locked)"
+      source: {topic: xsphere/status/pneumatic_control, key: enabled}
     pneumatic_ballast:
       kind: binary
       label: "Pneumatic valve — ballast (open; normally open, Y105)"

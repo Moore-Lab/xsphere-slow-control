@@ -69,6 +69,7 @@ import os
 import struct
 import threading
 import time
+from datetime import datetime, timezone
 from typing import Dict, List, Optional, Tuple
 
 from pymodbus.client import ModbusTcpClient
@@ -114,6 +115,11 @@ def _y(n: int) -> int:
     """
     slot, point = divmod(n, 100)
     return Y_BASE + 32 * slot + (point - 1)
+
+
+def _utc_now() -> str:
+    """Now, as the ISO-8601 UTC string the status payloads carry."""
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
 # --- RTD inputs (read-only, DF, from the CLICK RTD module) ---
@@ -408,6 +414,18 @@ class PlcDriver(SensorDriver):
         # Most-recent value_c per sensor alias (rtd1..rtd6, tc1..tc4) for use
         # as identifiers in those expressions.
         self._sensor_c: Dict[str, float] = {}
+        # Pneumatic valve control gate.  Open / close commands for the gas
+        # valves (xsphere/commands/pneumatic/{name}/state) are only acted on
+        # while this is True.  It starts False on every service start and is
+        # deliberately not persisted: a stray click can only move a valve
+        # after someone has enabled control on the Control page within this
+        # service's lifetime.  Shutting the gate moves nothing.
+        # Both callbacks that write these run on the MQTT thread; the poll
+        # thread only reads them to publish the status.
+        self._pneumatic_enabled: bool = False
+        self._pneumatic_enabled_utc: Optional[str] = None     # when it last changed
+        self._pneumatic_refused: int = 0                      # commands refused since start
+        self._pneumatic_last_refused: Optional[dict] = None   # {"valve", "state", "utc"}
 
     @property
     def poll_interval(self) -> float:
@@ -457,10 +475,14 @@ class PlcDriver(SensorDriver):
         self._mqtt.subscribe(command_topic("valve", "+", "auto_close"),    self._on_valve_auto)
         self._mqtt.subscribe(command_topic("valve", "+", "auto_open"),     self._on_valve_auto)
         self._mqtt.subscribe(command_topic("pneumatic", "+", "state"),     self._on_pneumatic_state)
+        self._mqtt.subscribe(command_topic("pneumatic_control", "enable"), self._on_pneumatic_control_enable)
         self._mqtt.subscribe(command_topic("pv_interlock", "limits"),      self._on_pv_interlock_limits)
         # Publish the (just-loaded) limits + initial trip state so the
         # snapshot has a value before the first poll.
         self._publish_pv_interlock_status(force=True)
+        # Likewise the pneumatic gate — retained, so the Control page shows
+        # "disabled" and locks the valve buttons from the moment we are up.
+        self._publish_pneumatic_control_status()
         # (Sensor aliases for setpoint/pv expressions — rtd1..6, tc1..4 — are
         # populated directly when the PlcDriver reads the PLC RTDs and when
         # the LabJack callbacks fire, avoiding any MQTT round-trip race.)
@@ -515,6 +537,10 @@ class PlcDriver(SensorDriver):
             # path on every poll.
             try:
                 self._publish_pneumatic_status()
+                # Republished every poll, so the registry can tell a live
+                # "disabled" from a dead driver and Telegraf logs it next to
+                # the valves' desired state.
+                self._publish_pneumatic_control_status()
             except Exception as exc:
                 log.warning("[plc] pneumatic valve readback failed: %s", exc)
         except (BrokenPipeError, ConnectionResetError, ConnectionError, OSError, ModbusException) as exc:
@@ -1004,6 +1030,26 @@ class PlcDriver(SensorDriver):
                 payload["relay"] = int(relay)
             self._mqtt.publish_status("pneumatic", name, payload=payload)
 
+    def _publish_pneumatic_control_status(self) -> None:
+        """xsphere/status/pneumatic_control
+               → {"enabled": 0|1, "since_utc": str|None, "refused": int,
+                  "last_refused": {"valve", "state", "utc"}  (once one has been)}
+
+        `enabled` is the gate in _on_pneumatic_state.  `since_utc` is when it
+        was last switched (None = untouched since the service started, so
+        shut).  `refused` counts open / close commands dropped because the
+        gate was shut, and `last_refused` is the latest of them — so a
+        Sequencer step that did nothing can be explained from the page.
+        """
+        payload = {
+            "enabled":   int(self._pneumatic_enabled),
+            "since_utc": self._pneumatic_enabled_utc,
+            "refused":   self._pneumatic_refused,
+        }
+        if self._pneumatic_last_refused is not None:
+            payload["last_refused"] = dict(self._pneumatic_last_refused)
+        self._mqtt.publish_status("pneumatic_control", payload=payload)
+
     # ------------------------------------------------------------------
     # MQTT command callbacks
     # ------------------------------------------------------------------
@@ -1382,8 +1428,44 @@ class PlcDriver(SensorDriver):
             log.warning("[plc] pneumatic valve %s: ignoring state %r", name, raw)
             return
         want_open = bool(raw)
+        # The gate.  Checked after the name and the value, so the log says
+        # exactly what was asked for and dropped; nothing is queued for later.
+        if not self._pneumatic_enabled:
+            self._pneumatic_refused += 1
+            self._pneumatic_last_refused = {
+                "valve": name, "state": int(want_open), "utc": _utc_now()}
+            log.warning("[plc] pneumatic valve %s → %s REFUSED: pneumatic valve "
+                        "control is disabled — enable it on the Control page first",
+                        name, "OPEN" if want_open else "CLOSED")
+            self._publish_pneumatic_control_status()
+            return
         relay_on = want_open != normally_open
         ok = self._write_int(desired_addr, int(relay_on))
         log.info("[plc] pneumatic valve %s → %s (relay %s): %s",
                  name, "OPEN" if want_open else "CLOSED",
                  "energised" if relay_on else "off", "OK" if ok else "FAIL")
+
+    def _on_pneumatic_control_enable(self, topic: str, payload: dict) -> None:
+        """xsphere/commands/pneumatic_control/enable  → {"enabled": true|false}
+
+        Opens or shuts the gate on the pneumatic valve commands.  `enabled`
+        must be a bool or a literal 0 / 1; anything else is dropped.  Shutting
+        the gate moves no valve — it only stops further open / close commands
+        being acted on — and the gate is not remembered across a restart of
+        the service: it comes up shut.
+        """
+        raw = payload.get("enabled") if isinstance(payload, dict) else None
+        if isinstance(raw, bool):
+            want = raw
+        elif isinstance(raw, int) and raw in (0, 1):
+            want = bool(raw)
+        else:
+            log.warning("[plc] pneumatic valve control: ignoring enabled=%r", raw)
+            return
+        if want != self._pneumatic_enabled:
+            self._pneumatic_enabled = want
+            self._pneumatic_enabled_utc = _utc_now()
+            log.info("[plc] pneumatic valve control %s",
+                     "ENABLED — open / close commands are now acted on" if want
+                     else "DISABLED — open / close commands are now refused")
+        self._publish_pneumatic_control_status()

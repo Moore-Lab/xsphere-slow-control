@@ -344,6 +344,7 @@ names (set by Telegraf):
 | `pid_state` | `zone` | `setpoint_k`, `pv_k`, `output_pct`, `kp`, `ki`, `kd` |
 | `valve_state` | `vessel` | `state`, `desired`, `auto_open`, `auto_close` |
 | `pneumatic_state` | `valve` (ballast/pump/bottle) | `state`, `desired` (1 = open), `relay` (1 = energised) |
+| `pneumatic_control` | — | `enabled` (1 = pneumatic open/close commands acted on), `refused` (count since the service started) |
 | `environment` | `location` (ghs), `parameter` (temperature/humidity/baro_pressure) | `value` |
 | `service_heartbeat` | — | `uptime_s` |
 

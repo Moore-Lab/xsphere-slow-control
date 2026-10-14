@@ -411,6 +411,7 @@ xsphere/status/service/heartbeat          {"uptime_s": <int>}                 (r
 xsphere/status/pid/{zone}                  {"setpoint_k","pv_k","output_pct","kp","ki","kd"} (retained)
 xsphere/status/valve/{vessel}              {"state","desired","auto_close","auto_open"}      (retained)
 xsphere/status/pneumatic/{name}            {"state","desired","relay"}  1 = valve open / relay energised (retained)
+xsphere/status/pneumatic_control           {"enabled","since_utc","refused","last_refused"}  gate on the pneumatic valve commands (retained)
 xsphere/status/nge                         {"connected","hold","master","model","serial","firmware","error","event",…}  heater supply (retained; not ingested by Telegraf)
 xsphere/status/nge/{channel}               {"output","desired","armed","voltage_set_v","current_limit_a","voltage_v","current_a","power_w","mode","trip","dropouts",…}
     channel : 1 | 2 | 3 (= heater n)   mode : off | cv | cc   trip : none | ovp | opp | fuse   (retained; silent while the supply is unreachable)
@@ -429,7 +430,8 @@ xsphere/commands/gradient/longitudinal     # Set longitudinal ΔT (K)
 xsphere/commands/valve/{vessel}/state      # Open/close solenoid valve
 xsphere/commands/valve/{vessel}/auto_open  # Arm/disarm auto-open
 xsphere/commands/valve/{vessel}/auto_close # Arm/disarm auto-close
-xsphere/commands/pneumatic/{name}/state    # {"state": 1|0} open/close a pneumatic valve (ballast|pump|bottle)
+xsphere/commands/pneumatic/{name}/state    # {"state": 1|0} open/close a pneumatic valve (ballast|pump|bottle) — only while control is enabled
+xsphere/commands/pneumatic_control/enable  # {"enabled": true|false} enable / disable pneumatic valve control (comes up disabled)
 xsphere/commands/nge/{channel}/output      # {"state": 1|0} heater supply channel on/off (literal 0/1 only)
 xsphere/commands/nge/{channel}/voltage     # {"value_v": <V>}  0 … 32
 xsphere/commands/nge/{channel}/current     # {"value_a": <A>}  0 … 3 (the supply caps it at 33.6 W / V)
@@ -535,6 +537,16 @@ The PLC driver hides that: `xsphere/commands/pneumatic/{name}/state` takes
 sense per valve lives in one table, `PNEUMATIC_VALVES` in
 `slowcontrol/drivers/plc.py`. With the PLC outputs off, ballast and bottle are
 open and the pump valve is shut.
+
+The open / close commands are gated: the driver refuses them unless pneumatic
+valve control has been enabled (`xsphere/commands/pneumatic_control/enable`
+`{"enabled": true}`, from the Control page's buttons) since the service
+started — the gate is not persisted, and shutting it moves nothing. The gate,
+when it was last switched, and the commands refused are on
+`xsphere/status/pneumatic_control` (retained, republished with every poll;
+Telegraf measurement `pneumatic_control`). The registry state
+`pneumatic_control_enabled` has no control mapping, so a Sequencer program
+cannot enable it.
 
 Y output coils are addressed with a 32-per-slot stride, not by point number:
 Y101 → coil 8224, Y105 → 8228, Y106 → 8229, Y107 → 8230 (0-based).
