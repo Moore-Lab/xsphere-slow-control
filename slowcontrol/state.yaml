@@ -274,15 +274,27 @@ groups:
   #   local  its stand; the service only reads
   #   on     the service holds it running
   #   off    the service holds it stopped
-  # and only while turbovac.allow_control is true.  Holding is not locking: a
-  # pump that hears nothing from the service for 10 s goes back to its stand.
-  # `_remote` is the pump's own word on whether a bus master has it.
+  # and only while turbovac.allow_control is true and `turbo_control_enabled`
+  # (the gate in the driver, shut on every service start) is open.  A pump on
+  # its TURBOLAB Core's RS 485 lead obeys the Core, not this.  Unless the
+  # pump is keep_command (`_watchdog` 0 s while held), holding is not
+  # locking: a pump that hears nothing from the service for 10 s goes back to
+  # its stand.  `_remote` is the pump's own word on whether a bus master has it.
   # `_state` is stopped | accelerating | normal | running | decelerating |
   # coasting | error ("running" = drive on, below normal-operation speed and
   # holding).  Temperatures are the pump's own, in °C.  Nothing arrives on the
   # sensor topic while a pump is unreachable or switched off at its supply, so
   # its rows go stale instead of lying; `_connected` says which it is.
+  #
+  # `turbo_control_enabled` has no `control:` on purpose, like the pneumatic
+  # gate: only the Control page's enable / disable buttons switch it (they
+  # publish xsphere/commands/turbo_control/enable directly), so a Sequencer
+  # program cannot arm it for itself.
   turbo:
+    turbo_control_enabled:
+      kind: binary
+      label: "Turbo start / stop enabled (on / off / release acted on; off = buttons locked)"
+      source: {topic: xsphere/status/turbo_control, key: enabled}
     turbo_ghs_connected:
       kind: binary
       label: "GHS turbo (gas handling + science chamber) — USB link up"
@@ -363,6 +375,13 @@ groups:
       kind: binary
       label: "GHS turbo reports a bus master in control"
       source: {topic: xsphere/sensors/turbo/ghs, key: remote}
+    turbo_ghs_watchdog:
+      kind: analog
+      unit: s
+      label: "GHS turbo command watchdog, parameter 182 (0 = keeps its last command without the service)"
+      source: {topic: xsphere/sensors/turbo/ghs, key: watchdog_s}
+      period_s: 4.0
+      avg_windows_s: []
     turbo_ghs_operating_hours:
       kind: analog
       unit: h
@@ -454,6 +473,13 @@ groups:
       kind: binary
       label: "Outer vacuum turbo reports a bus master in control"
       source: {topic: xsphere/sensors/turbo/outer, key: remote}
+    turbo_outer_watchdog:
+      kind: analog
+      unit: s
+      label: "Outer vacuum turbo command watchdog, parameter 182 (0 = keeps its last command without the service)"
+      source: {topic: xsphere/sensors/turbo/outer, key: watchdog_s}
+      period_s: 4.0
+      avg_windows_s: []
     turbo_outer_operating_hours:
       kind: analog
       unit: h

@@ -16,22 +16,25 @@ What it can do to a pump, and what it cannot
 The converter speaks USS (VDI/VDE 3689): fixed 24-byte telegrams, one request
 → one reply.  It acts on a telegram's control word only if bit 10 of that
 word ("enable process data") is set, and changes a setting only for one of
-the write access codes.  `read_telegram()` is the one place a telegram is
-built.  It can put three control words on the wire —
+the write access codes.  `read_telegram()` builds every telegram but one.  It
+can put three control words on the wire —
 
-    0x0000   nothing: a pure read.  The pump stays with whatever operates it
-             at its stand (the start input on the converter's X1 connector).
+    0x0000   nothing: a pure read.  The pump stays with whatever else
+             commands it (see "Who commands a pump" below).
     0x0401   bit 10 + bit 0: the bus has control — run.
     0x0400   bit 10 alone:   the bus has control — stop.
 
-— and no write access code at all.  So from here a pump can be started and
-stopped, and that is all: not its speed, not a parameter, not its outputs,
-not an error reset.
+— and no write access code.  The one write is `watchdog_telegram()`:
+parameter 182 set to 0 or to its factory 100, nothing else, never saved to
+the pump's memory.  So from here a pump can be started, stopped and told to
+keep that command without us, and that is all: not its speed, not another
+parameter, not its outputs, not an error reset.
 
 Each pump has a mode, set on xsphere/commands/turbo/<name>/mode:
 
     local   read only: every telegram carries 0x0000.  The default, and the
             only mode there is unless `turbovac.allow_control` is true.
+            The Control page calls it "release".
     on      held running: every telegram carries 0x0401.
     off     held stopped: every telegram carries 0x0400.
 
@@ -39,21 +42,50 @@ Each pump has a mode, set on xsphere/commands/turbo/<name>/mode:
 word as the present command, so while a pump is held, the parameter reads
 between two status polls have to say the same thing as the polls do.
 
-Holding a pump is not locking it
-────────────────────────────────
-A converter that hears nothing with bit 10 set for 10 s (its parameter 182;
-fallback word 179 = 0) hands control back to its stand.  So when the Pi, the
-service or the USB cable goes away, a pump held OFF does what its stand says —
-if the stand says run, it starts again — and a pump held ON carries on only if
-the stand says run.  Switching the pump's supply off and on clears the control
-bits as well.  To keep a pump off for certain, switch it off at the stand.
+A mode command is acted on only while the gate is open: "enable control" on
+the Control page, xsphere/commands/turbo_control/enable {"enabled": true}.  It
+comes up shut on every service start, is not persisted, and shutting it
+starts, stops or releases nothing.  The gate is here, not on the page, so it
+holds for the Sequencer and anything else on the bus.
+
+Who commands a pump
+───────────────────
+The converter takes start / stop from one source at a time, in this order:
+its RS 485 bus (X104), then USB, then the start input on its X1 socket
+(pins 7-8 closed = run, open = stop).  Both pumps stand on Leybold TURBOLAB
+Core stations, whose controller is an RS 485 master: with its 9-pin lead
+plugged in the Core starts and stops the pump, and everything this driver
+sends is ignored (the pump never reports the bus in control, and the status
+says so).  The outer pump's lead has been out since 2026-10-12 and the GHS
+pump's since 2026-10-14, so both are ours: nothing is plugged into their X1
+either, which means "stop" whenever nobody on the bus is holding them.  Seen
+on the outer pump: a held command takes effect within the poll, and a
+released pump lets go 10 s later.
+
+Holding a pump is not locking it — unless it keeps the command
+───────────────────────────────────────────────────────────────
+A converter that stops hearing bit 10 — silence, or 0x0000 — hands control
+back to the next source down after parameter 182 (10 s as delivered;
+fallback word 179 = 0).  So when the Pi, the service or the USB cable goes
+away, a pump held OFF does what is below — if that says run, it starts again —
+and a pump held ON carries on only if that says run.
+
+`turbovac.pumps.<name>.keep_command` changes that for one pump: while it is
+held, the service sets its parameter 182 to 0, which the manual describes as
+"a change of the control right is inhibited" — the pump keeps the last
+command it was given, running or stopped, for as long as nobody says
+otherwise.  Released, it gets its 100 back first, while the hold still
+stands, and only then hears 0x0000.  Only a pump that is written to this way
+is ever written to; one on its TURBOLAB's lead must not be (the watchdog also
+governs the Core's own control).  The value is volatile: a supply cycle
+brings back the saved 10 s, and clears the command with it.
 
 When the service gets a pump back — after its own restart, or a USB glitch —
 it carries on holding if it was out of touch for less than
-`turbovac.resume_max_s`.  After longer than that the stand has had the pump
-for a while, and the service leaves it there: the mode drops to local and the
-status says why.  The mode, the pump it was set on and the time of the last
-contact are kept in slowcontrol/turbovac_state.json for this.
+`turbovac.resume_max_s`, or if it is a keep_command pump that still reports
+the bus in control (it never stopped obeying).  Otherwise the mode drops to
+local and the status says why.  The mode, the pump it was set on and the time
+of the last contact are kept in slowcontrol/turbovac_state.json for this.
 
 Which pump is which
 ───────────────────
@@ -75,8 +107,10 @@ USB B on the converter → the Pi.  The converter is a CDC-ACM device
 (25e9:0bb8): the kernel's cdc_acm driver provides the tty, `xbox` can open it
 through the dialout group, and ModemManager leaves it alone — no udev rule.
 19200 baud 8E1, address 0.  The converter's USB side runs off the pump's own
-24 V supply, so a pump that is switched off at its supply is simply not there;
-that is reported as "not connected" and picked up again when it returns.
+24 V supply — and, with that cut, off the rotor, which drives the motor as a
+generator while it runs down (manual section 4.4).  So a pump whose supply is
+cut stays on USB, reading "decelerating", until the rotor is slow; then it is
+reported as "not connected", and picked up again when it returns.
 
 Things the pump does that shaped this code
 ──────────────────────────────────────────
@@ -97,6 +131,10 @@ Read on the GHS pump (TURBOVAC 90 i, firmware 2.10.01), 2026-10-11:
     answered with an error reply rather than silence.  Such a value is left
     out of what is published; only a missing or damaged reply drops the link.
   • The 16-bit values answer with reply code 1 and the hour counters with 2.
+  • Stopped in mid run-up, a pump keeps "accelerating" (status bit 4) set for
+    some 20 s with its drive off and the rotor slowing; just arrived at speed
+    it shows "accelerating" and "normal" together for ~40 s (outer pump,
+    2026-10-12).  `state_of()` reads bit 4 only with the drive on.
   • The error memory is parameter 171 (index 0 = most recent), with the rotor
     frequency and operating hours at that moment in 174 and 176.  Parameter
     40 counts the entries ever made, so a rise there means a new one.
@@ -114,23 +152,30 @@ MQTT interface
          motor_temp_c, bearing_temp_c, converter_temp_c, drive_on, normal,
          turning, accelerating, decelerating, fault, warning, remote,
          status_word, warning_bits, operating_hours, start_count,
-         error_count, last_error_code}
+         error_count, last_error_code, watchdog_s}
     xsphere/status/turbo/{name}    every poll (retained):
         {connected, label, pinned, configured_serial, port, error, event,
          event_utc, last_read_utc, product, pump_serial, catalog_no,
          converter_serial, converter_type, firmware, drive_firmware,
          warnings, setpoint_hz, operating_hours, electronics_hours,
          start_count, error_count, last_error_code, last_error,
-         last_error_hz, last_error_hours, mode, mode_utc, control_allowed}
+         last_error_hz, last_error_hours, mode, mode_utc, control_allowed,
+         control_enabled, keeps_command, watchdog_s}
+    xsphere/status/turbo_control   on connect, with every poll and on change
+                                   (retained):
+        {enabled, since_utc, refused, control_allowed, last_refused}
   Subscribe (only if `turbovac.allow_control`):
-    xsphere/commands/turbo/{name}/mode   {"mode": "on" | "off" | "local"}
+    xsphere/commands/turbo/{name}/mode       {"mode": "on" | "off" | "local"}
+    xsphere/commands/turbo_control/enable    {"enabled": true | false | 1 | 0}
 
   state: stopped | accelerating | normal | running | decelerating | coasting
          | error          ("running" = drive on, below normal-operation speed
                            and neither gaining nor losing it)
   mode:  local | on | off     (who has the pump: its stand, or this service
                                holding it on / off)
-  remote: 1 while the pump itself reports a bus master in control
+  remote: 1 while the pump itself reports the bus (USB) in control
+  watchdog_s: parameter 182 — 10 as delivered, 0 while a keep_command pump
+              is held
 
 Config: the `turbovac:` block of config.yaml (TurbovacConfig in core/config.py).
 """
@@ -164,9 +209,11 @@ LGE = 22                                # length byte: everything after it
 FRAME_LEN = 24
 
 # Parameter access codes (bits 15-12 of the PKE word).  The converter also has
-# 2, 3, 7 and 8 — the writes.  They are left out on purpose.
+# 2, 3, 7 and 8 — the writes.  Of those only 2 (a 16-bit value) is ever built,
+# and only by watchdog_telegram(), for one parameter and two values.
 ACCESS_NONE = 0                         # no parameter: a bare status poll
 ACCESS_READ = 1
+ACCESS_WRITE = 2                        # write a 16-bit value
 ACCESS_READ_FIELD = 6                   # one element of an indexed parameter
 _READS = (ACCESS_NONE, ACCESS_READ, ACCESS_READ_FIELD)
 
@@ -181,6 +228,8 @@ CONTROL_START = STW_REMOTE | STW_START  # 0x0401
 _CONTROL_WORDS = (CONTROL_LOCAL, CONTROL_STOP, CONTROL_START)
 #: The control word that goes with each mode a pump can be put in.
 MODES: Dict[str, int] = {"local": CONTROL_LOCAL, "off": CONTROL_STOP, "on": CONTROL_START}
+# What each mode command is called on the Control page.
+_COMMAND_WORD = {"on": "ON", "off": "OFF", "local": "RELEASE"}
 
 # Reply codes (the same bits, in the answer).  Anything else — 7 "cannot do
 # that", 8 "no permission", 0 "nothing" — means there is no value.
@@ -212,6 +261,7 @@ P_ERROR_COUNT = 40
 P_ERROR_CODE = 171                      # indexed; 0 = most recent
 P_ERROR_FREQUENCY = 174                 # Hz at that error
 P_ERROR_HOURS = 176                     # 0.01 h at that error
+P_WATCHDOG = 182                        # 0.1 s; how long the bus may go quiet
 P_OPERATING_HOURS = 184                 # 0.01 h with the pump running
 P_WARNING_BITS = 227
 P_PRODUCT = 313                         # text
@@ -222,6 +272,16 @@ P_ELECTRONICS_HOURS = 682               # 0.01 h powered
 P_DRIVE_FIRMWARE = 1100
 
 TEXT_LEN = 18                           # elements in an identification string
+
+# Parameter 182, the USS control watchdog: once the bus master that has the
+# pump stops sending bit 10 — it falls silent, or says "local" — control goes
+# back to the next source down (the TURBOLAB, else the X1 start input) after
+# this long.  0 means never: the pump keeps the last command it was given.
+# Both pumps came with 100 (10 s).  The write is volatile — parameter 8, which
+# would save it, is never written — so a power cycle brings back the 10 s.
+WATCHDOG_FACTORY = 100                  # 10.0 s
+WATCHDOG_KEEP = 0                       # keep the last command, however long
+_WATCHDOG_VALUES = (WATCHDOG_KEEP, WATCHDOG_FACTORY)
 
 # Error codes (manual section 6).  Codes the manual's table does not make
 # unambiguous are left to the number alone.
@@ -323,6 +383,28 @@ def read_telegram(access: int = ACCESS_NONE, pnu: int = 0, index: int = 0,
     return bytes(frame)
 
 
+def watchdog_telegram(value: int, control: int = CONTROL_LOCAL) -> bytes:
+    """The one write this driver can build: parameter 182 set to 0 (keep the
+    last command) or to its factory 100 (10 s).
+
+    Like a read in every other respect: the same three control words, no
+    index, no setpoint, no other process data.  The value goes in the low
+    word of the parameter value (bytes 9-10), where a 16-bit value travels.
+    """
+    if type(value) is not int or value not in _WATCHDOG_VALUES:
+        raise ValueError(f"parameter {P_WATCHDOG} is only ever set to "
+                         f"{' or '.join(map(str, _WATCHDOG_VALUES))}, not {value!r}")
+    if type(control) is not int or control not in _CONTROL_WORDS:
+        raise ValueError(f"control word {control!r} is not one this driver sends")
+    frame = bytearray(FRAME_LEN)
+    frame[0], frame[1] = STX, LGE
+    struct.pack_into(">H", frame, 3, (ACCESS_WRITE << 12) | P_WATCHDOG)
+    struct.pack_into(">I", frame, 7, value)
+    struct.pack_into(">H", frame, 11, control)
+    frame[FRAME_LEN - 1] = _bcc(frame)
+    return bytes(frame)
+
+
 @dataclass(frozen=True)
 class Reply:
     """One answer from the pump: the parameter part and the process data."""
@@ -362,11 +444,14 @@ def state_of(status_word: int) -> str:
     """The pump's operating state as one word (see the module docstring)."""
     if status_word & ZSW_ERROR:
         return "error"
-    if status_word & ZSW_ACCELERATING:
+    drive_on = status_word & ZSW_DRIVE_ON
+    # Stopped in mid run-up, the pump leaves "accelerating" set for some 20 s
+    # with its drive off and the rotor slowing — so that bit needs the drive.
+    if status_word & ZSW_ACCELERATING and drive_on:
         return "accelerating"
     if status_word & ZSW_DECELERATING:
         return "decelerating"
-    if status_word & ZSW_DRIVE_ON:
+    if drive_on:
         return "normal" if status_word & ZSW_NORMAL else "running"
     return "coasting" if status_word & ZSW_TURNING else "stopped"
 
@@ -493,14 +578,23 @@ class Turbovac:
                                      f"is about {reply.pnu}[{reply.index}]")
         return reply
 
-    def _ask(self, access: int, pnu: int = 0, index: int = 0) -> Reply:
-        telegram = read_telegram(access, pnu, index, self.control)
+    def _send(self, telegram: bytes, access: int, pnu: int, index: int) -> Reply:
         try:
             return self._once(telegram, access, pnu, index)
         except TurbovacFrameError as exc:
+            # Sending it again is safe: a read, or a write of the same value.
             log.debug("[turbovac] %s — asking once more", exc)
             time.sleep(RETRY_PAUSE_S)
             return self._once(telegram, access, pnu, index)
+
+    def _ask(self, access: int, pnu: int = 0, index: int = 0) -> Reply:
+        return self._send(read_telegram(access, pnu, index, self.control), access, pnu, index)
+
+    def set_watchdog(self, value: int) -> Optional[int]:
+        """Set parameter 182 to 0 or 100; returns the value the pump answers
+        with (None if it refused — reply code 7 or 8)."""
+        return self._send(watchdog_telegram(value, self.control),
+                          ACCESS_WRITE, P_WATCHDOG, 0).number()
 
     def status(self) -> Reply:
         """A bare status poll: the process data and nothing else."""
@@ -574,6 +668,11 @@ class _Pump:
         self.name = name
         self.label = cfg.label or name
         self.serial = cfg.serial                    # "" = not pinned
+        # keep_command: while held, its watchdog (parameter 182) is set to 0,
+        # so the hold outlasts the service; `watchdog` is the value last read.
+        self.keep = bool(getattr(cfg, "keep_command", False))
+        self.watchdog: Optional[int] = None
+        self.watchdog_trouble: Optional[str] = None # why it could not be set, as last said
         # Who has the pump: "local" (its stand; we only read), or this service
         # holding it "on" / "off".  A hold belongs to the pump it was set on
         # (`held_serial`) and is only carried across a gap in contact shorter
@@ -625,6 +724,15 @@ class TurbovacDriver(SensorDriver):
         # port → (pump serial, when to ask again)
         self._strangers: Dict[str, tuple] = {}
         self._last_save = 0.0
+        # The gate in front of every mode command (on / off / local): they are
+        # acted on only while it is open.  It comes up shut on every service
+        # start and is not persisted; shutting it changes nothing on a pump.
+        # What brings a hold back after a restart (`_resume`) is not a command
+        # and does not need it.  Written on the MQTT thread under `_io`.
+        self._control_enabled = False
+        self._control_enabled_utc: Optional[str] = None
+        self._refused = 0                           # mode commands refused since start
+        self._last_refused: Optional[dict] = None   # {"pump", "mode", "utc"}
         if self._cfg.allow_control:
             self._load_state()
 
@@ -653,19 +761,26 @@ class TurbovacDriver(SensorDriver):
             if pump.serial:
                 pinned[pump.serial] = pump.name
         for pump in self._pumps:
-            log.info("[turbovac] %s — %s: %s", pump.name, pump.label,
+            log.info("[turbovac] %s — %s: %s%s", pump.name, pump.label,
                      f"pump serial {pump.serial}" if pump.serial
-                     else "not pinned (takes the one unassigned TURBOVAC on USB)")
+                     else "not pinned (takes the one unassigned TURBOVAC on USB)",
+                     "; keeps its command without the service while held"
+                     if pump.keep and self._cfg.allow_control else "")
         if self._cfg.allow_control:
             self._mqtt.subscribe(command_topic("turbo", "+", "mode"), self._on_mode)
-            log.info("[turbovac] start / stop from the Control page is enabled")
+            self._mqtt.subscribe(command_topic("turbo_control", "enable"), self._on_control_enable)
+            log.info("[turbovac] start / stop from the Control page is allowed — once "
+                     "\"enable control\" is pressed there")
         else:
             log.info("[turbovac] read-only (turbovac.allow_control is off)")
+        # Retained, so the Control page locks the buttons from the moment we are up.
+        self._publish_control_status()
 
     def disconnect(self) -> None:
         # Nothing is sent to a pump on the way out.  A held pump hears no more
-        # from us and goes back to its stand by itself 10 s later — unless the
-        # service is back before that and carries on (see `_bind`).
+        # from us: a keep_command one carries on as it was told, any other goes
+        # back to its stand by itself 10 s later — unless the service is back
+        # before that and carries on (see `_bind`).
         with self._io:
             self._save_state()
             for pump in self._pumps:
@@ -699,6 +814,8 @@ class TurbovacDriver(SensorDriver):
             try:
                 for pump in self._pumps:
                     self._publish(pump)
+                # every poll, so the registry tells a live "disabled" from a dead driver
+                self._publish_control_status()
             except Exception:                                       # noqa: BLE001
                 log.exception("[turbovac] could not publish")
 
@@ -824,14 +941,27 @@ class TurbovacDriver(SensorDriver):
         if not pump.serial and serial in {other.serial for other in self._pumps if other.serial}:
             tv.close()
             return f"{port} now reports pump serial {serial}, which is pinned elsewhere"
+        # A keep_command pump that still reports the bus in control has kept
+        # the hold by itself, however long we were away.  The question goes
+        # out as a bare read: with its watchdog at 0 that does not make it let
+        # go, and a pump that has lost the command (its supply was cycled) has
+        # nothing to let go of.
+        kept = False
+        if pump.mode != "local" and pump.keep and self._cfg.allow_control:
+            try:
+                kept = bool(tv.status().status_word & ZSW_REMOTE)
+            except TurbovacLinkError as exc:
+                tv.close()
+                return str(exc)
         # Now that it is known to be this pump: if it was being held on or off
         # a moment ago, say so again before anything else is asked of it, so
         # that the stretch it spends hearing no control word stays short.
-        resumed = self._resume(pump, serial)
+        resumed = self._resume(pump, serial, kept)
         if resumed is not None and pump.mode != "local":
             tv.hold(MODES[pump.mode])
         try:
             identity = tv.identify(serial)
+            watchdog = self._sync_watchdog(pump, tv)
         except TurbovacLinkError as exc:
             tv.close()
             return str(exc)
@@ -849,27 +979,34 @@ class TurbovacDriver(SensorDriver):
                    logging.INFO if pump.serial else logging.WARNING)
         if resumed is not None:
             self._note(pump, *resumed)
+        if watchdog == "set":
+            self._note(pump, self._watchdog_news(pump))
         return None
 
-    def _resume(self, pump: _Pump, serial: str):
+    def _resume(self, pump: _Pump, serial: str, kept: bool = False):
         """Does a hold from before the link was lost still stand?
 
-        Returns None if the pump was not being held, else the (text, level) to
-        report; `pump.mode` is "local" afterwards unless the hold carries on.
+        `kept`: the pump is a keep_command one and reports the bus still in
+        control — it never stopped obeying the hold.  Returns None if the pump
+        was not being held, else the (text, level) to report; `pump.mode` is
+        "local" afterwards unless the hold carries on.
         """
         if pump.mode == "local":
             return None
         was = pump.mode.upper()
         away = None if pump.last_contact is None else max(0.0, time.time() - pump.last_contact)
+        gap = "an unknown time" if away is None else _age_text(away)
         if not self._cfg.allow_control:
             why = "turbovac.allow_control is off"
         elif not serial or pump.held_serial != serial:
             why = f"it was set on pump {pump.held_serial or '?'}, and this is {serial or '?'}"
         elif away is None or away > self._cfg.resume_max_s:
-            why = ("out of touch for " + ("an unknown time" if away is None else _age_text(away))
-                   + ", so its stand has had the pump since")
+            if kept:
+                return (f"holding it {was} again — it kept that by itself through {gap} "
+                        "out of touch", logging.INFO)
+            why = f"out of touch for {gap}, so its stand has had the pump since"
         else:
-            return (f"holding it {was} again after {_age_text(away)} out of touch", logging.INFO)
+            return (f"holding it {was} again after {gap} out of touch", logging.INFO)
         pump.mode, pump.mode_utc, pump.held_serial = "local", _utc_now(), None
         self._save_state()
         return (f"no longer holding it {was}: {why}", logging.WARNING)
@@ -880,8 +1017,58 @@ class TurbovacDriver(SensorDriver):
         if pump.tv is not None:
             pump.tv.close()
         pump.tv = pump.port = pump.identity = pump.reading = pump.state = None
+        pump.watchdog = None
         pump.slow, pump.warnings, pump.alarm_bits = {}, [], 0
         pump.error = reason
+
+    # ------------------------------------------------------------------
+    # The watchdog (parameter 182) of a keep_command pump
+    # ------------------------------------------------------------------
+
+    def _watchdog_wanted(self, pump: _Pump) -> Optional[int]:
+        """What parameter 182 should be: 0 while a keep_command pump is held,
+        its factory 10 s while it is not.  None: leave it alone — this pump
+        is not ours to set (keep_command or allow_control is off)."""
+        if not (pump.keep and self._cfg.allow_control):
+            return None
+        return WATCHDOG_KEEP if pump.mode != "local" else WATCHDOG_FACTORY
+
+    def _sync_watchdog(self, pump: _Pump, tv: Turbovac) -> Optional[str]:
+        """Read parameter 182, and set it to `_watchdog_wanted` if it is not.
+
+        Returns "set" when it was written and reads back as wanted, a
+        sentence when that failed (said once, until it changes), or None.
+        Raises TurbovacLinkError.  Caller holds `_io`.
+        """
+        have = tv.read(P_WATCHDOG)
+        pump.watchdog = have
+        want = self._watchdog_wanted(pump)
+        if want is None or have == want:
+            pump.watchdog_trouble = None
+            return None
+        if have is None:
+            trouble = (f"it gives no parameter {P_WATCHDOG}, so it cannot keep a command "
+                       "without the service")
+        else:
+            tv.set_watchdog(want)
+            pump.watchdog = have = tv.read(P_WATCHDOG)
+            if have == want:
+                pump.watchdog_trouble = None
+                return "set"
+            trouble = (f"its watchdog (parameter {P_WATCHDOG}) will not go to {want / 10:g} s — "
+                       f"it reads {'nothing' if have is None else f'{have / 10:g} s'}")
+        if trouble != pump.watchdog_trouble:
+            pump.watchdog_trouble = trouble
+            self._note(pump, trouble, logging.WARNING)
+        return trouble
+
+    def _watchdog_news(self, pump: _Pump) -> str:
+        """What a watchdog just set to suit the mode means, in a sentence."""
+        if pump.watchdog == WATCHDOG_KEEP:
+            return (f"keeps that {pump.mode.upper()} without the service too (its watchdog, "
+                    f"parameter {P_WATCHDOG}, is 0)")
+        return (f"its watchdog (parameter {P_WATCHDOG}) is back to {(pump.watchdog or 0) / 10:g} s: "
+                "it lets go of a command once the service has gone quiet that long")
 
     def _set_error(self, pump: _Pump, reason: str) -> None:
         if reason != pump.error:                    # log a new reason once
@@ -958,6 +1145,8 @@ class TurbovacDriver(SensorDriver):
             reading["motor_temp_c"] = motor
         if warning_bits is not None:
             reading["warning_bits"] = warning_bits
+        if pump.watchdog is not None:
+            reading["watchdog_s"] = pump.watchdog / 10.0
         for key in ("setpoint_hz", "operating_hours", "start_count", "error_count",
                     "last_error_code"):
             if pump.slow.get(key) is not None:
@@ -980,6 +1169,10 @@ class TurbovacDriver(SensorDriver):
             "last_error_hours":  _hours(tv.read(P_ERROR_HOURS, 0, signed=True)) if code else None,
         }
         pump.slow = slow
+        # The watchdog too: read for the status, and put right if it has moved
+        # under a held keep_command pump (a supply cycle brings back the 10 s).
+        if self._sync_watchdog(pump, tv) == "set":
+            self._note(pump, self._watchdog_news(pump))
         count = slow["error_count"]
         if count is None:
             return
@@ -1008,8 +1201,42 @@ class TurbovacDriver(SensorDriver):
             log.warning("[turbovac] %s: ignoring mode %r", name, mode)
             return
         with self._io:
-            self._set_mode(pump, mode)
+            # The gate.  Checked after the name and the mode, so what is said
+            # is exactly what was asked for and dropped; nothing is queued.
+            if not self._control_enabled:
+                self._refused += 1
+                self._last_refused = {"pump": name, "mode": mode, "utc": _utc_now()}
+                self._note(pump, f"{_COMMAND_WORD[mode]} refused — turbo control is disabled: "
+                                 "enable it on the Control page first", logging.WARNING)
+                self._publish_control_status()
+            else:
+                self._set_mode(pump, mode)
             self._publish(pump)
+
+    def _on_control_enable(self, topic: str, payload) -> None:
+        """xsphere/commands/turbo_control/enable  → {"enabled": true | false}
+
+        Opens or shuts the gate on the mode commands.  `enabled` must be a
+        bool or a literal 0 / 1; anything else is dropped.  Shutting it starts,
+        stops or releases nothing — it only stops further commands being
+        acted on — and it is not remembered across a restart of the service.
+        """
+        raw = payload.get("enabled") if isinstance(payload, dict) else None
+        if isinstance(raw, bool):
+            want = raw
+        elif type(raw) is int and raw in (0, 1):
+            want = bool(raw)
+        else:
+            log.warning("[turbovac] turbo control: ignoring enabled=%r", raw)
+            return
+        with self._io:
+            if want != self._control_enabled:
+                self._control_enabled, self._control_enabled_utc = want, _utc_now()
+                log.info("[turbovac] turbo control %s", "ENABLED — on / off / release are now "
+                         "acted on" if want else "DISABLED — on / off / release are now refused")
+            self._publish_control_status()
+            for pump in self._pumps:        # their status carries it too
+                self._publish(pump)
 
     def _set_mode(self, pump: _Pump, mode: str) -> None:
         """Carry out one operator command.  Caller holds `_io`."""
@@ -1029,18 +1256,40 @@ class TurbovacDriver(SensorDriver):
         pump.last_contact = time.time()
         pump.unheeded = 0
         self._save_state()
-        self._note(pump, {"on":    "ON — told to run, and held there",
-                          "off":   "OFF — told to stop, and held there",
-                          "local": "handed back to its stand (the pump takes about 10 s "
-                                   "to act on that)"}[mode] + (" (again)" if repeated else ""))
+        text = {"on":    "ON — told to run, and held there",
+                "off":   "OFF — told to stop, and held there",
+                "local": "released — in about 10 s it goes back to its stand (its TURBOLAB, or "
+                         "its own X1 start input: with nothing plugged in there, it stops)"}[mode]
+        text += " (again)" if repeated else ""
         if pump.tv is None:
+            self._note(pump, text)
             return
-        pump.tv.hold(MODES[mode])
+        watchdog = None
+        ours = self._watchdog_wanted(pump) is not None      # a keep_command pump
         try:
-            pump.tv.status()            # so that it hears of it now, not at the next poll
+            if mode == "local":
+                # A keep_command pump gets its 10 s back first, while the hold
+                # still stands — at 0 it would never let go at all.
+                if ours:
+                    watchdog = self._sync_watchdog(pump, pump.tv)
+                pump.tv.hold(MODES[mode])
+                pump.tv.status()        # so that it hears of it now, not at the next poll
+            else:
+                pump.tv.hold(MODES[mode])
+                pump.tv.status()
+                if ours:
+                    watchdog = self._sync_watchdog(pump, pump.tv)
         except TurbovacLinkError as exc:
+            self._note(pump, text)
             log.warning("[turbovac] lost %s during a command: %s", pump.name, exc)
             self._drop(pump, str(exc))
+            return
+        if watchdog == "set" or (pump.keep and pump.watchdog == WATCHDOG_KEEP and mode != "local"):
+            text += " — " + self._watchdog_news(pump)
+        self._note(pump, text)
+        if watchdog not in (None, "set"):
+            # Already logged by _sync_watchdog; shown again so the card has it last.
+            pump.event, pump.event_utc = watchdog, _utc_now()
 
     def _load_state(self) -> None:
         try:
@@ -1087,6 +1336,26 @@ class TurbovacDriver(SensorDriver):
     # Status
     # ------------------------------------------------------------------
 
+    def _publish_control_status(self) -> None:
+        """xsphere/status/turbo_control
+               → {"enabled": 0|1, "since_utc": str|None, "refused": int,
+                  "control_allowed": bool,
+                  "last_refused": {"pump", "mode", "utc"}  (once one has been)}
+
+        `enabled` is the gate in `_on_mode`; `since_utc` is when it was last
+        switched (None = shut since the service started); `refused` counts the
+        mode commands dropped because it was shut.
+        """
+        payload = {
+            "enabled":         int(self._control_enabled),
+            "since_utc":       self._control_enabled_utc,
+            "refused":         self._refused,
+            "control_allowed": bool(self._cfg.allow_control),
+        }
+        if self._last_refused is not None:
+            payload["last_refused"] = dict(self._last_refused)
+        self._mqtt.publish_status("turbo_control", payload=payload)
+
     def _note(self, pump: _Pump, text: str, level: int = logging.INFO) -> None:
         """Log a notable event and keep it for the Control page."""
         pump.event, pump.event_utc = text, _utc_now()
@@ -1115,6 +1384,10 @@ class TurbovacDriver(SensorDriver):
             "mode":              pump.mode,
             "mode_utc":          pump.mode_utc,
             "control_allowed":   bool(self._cfg.allow_control),
+            "control_enabled":   self._control_enabled,
+            # keep_command in force for this pump, and parameter 182 as last read
+            "keeps_command":     bool(pump.keep and self._cfg.allow_control),
+            "watchdog_s":        None if pump.watchdog is None else pump.watchdog / 10.0,
         }
         for key in ("setpoint_hz", "operating_hours", "electronics_hours", "start_count",
                     "error_count", "last_error_code", "last_error", "last_error_hz",
