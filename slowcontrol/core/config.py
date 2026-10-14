@@ -135,9 +135,19 @@ class TurbovacPumpConfig:
 
 @dataclass
 class TurbovacConfig:
-    """Leybold TURBOVAC i / iX turbo pumps, read — never operated — over each
-    pump's USB port.  See slowcontrol/drivers/turbovac.py."""
+    """Leybold TURBOVAC i / iX turbo pumps over each pump's USB port: read,
+    and — only if `allow_control` — started and stopped.  See
+    slowcontrol/drivers/turbovac.py."""
     enabled: bool = False
+    # False: the driver can only read, and listens to no command.  True: a
+    # pump can be held on or off from the Control page
+    # (xsphere/commands/turbo/<name>/mode).
+    allow_control: bool = False
+    # A pump the service was holding on or off is held again when the service
+    # gets it back (its own restart, a USB glitch) — if it was out of touch
+    # for no longer than this.  After longer, the pump has gone back to its
+    # stand by itself (it does that after 10 s) and is left there.
+    resume_max_s: float = 120.0
     poll_interval_s: float = 2.0
     # Per telegram.  The pump answers in milliseconds; this only bounds how
     # long a poll waits on one that has stopped answering.
@@ -156,7 +166,14 @@ class LevelProbeConfig:
     """Cryostat LN level probe (MPR121 ESP32), read over its USB serial port.
     See slowcontrol/drivers/levelprobe.py."""
     enabled: bool = False
-    port: str = "/dev/serial/by-id/usb-1a86_USB_Serial-if00-port0"
+    # "auto": listen to every USB-serial adapter whose chip is `usb_id` and
+    # take the one that prints the probe's lines — no port to keep up to date.
+    # Or a device path, to use that port without looking.
+    port: str = "auto"
+    usb_id: str = "1a86:7523"       # CH340, the chip on the probe's ESP32 board
+    # How long an adapter may stay silent before the search moves on (the
+    # probe prints a line every ~3.5 s).
+    identify_s: float = 10.0
     baud_rate: int = 9600
     timeout_s: float = 1.0
     # Names the MQTT topic (xsphere/sensors/level_probe/<vessel>) and picks the
@@ -327,6 +344,9 @@ def load(path: str = "config.yaml") -> ServiceConfig:
             )
         cfg.turbovac = TurbovacConfig(
             enabled=bool(t.get("enabled", cfg.turbovac.enabled)),
+            # `is True`: only a literal YAML true switches pump control on.
+            allow_control=t.get("allow_control", cfg.turbovac.allow_control) is True,
+            resume_max_s=float(t.get("resume_max_s", cfg.turbovac.resume_max_s)),
             poll_interval_s=float(t.get("poll_interval_s", cfg.turbovac.poll_interval_s)),
             timeout_s=float(t.get("timeout_s", cfg.turbovac.timeout_s)),
             slow_interval_s=float(t.get("slow_interval_s", cfg.turbovac.slow_interval_s)),
@@ -338,6 +358,8 @@ def load(path: str = "config.yaml") -> ServiceConfig:
         cfg.level_probe = LevelProbeConfig(
             enabled=bool(lp.get("enabled", cfg.level_probe.enabled)),
             port=str(lp.get("port", cfg.level_probe.port)),
+            usb_id=str(lp.get("usb_id", cfg.level_probe.usb_id)),
+            identify_s=float(lp.get("identify_s", cfg.level_probe.identify_s)),
             baud_rate=int(lp.get("baud_rate", cfg.level_probe.baud_rate)),
             timeout_s=float(lp.get("timeout_s", cfg.level_probe.timeout_s)),
             vessel=str(lp.get("vessel", cfg.level_probe.vessel)),

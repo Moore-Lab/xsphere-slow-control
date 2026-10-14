@@ -38,6 +38,9 @@
   button.act { background:var(--acc); color:#08111f; border-color:var(--acc); font-weight:600; }
   button.danger { border-color:var(--bad); color:var(--bad); }
   button.on { background:var(--ok); color:#08120a; border-color:var(--ok); font-weight:600; }
+  button.held { background:var(--warn); color:#141003; border-color:var(--warn); font-weight:600; }
+  button:disabled { opacity:.4; cursor:not-allowed; }
+  button:disabled:hover { border-color:var(--line); }
   .dot { width:.62rem; height:.62rem; border-radius:50%; background:#444b5a; display:inline-block; vertical-align:middle; margin-right:.25rem; }
   .dot.on{background:var(--ok)}
   .kv { display:inline-block; margin-right:1rem; }
@@ -99,7 +102,7 @@
   <section class="card">
     <h2>Pneumatic valves — gas handling</h2>
     <div id="pneumatic"></div>
-    <small class="hint"><b>Open / close always mean the valve, not the relay.</b> Ballast and bottle are <b>normally open</b>: their relay is energised to <em>close</em> them, so with the PLC outputs off they sit open. The pump valve is normally closed. “actual” is worked out from the PLC output (Y105–Y107) read back, “desired” from the register (DS151–DS153), and “relay” is the output itself. The ladder has no auto-open, auto-close or timer behind these, so a valve stays where it was last put — through a service restart too.</small>
+    <small class="hint"><b>Open / close only work while valve control is enabled</b> — the buttons at the top of the card. The lock is in the PLC driver, so it holds for the Sequencer and anything else on the bus, not only this page; control comes up <em>disabled</em> every time the slow-control service starts, and disabling it moves no valve. Once control is on there is no per-click confirmation. <b>Open / close always mean the valve, not the relay.</b> Ballast and bottle are <b>normally open</b>: their relay is energised to <em>close</em> them, so with the PLC outputs off they sit open. The pump valve is normally closed. “actual” is worked out from the PLC output (Y105–Y107) read back, “desired” from the register (DS151–DS153), and “relay” is the output itself. The ladder has no auto-open, auto-close or timer behind these, so a valve stays where it was last put — through a service restart too.</small>
   </section>
 
   <!-- Heaters / PID -->
@@ -139,19 +142,26 @@
       V / A / W are instantaneous and catch the heater mid-PWM-cycle; the Register page has their 60 s averages.</small>
   </section>
 
-  <!-- Turbo pumps (read-only) -->
+  <!-- Turbo pumps -->
   <section class="card">
-    <h2>Turbo pumps — Leybold TURBOVAC (read-only)</h2>
+    <h2>Turbo pumps — Leybold TURBOVAC</h2>
     <div id="turbo"></div>
-    <small class="hint"><b>Nothing here operates a pump.</b> The slow control reads each pump over its USB port and cannot start,
-      stop or re-tune it — the pumps are run at the pumping stand as before.
-      A pump is recognised by <b>its own serial number</b> (<code>turbovac.pumps</code> in <code>config.yaml</code>), not by
-      the USB port it is on, so swapping cables cannot swap the names. A pump whose 24 V supply is off is not on USB at all
-      and shows as not connected. <code>NORMAL</code> means at normal-operation speed (90 % of the setpoint and above);
+    <small class="hint"><b>on</b> / <b>off</b> start and stop that pump over its USB link; <b>hand back to stand</b> returns it
+      to whatever its pumping stand tells it. While a pump is held on or off the slow control repeats the command with every
+      telegram, about every 2 s.
+      <b>Holding is not locking.</b> A pump that hears nothing from the Pi for 10 s goes back to its stand by itself — so if
+      the Pi, the service or the USB cable goes away, a pump held <b>off</b> starts again if its stand says run. To keep a
+      pump off for certain, switch it off at the stand. After a service restart the hold carries on if the pump was out of
+      touch for less than two minutes; after longer it is left with its stand and the card says so.
+      Start and stop are all that can be sent — never a speed or a setting — and only while
+      <code>turbovac.allow_control</code> is <code>true</code> in <code>config.yaml</code>.
+      A pump is recognised by <b>its own serial number</b> (<code>turbovac.pumps</code>), not by the USB port it is on, so
+      swapping cables cannot swap the names or the buttons. A pump whose 24 V supply is off is not on USB at all and shows
+      as not connected. <code>NORMAL</code> means at normal-operation speed (90 % of the setpoint and above);
       <code>RUNNING</code> means the drive is on but the rotor is held below that. The temperatures are the pump's own
       (motor, bearing, converter); “last entry” is the newest line of the pump's error memory, with how many
-      running-hours ago it was made; “last event” is the latest change the service saw — a pump found or lost, a change
-      of state, a new error entry.</small>
+      running-hours ago it was made; “last event” is the latest change the service saw — a pump found or lost, a command,
+      a change of state, a new error entry.</small>
   </section>
 
 
@@ -170,6 +180,7 @@ function fmtNum(v){
   if (a >= 0.01) return v.toFixed(3);
   return v.toExponential(2);
 }
+function hhmm(iso){ const t = new Date(iso); return isNaN(t) ? "" : t.toLocaleTimeString(); }
 
 // ---- command helpers -------------------------------------------------------
 let SNAP = {states:{}};                       // last snapshot.states
@@ -218,9 +229,25 @@ const ZONES   = [["top","Zone 1 — top clamp (rtd2)"],["bottom","Zone 2 — bot
 const PNEUMATIC = [["pneumatic_ballast","Ballast valve — normally open (Y105)"],["pneumatic_pump","Pump valve — normally closed (Y106)"],["pneumatic_bottle","Bottle valve — normally open (Y107)"]];
 // Heater supply channels: [NGE channel, label].  Channel n feeds heater n.
 const NGE = [[1,"Ch 1 → heater 1 (zone 1, top)"],[2,"Ch 2 → heater 2 (zone 2, bottom)"],[3,"Ch 3 → heater 3 (zone 3, nozzle)"]];
-// Turbo pumps: [name under turbovac.pumps in config.yaml, title].  Read-only.
+// Turbo pumps: [name under turbovac.pumps in config.yaml, title].
 const TURBOS = [["ghs","GHS turbo — gas handling system + science chamber"],["outer","Outer vacuum turbo"]];
 function turboRaw(n){ const r = RAW["xsphere/status/turbo/"+n]; return (r && r.payload) || {}; }
+// on / off / local.  Starting or stopping a turbo is asked about first: a
+// stray click here costs a pump-down.
+function turboSet(n, mode){
+  const name = ((TURBOS.find(t => t[0]===n) || [])[1] || n).split(" — ")[0];
+  const ask = mode==="on"  ? "Start the " + name + "?\n\nThe slow control will hold it running."
+            : mode==="off" ? "Stop the " + name + "?\n\nIt will run down, and the slow control will hold it stopped."
+            : null;
+  if (ask && !confirm(ask)) return;
+  ctl("turbo_"+n+"_mode", mode);
+}
+// Enable / disable pneumatic valve control.  The gate itself is in the PLC
+// driver (it refuses open / close while shut, whoever sends them); this page
+// only locks its buttons to match.  No confirm here on purpose: enabling
+// moves nothing by itself, and the valves are meant to be worked without a
+// dialog once control is on.
+function pneumaticControl(on){ cmd("xsphere/commands/pneumatic_control/enable", {enabled: !!on}); }
 let built = false;
 // One valve block.  `sid` is the state carrying the control; its commanded
 // twin is `${sid}_desired`.  `auto` adds the LN₂ autofill enable toggles;
@@ -244,7 +271,16 @@ function valveBlock(sid, name, auto, relay){
 }
 function build(){
   $("valves").innerHTML = VESSELS.map(([v,name])=>valveBlock("valve_"+v, name, true, false)).join("");
-  $("pneumatic").innerHTML = PNEUMATIC.map(([sid,name])=>valveBlock(sid, name, false, true)).join("");
+  $("pneumatic").innerHTML = `
+    <div class="blk">
+      <div class="row">
+        <span class="title" id="pn-state">valve control …</span>
+        <span style="flex:1"></span>
+        <button id="pn-on"  onclick="pneumaticControl(true)">enable control</button>
+        <button id="pn-off" onclick="pneumaticControl(false)">disable control</button>
+      </div>
+      <div class="row"><span id="pn-note" class="cur"></span></div>
+    </div>` + PNEUMATIC.map(([sid,name])=>valveBlock(sid, name, false, true)).join("");
 
   $("pid").innerHTML = ZONES.map(([z,name])=>`
     <div class="blk" data-z="${z}">
@@ -294,6 +330,11 @@ function build(){
         <span class="kv"><span class="dot" id="tb-${n}-dot"></span><span id="tb-${n}-state" class="num">–</span></span>
         <span id="tb-${n}-speed" class="num"></span>
         <span id="tb-${n}-meas" style="flex:1;color:var(--mut);font-size:.82rem;text-align:right"></span></div>
+      <div class="row">
+        <button id="tb-${n}-on"  onclick="turboSet('${n}','on')">on</button>
+        <button id="tb-${n}-off" onclick="turboSet('${n}','off')">off</button>
+        <button id="tb-${n}-local" style="margin-left:.5rem" onclick="turboSet('${n}','local')">hand back to stand</button>
+        <span id="tb-${n}-mode" class="cur"></span></div>
       <div class="row"><span id="tb-${n}-temps" class="cur"></span></div>
       <div class="row"><span id="tb-${n}-note" class="cur"></span></div>
       <div class="row"><span id="tb-${n}-last" class="cur"></span></div>
@@ -344,6 +385,25 @@ function update(d){
     $("vao-"+sid).textContent = ao && ao.value!==null ? (aoOn?"armed":"disarmed") : "—"; $("vao-"+sid).className = aoOn?"on":"";
     $("vac-"+sid).textContent = ac && ac.value!==null ? (acOn?"armed":"disarmed") : "—"; $("vac-"+sid).className = acOn?"on":"";
   });
+
+  // Pneumatic valve control gate: the open / close buttons are locked unless
+  // the PLC driver says control is enabled and is still saying so.
+  const pnEn = st.pneumatic_control_enabled, pnRaw = (RAW["xsphere/status/pneumatic_control"]||{}).payload || {};
+  const pnKnown = !!pnEn && pnEn.value!==null && pnEn.freshness!=="invalid";
+  const pnOn = pnKnown && pnEn.value===true;
+  PNEUMATIC.forEach(([sid])=>{ $("vo-"+sid).disabled = $("vc-"+sid).disabled = !pnOn; });
+  const pnEl = $("pn-state");
+  if (!pnKnown){ pnEl.textContent = "valve control: ? — no word from the PLC driver, open / close locked"; pnEl.style.color = "var(--mut)"; }
+  else if (pnOn){ pnEl.textContent = "⚠ valve control ENABLED — open / close act on the gas valves"; pnEl.style.color = "var(--warn)"; }
+  else { pnEl.textContent = "valve control disabled — open / close are locked"; pnEl.style.color = "var(--mut)"; }
+  $("pn-on").className  = pnOn ? "held" : "";
+  $("pn-off").className = (pnKnown && !pnOn) ? "on" : "";
+  const pnBits = [];
+  if (pnKnown && pnRaw.since_utc) pnBits.push((pnOn ? "enabled" : "disabled") + " since " + hhmm(pnRaw.since_utc));
+  else if (pnKnown && !pnOn) pnBits.push("disabled since the service started");
+  if (pnRaw.last_refused) pnBits.push("last refused " + hhmm(pnRaw.last_refused.utc) + " — " + pnRaw.last_refused.valve + " → "
+    + (pnRaw.last_refused.state ? "OPEN" : "CLOSED") + (pnRaw.refused > 1 ? " (" + pnRaw.refused + " refused in all)" : ""));
+  $("pn-note").textContent = pnBits.join(" · ");
 
   // PV safety interlock
   const ilT = st.pv_interlock_tripped, ilMin = st.pv_interlock_min_k, ilMax = st.pv_interlock_max_k;
@@ -410,7 +470,6 @@ function update(d){
   // accepted, why a channel last dropped out) come from the raw status.
   const ngC = st.nge_connected, ngH = st.nge_hold, ng = ngeRaw();
   const ngEl = $("ng-state");
-  const hhmm = iso => { const t = new Date(iso); return isNaN(t) ? "" : t.toLocaleTimeString(); };
   if (!ngC || ngC.value===null || ngC.freshness==="invalid"){
     ngEl.textContent = "no data — is the supply enabled in config.yaml?"; ngEl.style.color = "var(--mut)";
   } else if (ngC.value){
@@ -458,9 +517,9 @@ function update(d){
     setCur("ng"+n+"-i-cur", "current "+fmtNum(il&&il.value)+" A" + (capped ? " — "+fmtNum(asked)+" A asked, capped by the supply" : ""), il);
   });
 
-  // Turbo pumps — read-only.  The registry carries the readings and how fresh
-  // they are; identity, warnings and the pump's error memory come from the
-  // raw status.
+  // Turbo pumps.  The registry carries the readings, how fresh they are and
+  // the one control (the mode); identity, warnings and the pump's error
+  // memory come from the raw status.
   TURBOS.forEach(([n])=>{
     const p="turbo_"+n+"_", con=st[p+"connected"], state=st[p+"state"], f=st[p+"frequency"], setp=st[p+"setpoint"];
     const raw=turboRaw(n), el = id => $("tb-"+n+"-"+id);
@@ -486,6 +545,20 @@ function update(d){
     const hz = num(f), sp = num(setp);
     el("speed").textContent = hz===null ? "" : (Math.round(hz)+" Hz" + (sp ? " of "+Math.round(sp) : "") + " · "+(hz*60).toLocaleString("en-US")+" rpm");
     el("speed").style.color = live && f && f.freshness==="stale" ? "var(--warn)" : "";
+    // who has the pump, and the buttons that change that
+    const mode = st[p+"mode"], mv = mode && mode.freshness!=="invalid" ? mode.value : null;
+    const allowed = raw.control_allowed===true, rem = st[p+"remote"];
+    el("on").className  = mv==="on"  ? "on"   : "";
+    el("off").className = mv==="off" ? "held" : "";
+    el("on").disabled = el("off").disabled = !(allowed && up);
+    el("local").disabled = !(allowed && (mv==="on" || mv==="off"));
+    const since = raw.mode_utc ? " since " + hhmm(raw.mode_utc) : "";
+    const me = el("mode");
+    me.textContent = !known ? "" : !allowed ? "read-only — turbovac.allow_control is off in config.yaml"
+      : mv==="on"  ? "held ON by the slow control" + since
+      : mv==="off" ? "held OFF by the slow control" + since
+      : "with its stand — the slow control only reads";
+    me.style.color = mv==="off" ? "var(--warn)" : "";
     // the pump reports V, A and W to one decimal and its temperatures in whole °C
     const q = (key, unit, dp, lab) => { const v = num(st[p+key]); return v===null ? "" : `<span class="kv">${lab ? `<span class="k">${lab}</span>` : ""}<span class="num">${v.toFixed(dp)}</span> ${unit}</span>`; };
     el("meas").innerHTML = q("voltage","V",1) + q("current","A",1) + q("power","W",1);
@@ -497,7 +570,10 @@ function update(d){
     else if (live && fault && fault.value===true){ note = "⚠ error: " + (raw.last_error || "see the pump"); tone = "var(--bad)"; }
     else if (live && warn && warn.value===true){ note = "⚠ warning: " + ((raw.warnings||[]).join(", ") || "see the pump"); tone = "var(--bad)"; }
     else if (up && raw.pinned===false){ note = "not pinned — put serial: \"" + (raw.pump_serial||"?") + "\" under turbovac.pumps." + n + " in config.yaml"; tone = "var(--warn)"; }
-    else if (live && ((RAW["xsphere/sensors/turbo/"+n]||{}).payload||{}).remote){ note = "a bus master holds control of this pump"; }
+    else if (live && (mv==="on" || mv==="off") && rem && rem.value===false && rem.freshness==="fresh" && raw.mode_utc && Date.now() - new Date(raw.mode_utc) > 8000){
+      note = "⚠ told to stay " + mv.toUpperCase() + ", but the pump does not report that the bus has control of it"; tone = "var(--bad)"; }
+    else if (live && mv==="on" && sv==="stopped"){ note = "held ON, but the pump is not starting — is there an error to clear at its stand?"; tone = "var(--warn)"; }
+    else if (live && mv==="local" && rem && rem.value===true){ note = "the pump reports a bus master in control — it lets go about 10 s after the last command"; }
     ne.textContent = note; ne.style.color = tone;
     const ago = (raw.operating_hours!=null && raw.last_error_hours!=null) ? raw.operating_hours - raw.last_error_hours : null;
     el("last").textContent = !up || raw.last_error_code==null ? "" :

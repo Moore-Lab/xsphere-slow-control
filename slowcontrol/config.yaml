@@ -85,9 +85,10 @@ nge:
   default_voltage_v: 24.0
   default_current_a: 1.5
 
-# Leybold TURBOVAC 90 i turbo pumps — READ-ONLY monitoring over each pump's USB
-# port.  The service cannot start, stop or re-tune a pump through this; see
-# slowcontrol/drivers/turbovac.py for why not, and for what is read.
+# Leybold TURBOVAC 90 i turbo pumps, over each pump's USB port: monitored, and
+# with `allow_control` started and stopped from the Control page.  Start and
+# stop are all the service can do to a pump — never its speed or a setting;
+# see slowcontrol/drivers/turbovac.py for how that is enforced.
 #
 # Both pumps' USB ports look identical to the Pi, so a pump is recognised by
 # its own serial number: the one on its nameplate, which is also what the pump
@@ -96,6 +97,16 @@ nge:
 # topics, state.yaml, telegraf.conf and the Control page.
 turbovac:
   enabled: true
+  # true: the Control page's on / off buttons work.  The service then holds a
+  # pump on or off by repeating the command with every telegram; a pump that
+  # hears nothing for 10 s goes back to its stand by itself, so OFF from here
+  # is not a lock-out — to be sure a pump stays off, switch it off at the stand.
+  # false (or absent): read-only; the command topic does not exist.
+  allow_control: true
+  # After a service restart or a USB glitch a pump is held on / off again only
+  # if contact was lost for less than this (seconds); after longer it is left
+  # with its stand.  The held state is kept in slowcontrol/turbovac_state.json.
+  resume_max_s: 120
   poll_interval_s: 2.0
   pumps:
     ghs:
@@ -118,10 +129,14 @@ turbovac:
 # See slowcontrol/drivers/levelprobe.py.
 level_probe:
   enabled: true
-  # The board's CH340 USB-serial chip has no serial number, so this name is
-  # shared by every CH340 on the Pi.  If a second one is ever plugged in, use
-  # the /dev/serial/by-path/... name of the socket instead.
-  port: /dev/serial/by-id/usb-1a86_USB_Serial-if00-port0
+  # No port is named.  The board's CH340 USB chip has no serial number, so on
+  # the USB side nothing but the socket it is in tells it from the other CH340
+  # board on the Pi (the gas handling cart's ESP32) — and cables get moved.
+  # The service listens to each CH340 adapter and takes the one that prints
+  # the probe's lines, so the probe can be in any socket.  (To force a port
+  # anyway, put its /dev/... path here instead of "auto".)
+  port: auto
+  usb_id: "1a86:7523"      # which adapters to listen to: CH340
   baud_rate: 9600
   vessel: cryostat
   pwm_max: 255

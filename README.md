@@ -17,10 +17,11 @@ xenon cryostat used in levitated-particle physics experiments.
   valves — the autofill ladder runs on the PLC; the Python service forwards
   level readings and exposes manual/arm controls
 - **Monitors pressure and vacuum** from the gas-handling-system (GHS) ESP32
-- **Watches the turbo pumps** — the Leybold TURBOVAC 90 i on the gas handling
-  system (science chamber included) and the one on the outer vacuum, each read
-  over its USB port: speed, current, power, temperatures, state, warnings and
-  the pump's own error memory. Read-only — it cannot start or stop a pump
+- **Watches the turbo pumps, and can start and stop them** — the Leybold
+  TURBOVAC 90 i on the gas handling system (science chamber included) and the
+  one on the outer vacuum, each over its USB port: speed, current, power,
+  temperatures, state, warnings and the pump's own error memory, plus on / off
+  from the Control page. Start and stop are all it can send
 - **Holds a centralized state view** — the StateStore subscribes to every
   source topic, computes per-state freshness + moving averages + derived
   quantities, and republishes a consolidated snapshot on
@@ -72,7 +73,8 @@ Every control widget shows the **current** value of the thing it controls next t
 - "actual" ● is worked out from the PLC output read back, "desired" from the register (DS151 / DS152 / DS153), and "relay" shows the output itself (`energised` / `off`). Seeing ballast `OPEN` with relay `off` is correct.
 - With the PLC outputs off — power loss, PLC in STOP — ballast and bottle sit **open** and the pump valve shut.
 - There is no auto-open, auto-close or timer behind these, in the ladder or in Python. A valve stays where it was last put, including through a restart of the slow-control service.
-- Each one is also a Sequencer target, like any other control on this page.
+- **Open / close only work while valve control is enabled** — the `enable control` / `disable control` buttons at the top of the card. The gate is in the PLC driver (`xsphere/commands/pneumatic_control/enable`; its state, when it was last switched and the commands it has refused are on `xsphere/status/pneumatic_control`), so it holds for the Sequencer and anything else on the bus, not only this page. Control comes up **disabled** every time the slow-control service starts, and disabling it moves no valve. Once it is on there is deliberately no per-click confirmation.
+- A Sequencer program can move them only while control is enabled, and cannot enable it itself: `pneumatic_control_enabled` has no control mapping in `state.yaml`.
 
 **Heaters — PID** (one block per zone — top / bottom / nozzle)
 
@@ -95,14 +97,18 @@ Every control widget shows the **current** value of the thing it controls next t
 - While the supply is unreachable (`⚠ NOT CONNECTED`), `off` is remembered — the channel stays off when the supply returns — and `on` and setpoint changes are refused rather than queued.
 - Each control is also a Sequencer target. `nge.resource: sim` in `config.yaml` runs all of this against a built-in simulated supply.
 
-**Turbo pumps — Leybold TURBOVAC (read-only)**
+**Turbo pumps — Leybold TURBOVAC**
 
-- One block per pump: **GHS turbo** (gas handling system + science chamber) and **Outer vacuum turbo**. There is nothing to click — the slow control reads the pumps and cannot start, stop or re-tune them; they are run at the pumping stand as before.
+- One block per pump: **GHS turbo** (gas handling system + science chamber) and **Outer vacuum turbo**.
+- **`on` / `off`** start and stop that pump over its USB link, after a confirmation. The slow control then *holds* the pump there by repeating the command with every telegram (about every 2 s); the line beside the buttons says `held ON …` / `held OFF … since hh:mm`. **`hand back to stand`** ends the hold: the pump goes back to doing what its pumping stand tells it, about 10 s later. A pump nobody has pressed a button for is `with its stand` and is only read.
+- **Holding is not locking.** A pump that hears nothing from the Pi for 10 s returns to its stand by itself. So if the Pi, the service or the USB cable goes away, a pump held **off** starts again if its stand says run, and a pump held **on** keeps running only if its stand says run. To keep a pump off for certain — before opening the system, say — switch it off at the stand.
+- After a service restart or a USB glitch the hold carries on if the pump was out of touch for less than two minutes (`turbovac.resume_max_s`); after longer the pump is left with its stand and `last event` says so. `on` and `off` are refused, not queued, while a pump is not connected.
+- Start and stop are all that can be sent: never a speed, a setting or an error reset — an error still has to be cleared at the stand. `turbovac.allow_control: false` in `config.yaml` takes the buttons away altogether and makes the service read-only.
 - The first line is the pump's state and speed: `NORMAL` (at normal-operation speed — 90 % of the setpoint and above), `ACCELERATING`, `DECELERATING`, `RUNNING` (drive on, but the rotor is held below normal-operation speed), `COASTING`, `STOPPED` or `ERROR`, then `1200 Hz of 1200 · 72,000 rpm`, then supply voltage, motor current and drive power. Below it are the pump's own temperatures — motor, bearing, converter.
 - A red line appears when the pump has an error or a warning active, saying which. `last entry` is the newest line of the pump's own error memory, with the speed it happened at and how many running-hours ago; the service also logs a line (`journalctl -u xsphere-slowcontrol | grep turbovac`) whenever a pump changes state or adds an entry.
 - **Which pump is which** is decided by each pump's own serial number (on its nameplate; `turbovac.pumps` in `config.yaml`), never by the USB port — both pumps look identical on USB, so swapping the cables cannot swap the names. A block that says `not pinned` is a pump the service picked up only because it was the one unassigned TURBOVAC on USB: put the serial number it shows into `config.yaml` and restart the service.
 - `⚠ NOT CONNECTED` means that pump is not on USB. Its USB port runs off the pump's own 24 V supply, so this is also what a pump switched off at its supply looks like. The service finds it again within a few seconds of it coming back.
-- Everything shown is also on the Register page (group *turbo*) and in InfluxDB (measurement `turbo`, tag `pump`).
+- Everything shown is also on the Register page (group *turbo*) and in InfluxDB (measurement `turbo`, tag `pump`; `remote` = 1 while the pump is under bus control). The mode is a Sequencer target like any other control.
 
 **Gradient**
 
@@ -199,7 +205,7 @@ Common things and what they mean:
 - **`pid_*_setpoint` set has no effect** — gradient mode is probably `gradient`; switch to `absolute` first (or use the gradient card).
 - **`supply: DOWN` / heater supply `⚠ NOT CONNECTED`** — the card shows the reason. `cannot open /dev/nge100` means the supply is off, its USB cable is out, or the udev rule is missing (`ls -l /dev/nge100`; SETUP.md step 3f). The supply carries on as it was; the service picks it up again within seconds of it reappearing.
 - **A heater supply channel shows `ON · CC`** — it is current-limited, which is expected for a 36 W heater on a 33.6 W channel (see the control-page notes above).
-- **A turbo pump shows `⚠ NOT CONNECTED`** — the card says why. `pump serial … is not on USB` means that pump's 24 V supply is off or its USB cable is out (`lsusb -d 25e9:0bb8` on the Pi prints one line per pump that is on USB); `found instead: serial …` means a TURBOVAC is there but it is not the one `config.yaml` names. Nothing about the pump itself changes either way — the service only reads it.
+- **A turbo pump shows `⚠ NOT CONNECTED`** — the card says why. `pump serial … is not on USB` means that pump's 24 V supply is off or its USB cable is out (`lsusb -d 25e9:0bb8` on the Pi prints one line per pump that is on USB); `found instead: serial …` means a TURBOVAC is there but it is not the one `config.yaml` names. A pump that was being held on or off goes back to its stand by itself when this happens.
 
 ## System overview
 
@@ -210,7 +216,7 @@ Common things and what they mean:
   PLC ──Modbus TCP──► Python slow control service             │
                     │   · PlcDriver  (poll + command)         │
   NGE103 ──USB-TMC──►   · NgeDriver  (heater supply)          │
-  Turbo pumps ──USB─►   · TurbovacDriver  (read-only)         │
+  Turbo pumps ──USB─►   · TurbovacDriver  (read, on / off)    │
                     │   · LabJackT7Controller                 │
                     │   · GradientController, AutoValve, …    │
                     │   · StateStore  →  xsphere/state/snapshot │
@@ -310,10 +316,13 @@ All sensor/status payloads are JSON.  Full schema and payload shapes:
 | `xsphere/sensors/environment/ghs/{temperature\|humidity\|baro_pressure}` | GHS ESP32→broker | `{"value"}` |
 | `xsphere/sensors/level/{vessel}` | FDC1004 ESP32→broker | `{"raw","filtered"}` (pF) |
 | `xsphere/sensors/turbo/{ghs\|outer}` | Python→broker | turbo pump readings: `{"state","frequency_hz","setpoint_hz","current_a","voltage_v","power_w","motor_temp_c","bearing_temp_c","converter_temp_c","normal","fault","warning","operating_hours",…}` (not published while the pump is unreachable) |
-| `xsphere/status/turbo/{ghs\|outer}` | Python→broker | turbo pump link and identity: `{"connected","pinned","pump_serial","product","port","error","event","warnings","last_error",…}` (retained) |
+| `xsphere/status/turbo/{ghs\|outer}` | Python→broker | turbo pump link, identity and mode: `{"connected","pinned","pump_serial","product","port","error","event","warnings","last_error","mode","control_allowed",…}` (retained) |
+| `xsphere/commands/turbo/{ghs\|outer}/mode` | Dashboard→Python | `{"mode": "on"\|"off"\|"local"}` — hold the pump running / stopped, or hand it back to its stand (only with `turbovac.allow_control`) |
 | `xsphere/status/pid/{zone}` | PLC driver→broker | `{"setpoint_k","pv_k","output_pct","kp","ki","kd"}` (retained) |
 | `xsphere/status/valve/{vessel}` | Python→broker | `{"state","desired","auto_open","auto_close"}` (retained) |
 | `xsphere/status/pneumatic/{name}` | Python→broker | `{"state","desired","relay"}` — valve open / commanded open / relay energised (retained) |
+| `xsphere/status/pneumatic_control` | Python→broker | `{"enabled","since_utc","refused","last_refused"}` — the gate on the pneumatic valve commands (retained, 1 Hz) |
+| `xsphere/commands/pneumatic_control/enable` | Dashboard→Python | `{"enabled": true\|false}` — open / shut that gate (Control page buttons) |
 | `xsphere/status/nge` | Python→broker | heater supply: `{"connected","hold","master","model","serial","error","event",…}` (retained) |
 | `xsphere/status/nge/{1\|2\|3}` | Python→broker | per channel: `{"output","desired","voltage_set_v","current_limit_a","voltage_v","current_a","power_w","mode","trip","dropouts",…}` (retained; not published while the supply is unreachable) |
 | `xsphere/status/service/heartbeat` | Python→broker | `{"uptime_s"}` (retained) |

@@ -204,8 +204,9 @@ Three coaxial capacitance probes, each connected to a dedicated FDC1004 IC on an
 
 - **GHS pump:** Leybold turbo-based pumping stand (manual gate valve between turbo and system). It pumps the gas handling system, science chamber included. The turbo is a TURBOVAC 90 i (cat. no. 810041V1000, pump serial 31003077799): 1200 Hz = 72,000 rpm at full speed, 24 V DC drive.
 - **Outer vacuum pump:** Same model Leybold stand (manual gate valve). Its turbo is a second TURBOVAC 90 i, pump serial 31003045053.
-- **Monitoring:** each turbo's frequency converter has a USB port (CDC serial, USS protocol, 19200 8E1) that goes to xbox-pi, where `TurbovacDriver` (`slowcontrol/drivers/turbovac.py`) reads it every 2 s: rotor frequency and setpoint, motor current, supply voltage, drive power, motor / bearing / converter temperature, operating state, warnings, operating hours and the pump's error memory. Things that matter when reading the numbers:
-  - **Read-only by construction.** The driver can only build parameter-read telegrams with an all-zero control word, so it cannot start, stop or re-tune a pump; the pumps are operated at the stand as before (no bus master holds control of the GHS pump — status bit 15 is clear — so its start comes in at the converter's X1 connector). By the manual the same link *would* carry control — control word bit 10 takes control away from X1, bit 0 is start/stop, and a master that then goes quiet for 10 s (parameter 182) hands control back. None of that has been tried, and none of it is sent.
+- **Monitoring and start / stop:** each turbo's frequency converter has a USB port (CDC serial, USS protocol, 19200 8E1) that goes to xbox-pi, where `TurbovacDriver` (`slowcontrol/drivers/turbovac.py`) reads it every 2 s: rotor frequency and setpoint, motor current, supply voltage, drive power, motor / bearing / converter temperature, operating state, warnings, operating hours and the pump's error memory. With `turbovac.allow_control` it also starts and stops a pump from the Control page. Things that matter when reading the numbers or pressing the buttons:
+  - **Three control words, no writes.** Every telegram the driver can build is a parameter read carrying one of three control words: `0x0000` (leave the pump to its stand), `0x0401` (bus has control — run) and `0x0400` (bus has control — stop). No write access code, no speed setpoint, no error reset, no outputs. A pump's *mode* is `local`, `on` or `off`; while it is `on` or `off` every telegram to it, the reads included, carries that word.
+  - **Holding is not locking.** A converter that hears no telegram with bit 10 set for 10 s (parameter 182, fallback word 179 = 0) hands control back to its stand's start input (connector X1), and a power cycle clears the control bits. So a pump held OFF from the Control page starts again if the Pi goes quiet and its stand says run. After a service restart a hold is taken up again only if the pump was out of touch for less than `turbovac.resume_max_s` (120 s; `slowcontrol/turbovac_state.json`), and never on a pump with a different serial number.
   - **A pump is recognised by its own serial number** (parameter 355 = the nameplate; `turbovac.pumps` in `config.yaml`). Both converters report the same USB serial number and `/dev/ttyACM*` follows plug-in order, so nothing on the USB side tells them apart.
   - **The converter's USB side is powered by the pump's 24 V supply.** A pump switched off at its supply disappears from USB and reads as "not connected".
   - **"Normal operation"** means at or above 90 % of the setpoint frequency (parameter 25). The pump's own limits: bearing warning 55 °C / error 61 °C, motor warning 80 °C / error 100 °C, converter warning 60 °C / error 65 °C.
@@ -305,7 +306,7 @@ Specific flows:
           ┌────────▼───────┐   │  - PLC (Modbus TCP, direct)    │
           │  InfluxDB 2.x  │   │  - Omega (already running)     │
           └────────┬───────┘   │  - Scale RS-232 (future)       │
-                   │           │  - Turbo pumps (USB, read)     │
+                   │           │  - Turbo pumps (USB, on/off)   │
           ┌────────▼───────┐   │                                │
           │    Grafana     │   │  Controllers                   │
           │  (monitoring)  │   │  - PID wrapper + gradient mgr  │
@@ -410,11 +411,12 @@ xsphere/status/service/heartbeat          {"uptime_s": <int>}                 (r
 xsphere/status/pid/{zone}                  {"setpoint_k","pv_k","output_pct","kp","ki","kd"} (retained)
 xsphere/status/valve/{vessel}              {"state","desired","auto_close","auto_open"}      (retained)
 xsphere/status/pneumatic/{name}            {"state","desired","relay"}  1 = valve open / relay energised (retained)
+xsphere/status/pneumatic_control           {"enabled","since_utc","refused","last_refused"}  gate on the pneumatic valve commands (retained)
 xsphere/status/nge                         {"connected","hold","master","model","serial","firmware","error","event",…}  heater supply (retained; not ingested by Telegraf)
 xsphere/status/nge/{channel}               {"output","desired","armed","voltage_set_v","current_limit_a","voltage_v","current_a","power_w","mode","trip","dropouts",…}
     channel : 1 | 2 | 3 (= heater n)   mode : off | cv | cc   trip : none | ovp | opp | fuse   (retained; silent while the supply is unreachable)
 xsphere/status/turbo/{pump}                {"connected","label","pinned","configured_serial","pump_serial","product","catalog_no","firmware","port","error","event","warnings","last_error","last_error_hz","last_error_hours",…}
-    turbo pump link, identity and error memory (retained; not ingested by Telegraf).  There are no turbo commands: the pumps are read, never operated.
+    turbo pump link, identity, error memory and mode (local | on | off) (retained; not ingested by Telegraf)
 xsphere/status/ghs_esp32                   {"uptime_s","rssi","ip"}            (device health; not ingested by Telegraf)
 xsphere/status/level_{vessel}              {"uptime_s","rssi","ip","vessel"}   (device health; not ingested by Telegraf)
 xsphere/alerts/{rule}                      # Interlock alerts
@@ -428,11 +430,13 @@ xsphere/commands/gradient/longitudinal     # Set longitudinal ΔT (K)
 xsphere/commands/valve/{vessel}/state      # Open/close solenoid valve
 xsphere/commands/valve/{vessel}/auto_open  # Arm/disarm auto-open
 xsphere/commands/valve/{vessel}/auto_close # Arm/disarm auto-close
-xsphere/commands/pneumatic/{name}/state    # {"state": 1|0} open/close a pneumatic valve (ballast|pump|bottle)
+xsphere/commands/pneumatic/{name}/state    # {"state": 1|0} open/close a pneumatic valve (ballast|pump|bottle) — only while control is enabled
+xsphere/commands/pneumatic_control/enable  # {"enabled": true|false} enable / disable pneumatic valve control (comes up disabled)
 xsphere/commands/nge/{channel}/output      # {"state": 1|0} heater supply channel on/off (literal 0/1 only)
 xsphere/commands/nge/{channel}/voltage     # {"value_v": <V>}  0 … 32
 xsphere/commands/nge/{channel}/current     # {"value_a": <A>}  0 … 3 (the supply caps it at 33.6 W / V)
 xsphere/commands/nge/hold                  # {"enabled": true|false} keep the channels at their set state
+xsphere/commands/turbo/{pump}/mode         # {"mode": "on"|"off"|"local"} hold a turbo running / stopped, or hand it back to its stand
 xsphere/commands/gradient_scanner/start    # Start gradient scan
 xsphere/commands/gradient_scanner/stop     # Stop gradient scan
 ```
@@ -534,6 +538,16 @@ sense per valve lives in one table, `PNEUMATIC_VALVES` in
 `slowcontrol/drivers/plc.py`. With the PLC outputs off, ballast and bottle are
 open and the pump valve is shut.
 
+The open / close commands are gated: the driver refuses them unless pneumatic
+valve control has been enabled (`xsphere/commands/pneumatic_control/enable`
+`{"enabled": true}`, from the Control page's buttons) since the service
+started — the gate is not persisted, and shutting it moves nothing. The gate,
+when it was last switched, and the commands refused are on
+`xsphere/status/pneumatic_control` (retained, republished with every poll;
+Telegraf measurement `pneumatic_control`). The registry state
+`pneumatic_control_enabled` has no control mapping, so a Sequencer program
+cannot enable it.
+
 Y output coils are addressed with a 32-per-slot stride, not by point number:
 Y101 → coil 8224, Y105 → 8228, Y106 → 8229, Y107 → 8230 (0-based).
 
@@ -627,7 +641,7 @@ In the new architecture, all `PLC *` topics are replaced by the Python service r
 ### Phase 4 — Advanced Modules
 - [ ] Temperature gradient scanner plugin (integrate with wind camera analysis)
 - [ ] Mass scale RS-232 driver (LN2 dewar mass tracking)
-- [x] Leybold turbo pump monitoring over USB (read-only; GHS and outer vacuum pumps both connected and pinned by serial number)
+- [x] Leybold turbo pumps over USB: monitoring, and start / stop from the Control page (GHS and outer vacuum pumps, both pinned by serial number)
 
 ### Phase 5 — Documentation
 - [ ] Update Notion pages (Computer & Network, Slow Control sections)
@@ -642,7 +656,7 @@ In the new architecture, all `PLC *` topics are replaced by the Python service r
 - **Telegraf vs. direct InfluxDB write in Python service:** Telegraf handles all raw sensor data ingestion; Python service may write its own derived quantities (e.g., gradient ΔT, controller state) directly to InfluxDB or publish them to MQTT for Telegraf to pick up. TBD.
 - **Gradiometer upgrade timeline:** If TC channels are converted to differential gradiometers, the Omega logger will need firmware/config updates and the Grafana dashboard will need new panels. This is a hardware change that should be coordinated with software updates.
 - **Scale model and RS-232 protocol:** To be looked up from manual when prioritized.
-- **Turbo pump control:** monitoring is in place (§3.5). Starting, stopping or standby over the same USB link is possible but deliberately not implemented — it would take control away from the stand's own start input, and it needs a decision on what a pump should do when the Pi goes quiet.
+- **Turbo pump control beyond start / stop:** on / off from the Control page is in place (§3.5). Standby speed, a speed setpoint and error reset go over the same link but are not implemented. Open question: what a pump should do when the Pi goes quiet — today it returns to its stand after 10 s; parameters 179 / 182 could make it stay stopped instead, at the price of writing to the pump.
 
 ---
 

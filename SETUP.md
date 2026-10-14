@@ -218,7 +218,7 @@ nothing — except the protection settings described in the README (over-power
 protection and electronic fuse off, OVP level at maximum), unless
 `nge.disable_auto_off` is `false`.
 
-### 3g. Turbo pumps — Leybold TURBOVAC 90 i (USB, read-only)
+### 3g. Turbo pumps — Leybold TURBOVAC 90 i (USB)
 
 Each pump's frequency converter has a USB B socket; run a USB cable (5 m at
 most) from it to xbox-pi, directly or through a hub. Nothing needs installing:
@@ -253,10 +253,24 @@ copy that into `config.yaml` and restart the service, so the entry can never
 end up on the wrong pump. The names `ghs` and `outer` are fixed — `state.yaml`,
 `telegraf.conf` and the Control page refer to them.
 
-The service only ever reads the pumps (see the top of
-`slowcontrol/drivers/turbovac.py`). `journalctl -u xsphere-slowcontrol | grep
-turbovac` shows what it found, and from then on every change of pump state and
-every new entry in a pump's error memory.
+`turbovac.allow_control: true` puts **on / off** buttons on the Control page;
+without it the service only reads. Start and stop are all it can ever send
+(see the top of `slowcontrol/drivers/turbovac.py`), and it sends them only to
+a pump that is pinned by serial number. Two things to know before relying on
+them:
+
+- A pump held on or off from the Control page is held by the service
+  repeating the command. If the pump hears nothing for 10 s — Pi down, service
+  stopped, cable out — it goes back to whatever its pumping stand says. With
+  the stand's start input active, a pump that was held **off** starts again.
+  The buttons are for convenience, not for making a pump safe to work on.
+- What was being held is kept in `slowcontrol/turbovac_state.json` (not in
+  git). After a service restart it is taken up again only if the pump was out
+  of touch for less than `turbovac.resume_max_s` (120 s).
+
+`journalctl -u xsphere-slowcontrol | grep turbovac` shows what the service
+found, and from then on every command, every change of pump state and every
+new entry in a pump's error memory.
 
 ---
 
