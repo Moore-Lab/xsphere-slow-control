@@ -48,13 +48,13 @@ groups:
     t_cube_top:
       kind: analog
       unit: K
-      label: "Xe cube top (LJ RTD2)"
-      source: {topic: xsphere/sensors/temperature/labjack/rtd/2, key: value_k}
+      label: "Xe cube top (LJ RTD3)"
+      source: {topic: xsphere/sensors/temperature/labjack/rtd/3, key: value_k}
     t_cube_bottom:
       kind: analog
       unit: K
-      label: "Xe cube bottom (LJ RTD3)"
-      source: {topic: xsphere/sensors/temperature/labjack/rtd/3, key: value_k}
+      label: "Xe cube bottom (LJ RTD2)"
+      source: {topic: xsphere/sensors/temperature/labjack/rtd/2, key: value_k}
     t_cube_nozzle:
       kind: analog
       unit: K
@@ -69,13 +69,13 @@ groups:
     t_cube_top_cal:
       kind: analog
       unit: K
-      label: "Xe cube top (LJ RTD2, calibrated)"
-      source: {topic: xsphere/sensors/temperature/labjack_cal/rtd/2, key: value_k}
+      label: "Xe cube top (LJ RTD3, calibrated)"
+      source: {topic: xsphere/sensors/temperature/labjack_cal/rtd/3, key: value_k}
     t_cube_bottom_cal:
       kind: analog
       unit: K
-      label: "Xe cube bottom (LJ RTD3, calibrated)"
-      source: {topic: xsphere/sensors/temperature/labjack_cal/rtd/3, key: value_k}
+      label: "Xe cube bottom (LJ RTD2, calibrated)"
+      source: {topic: xsphere/sensors/temperature/labjack_cal/rtd/2, key: value_k}
     t_cube_nozzle_cal:
       kind: analog
       unit: K
@@ -84,13 +84,13 @@ groups:
     r_cube_top:
       kind: analog
       unit: Ω
-      label: "Xe cube top RTD resistance (LJ RTD2, raw)"
-      source: {topic: xsphere/sensors/temperature/labjack/rtd/2, key: resistance_ohm}
+      label: "Xe cube top RTD resistance (LJ RTD3, raw)"
+      source: {topic: xsphere/sensors/temperature/labjack/rtd/3, key: resistance_ohm}
     r_cube_bottom:
       kind: analog
       unit: Ω
-      label: "Xe cube bottom RTD resistance (LJ RTD3, raw)"
-      source: {topic: xsphere/sensors/temperature/labjack/rtd/3, key: resistance_ohm}
+      label: "Xe cube bottom RTD resistance (LJ RTD2, raw)"
+      source: {topic: xsphere/sensors/temperature/labjack/rtd/2, key: resistance_ohm}
     r_cube_nozzle:
       kind: analog
       unit: Ω
@@ -99,13 +99,13 @@ groups:
     r_cube_top_cal:
       kind: analog
       unit: Ω
-      label: "Xe cube top RTD resistance (LJ RTD2, calibrated)"
-      source: {topic: xsphere/sensors/temperature/labjack_cal/rtd/2, key: resistance_ohm}
+      label: "Xe cube top RTD resistance (LJ RTD3, calibrated)"
+      source: {topic: xsphere/sensors/temperature/labjack_cal/rtd/3, key: resistance_ohm}
     r_cube_bottom_cal:
       kind: analog
       unit: Ω
-      label: "Xe cube bottom RTD resistance (LJ RTD3, calibrated)"
-      source: {topic: xsphere/sensors/temperature/labjack_cal/rtd/3, key: resistance_ohm}
+      label: "Xe cube bottom RTD resistance (LJ RTD2, calibrated)"
+      source: {topic: xsphere/sensors/temperature/labjack_cal/rtd/2, key: resistance_ohm}
     r_cube_nozzle_cal:
       kind: analog
       unit: Ω
@@ -119,13 +119,13 @@ groups:
     t_top_clamp:
       kind: analog
       unit: K
-      label: "top clamp (PLC RTD5)"
-      source: {topic: xsphere/sensors/temperature/plc/rtd/5, key: value_k}
+      label: "top clamp (PLC RTD6)"
+      source: {topic: xsphere/sensors/temperature/plc/rtd/6, key: value_k}
     t_bottom_clamp:
       kind: analog
       unit: K
-      label: "bottom clamp (PLC RTD6)"
-      source: {topic: xsphere/sensors/temperature/plc/rtd/6, key: value_k}
+      label: "bottom clamp (PLC RTD5)"
+      source: {topic: xsphere/sensors/temperature/plc/rtd/5, key: value_k}
     dt_cube_lr:
       kind: analog
       unit: K
@@ -637,111 +637,113 @@ groups:
       source: {topic: xsphere/status/pneumatic/bottle, key: relay}
 
   # ── Heater PID loops (run on the CLICK PLC; temps in K at this boundary) ─
-  # Zone 1 = top clamp (Y004), Zone 2 = bottom clamp (Y003), Zone 3 = nozzle/disk (Y002).
+  # Zone 1 = bottom clamp (Y004), Zone 2 = top clamp (Y003), Zone 3 = nozzle/disk (Y002).
+  # (pid_top_* is PID 2 since 2026-10-15; before that it was PID 1, which is the
+  #  bottom clamp — the names were the wrong way round.)
   # NB: directly setting pid_*_setpoint only "sticks" in gradient mode = absolute;
   # in gradient mode the gradient_* controls below own the per-zone setpoints.
   pid:
     pid_top_pv:
       kind: analog
       unit: K
-      label: "Zone 1 (top) process temp"
+      label: "Zone 2 (top) process temp"
       source: {topic: xsphere/status/pid/top, key: pv_k}
     pid_top_output:
       kind: analog
       unit: "%"
-      label: "Zone 1 (top) heater output"
+      label: "Zone 2 (top) heater output"
       source:  {topic: xsphere/status/pid/top, key: output_pct}
       control: {topic: xsphere/commands/pid/top/output, payload: {value_pct: $value}}
     pid_top_mode:
       kind: enum
       values: [auto, manual]
-      label: "Zone 1 (top) PID mode"
+      label: "Zone 2 (top) PID mode"
       source:  {topic: xsphere/status/pid/top, key: mode}
       control: {topic: xsphere/commands/pid/top/mode, payload: {mode: $value}}
       period_s: null
     pid_top_pv_expr:
       kind: text
-      label: "Zone 1 (top) PV expression (K)"
+      label: "Zone 2 (top) PV expression (K)"
       source:  {topic: xsphere/status/pid/top, key: pv_expr}
       control: {topic: xsphere/commands/pid/top/pv_expr, payload: {expr: $value}}
       period_s: null
     pid_top_pv_expr_value:
       kind: analog
       unit: K
-      label: "Zone 1 (top) PV expression resolved value"
+      label: "Zone 2 (top) PV expression resolved value"
       source: {topic: xsphere/status/pid/top, key: pv_expr_value_k}
     pid_top_setpoint_expr:
       kind: text
-      label: "Zone 1 (top) setpoint (K)"
+      label: "Zone 2 (top) setpoint (K)"
       source:  {topic: xsphere/status/pid/top, key: setpoint_expr}
       control: {topic: xsphere/commands/pid/top/setpoint_expr, payload: {expr: $value}}
       period_s: null
     pid_top_setpoint_expr_value:
       kind: analog
       unit: K
-      label: "Zone 1 (top) setpoint expression resolved value"
+      label: "Zone 2 (top) setpoint expression resolved value"
       source: {topic: xsphere/status/pid/top, key: setpoint_expr_value_k}
     pid_top_setpoint:
       kind: analog
       unit: K
-      label: "Zone 1 (top) setpoint"
+      label: "Zone 2 (top) setpoint"
       source:  {topic: xsphere/status/pid/top, key: setpoint_k}
       # Read-only: the setpoint is driven through pid_top_setpoint_expr (a
       # plain number is a valid expression). One writer = no races.
       avg_windows_s: []
-    pid_top_kp: {kind: analog, label: "Zone 1 (top) Kp", source: {topic: xsphere/status/pid/top, key: kp}, avg_windows_s: []}
-    pid_top_ki: {kind: analog, label: "Zone 1 (top) Ki", source: {topic: xsphere/status/pid/top, key: ki}, avg_windows_s: []}
-    pid_top_kd: {kind: analog, label: "Zone 1 (top) Kd", source: {topic: xsphere/status/pid/top, key: kd}, avg_windows_s: []}
+    pid_top_kp: {kind: analog, label: "Zone 2 (top) Kp", source: {topic: xsphere/status/pid/top, key: kp}, avg_windows_s: []}
+    pid_top_ki: {kind: analog, label: "Zone 2 (top) Ki", source: {topic: xsphere/status/pid/top, key: ki}, avg_windows_s: []}
+    pid_top_kd: {kind: analog, label: "Zone 2 (top) Kd", source: {topic: xsphere/status/pid/top, key: kd}, avg_windows_s: []}
     pid_bottom_pv:
       kind: analog
       unit: K
-      label: "Zone 2 (bottom) process temp"
+      label: "Zone 1 (bottom) process temp"
       source: {topic: xsphere/status/pid/bottom, key: pv_k}
     pid_bottom_output:
       kind: analog
       unit: "%"
-      label: "Zone 2 (bottom) heater output"
+      label: "Zone 1 (bottom) heater output"
       source:  {topic: xsphere/status/pid/bottom, key: output_pct}
       control: {topic: xsphere/commands/pid/bottom/output, payload: {value_pct: $value}}
     pid_bottom_mode:
       kind: enum
       values: [auto, manual]
-      label: "Zone 2 (bottom) PID mode"
+      label: "Zone 1 (bottom) PID mode"
       source:  {topic: xsphere/status/pid/bottom, key: mode}
       control: {topic: xsphere/commands/pid/bottom/mode, payload: {mode: $value}}
       period_s: null
     pid_bottom_pv_expr:
       kind: text
-      label: "Zone 2 (bottom) PV expression (K)"
+      label: "Zone 1 (bottom) PV expression (K)"
       source:  {topic: xsphere/status/pid/bottom, key: pv_expr}
       control: {topic: xsphere/commands/pid/bottom/pv_expr, payload: {expr: $value}}
       period_s: null
     pid_bottom_pv_expr_value:
       kind: analog
       unit: K
-      label: "Zone 2 (bottom) PV expression resolved value"
+      label: "Zone 1 (bottom) PV expression resolved value"
       source: {topic: xsphere/status/pid/bottom, key: pv_expr_value_k}
     pid_bottom_setpoint_expr:
       kind: text
-      label: "Zone 2 (bottom) setpoint (K)"
+      label: "Zone 1 (bottom) setpoint (K)"
       source:  {topic: xsphere/status/pid/bottom, key: setpoint_expr}
       control: {topic: xsphere/commands/pid/bottom/setpoint_expr, payload: {expr: $value}}
       period_s: null
     pid_bottom_setpoint_expr_value:
       kind: analog
       unit: K
-      label: "Zone 2 (bottom) setpoint expression resolved value"
+      label: "Zone 1 (bottom) setpoint expression resolved value"
       source: {topic: xsphere/status/pid/bottom, key: setpoint_expr_value_k}
     pid_bottom_setpoint:
       kind: analog
       unit: K
-      label: "Zone 2 (bottom) setpoint"
+      label: "Zone 1 (bottom) setpoint"
       source:  {topic: xsphere/status/pid/bottom, key: setpoint_k}
       # Read-only: driven through pid_bottom_setpoint_expr.
       avg_windows_s: []
-    pid_bottom_kp: {kind: analog, label: "Zone 2 (bottom) Kp", source: {topic: xsphere/status/pid/bottom, key: kp}, avg_windows_s: []}
-    pid_bottom_ki: {kind: analog, label: "Zone 2 (bottom) Ki", source: {topic: xsphere/status/pid/bottom, key: ki}, avg_windows_s: []}
-    pid_bottom_kd: {kind: analog, label: "Zone 2 (bottom) Kd", source: {topic: xsphere/status/pid/bottom, key: kd}, avg_windows_s: []}
+    pid_bottom_kp: {kind: analog, label: "Zone 1 (bottom) Kp", source: {topic: xsphere/status/pid/bottom, key: kp}, avg_windows_s: []}
+    pid_bottom_ki: {kind: analog, label: "Zone 1 (bottom) Ki", source: {topic: xsphere/status/pid/bottom, key: ki}, avg_windows_s: []}
+    pid_bottom_kd: {kind: analog, label: "Zone 1 (bottom) Kd", source: {topic: xsphere/status/pid/bottom, key: kd}, avg_windows_s: []}
     pid_nozzle_pv:
       kind: analog
       unit: K
@@ -813,7 +815,7 @@ groups:
       control: {topic: xsphere/commands/nge/hold, payload: {enabled: $value}}
     nge_ch1_output:
       kind: binary
-      label: "NGE ch 1 (heater 1, top) output on"
+      label: "NGE ch 1 (heater 1, bottom) output on"
       source:  {topic: xsphere/status/nge/1, key: output}
       control: {topic: xsphere/commands/nge/1/output, payload: {state: $value01}}
       period_s: 2.0
@@ -875,7 +877,7 @@ groups:
       avg_windows_s: []
     nge_ch2_output:
       kind: binary
-      label: "NGE ch 2 (heater 2, bottom) output on"
+      label: "NGE ch 2 (heater 2, top) output on"
       source:  {topic: xsphere/status/nge/2, key: output}
       control: {topic: xsphere/commands/nge/2/output, payload: {state: $value01}}
       period_s: 2.0
@@ -1104,13 +1106,13 @@ derived:
   pid_top_error:
     kind: analog
     unit: K
-    label: "Zone 1 (top) tracking error (PV − SP)"
+    label: "Zone 2 (top) tracking error (PV − SP)"
     expr: "pid_top_pv - pid_top_setpoint"
     avg_windows_s: []
   pid_bottom_error:
     kind: analog
     unit: K
-    label: "Zone 2 (bottom) tracking error (PV − SP)"
+    label: "Zone 1 (bottom) tracking error (PV − SP)"
     expr: "pid_bottom_pv - pid_bottom_setpoint"
     avg_windows_s: []
   pid_nozzle_error:

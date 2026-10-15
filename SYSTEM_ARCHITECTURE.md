@@ -33,15 +33,15 @@ Outer Vacuum Chamber
 │   ├── Top Clamp (around Xe cube top)
 │   │   ├── RTD: clamp body, Xe-cube side (Omega)
 │   │   ├── Thermocouple (K): vessel side of braid (Omega)
-│   │   └── Heater: 36W DC resistive (SSR + PLC PWM) — PID Zone 1
+│   │   └── Heater: 36W DC resistive (SSR + PLC PWM) — PID Zone 2
 │   └── Bottom Clamp (around Xe cube bottom)
 │       ├── RTD: clamp body, Xe-cube side (Omega)
 │       ├── Thermocouple (K): vessel side of braid (Omega)
-│       └── Heater: 36W DC resistive (SSR + PLC PWM) — PID Zone 2
+│       └── Heater: 36W DC resistive (SSR + PLC PWM) — PID Zone 1
 │
 └── Xenon Cube (2.75" CF cube, 5 viewports + 1 nipple)
-    ├── RTD: cube top — primary feedback for Zone 1 (PLC RTD module)
-    ├── RTD: cube bottom — primary feedback for Zone 2 (PLC RTD module)
+    ├── RTD: cube top — primary feedback for Zone 2 (PLC RTD module)
+    ├── RTD: cube bottom — primary feedback for Zone 1 (PLC RTD module)
     ├── RTD: nozzle region — primary feedback for Zone 3 (PLC RTD module)
     ├── Aluminum Disk (on Xe fill flange, back of cube)
     │   ├── Copper braids → LN2 vessel
@@ -51,8 +51,10 @@ Outer Vacuum Chamber
 ```
 
 **Gradient control philosophy:**  
-- Zone 1 (top clamp + top cube RTD): controls vertical top temperature  
-- Zone 2 (bottom clamp + bottom cube RTD): controls vertical bottom temperature  
+- Zone 1 (bottom clamp + bottom cube RTD): controls vertical bottom temperature  
+- Zone 2 (top clamp + top cube RTD): controls vertical top temperature  
+- (Zone 1 is HTR1 / Y004 / NGE ch 1 / PLC RTD5 / LJ RTD2.  Until 2026-10-15 the software
+  called it "top" — the top/bottom names were the wrong way round.)  
 - Zone 3 (aluminum disk + nozzle RTD): controls longitudinal / nozzle temperature  
 - Vertical gradient ΔT = T_bottom − T_top is the primary wind-suppression parameter  
 - Longitudinal gradient controls liquification efficiency at the nozzle
@@ -84,8 +86,8 @@ Omega RDXL6SD-USB: 6 channels, fully utilized (2 RTD + 4 TC).
 
 | Zone | Heater | Power | Drive | PID Feedback (preferred) | PID Feedback (alt) |
 |---|---|---|---|---|---|
-| 1 (top) | Top clamp | 36 W DC | DIN SSR + PLC PWM | Xe cube top RTD | Top clamp RTD |
-| 2 (bottom) | Bottom clamp | 36 W DC | DIN SSR + PLC PWM | Xe cube bottom RTD | Bottom clamp RTD |
+| 1 (bottom) | Bottom clamp | 36 W DC | DIN SSR + PLC PWM | Xe cube bottom RTD | Bottom clamp RTD |
+| 2 (top) | Top clamp | 36 W DC | DIN SSR + PLC PWM | Xe cube top RTD | Top clamp RTD |
 | 3 (nozzle) | Aluminum disk | 36 W DC | DIN SSR + PLC PWM | Xe cube nozzle RTD | — |
 
 All PID loops run on the CLICK Plus PLC. PID tuning, setpoints, and process variable source are written via Modbus register values.
@@ -564,7 +566,7 @@ Y101 → coil 8224, Y105 → 8228, Y106 → 8229, Y107 → 8230 (0-based).
 
 All temperatures in °C (PLC native). Python service converts to/from Kelvin.
 
-**HTR1 — Zone 1 (top clamp heater), PWM → Y004:**
+**HTR1 — Zone 1 (bottom clamp heater), PWM → Y004:**
 | Register | Name | R/W | Description |
 |---|---|---|---|
 | DF100 | SP_Setpoint | R/W | Temperature setpoint |
@@ -576,7 +578,7 @@ All temperatures in °C (PLC native). Python service converts to/from Kelvin.
 | DF112 | PV_ProcessVar | R | Filtered process variable (°C) |
 | DF104 | Bias | R/W | Manual bias |
 
-**HTR2 — Zone 2 (bottom clamp heater), PWM → Y003:**
+**HTR2 — Zone 2 (top clamp heater), PWM → Y003:**
 | Register | Name | R/W | Description |
 |---|---|---|---|
 | DF125 | SP_Setpoint | R/W | Temperature setpoint |
