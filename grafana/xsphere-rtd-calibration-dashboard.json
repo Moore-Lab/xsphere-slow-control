@@ -124,13 +124,13 @@
     },
     {
       "type": "row",
-      "title": "Per-RTD detail — RTD2 (top cube)",
+      "title": "Per-RTD detail — RTD2 (bottom cube)",
       "gridPos": { "h": 1, "w": 24, "x": 0, "y": 31 },
       "collapsed": false
     },
     {
       "type": "timeseries",
-      "title": "RTD2 top cube — resistance (Ω)",
+      "title": "RTD2 bottom cube — resistance (Ω)",
       "datasource": { "type": "influxdb", "uid": "${DS_INFLUX}" },
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 32 },
       "fieldConfig": { "defaults": { "unit": "ohm", "custom": { "drawStyle": "line", "showPoints": "never", "lineWidth": 1 } }, "overrides": [] },
@@ -145,7 +145,7 @@
     },
     {
       "type": "timeseries",
-      "title": "RTD2 top cube — temperature (K)",
+      "title": "RTD2 bottom cube — temperature (K)",
       "datasource": { "type": "influxdb", "uid": "${DS_INFLUX}" },
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 32 },
       "fieldConfig": { "defaults": { "unit": "kelvin", "custom": { "drawStyle": "line", "showPoints": "never", "lineWidth": 1 } }, "overrides": [] },
@@ -160,13 +160,13 @@
     },
     {
       "type": "row",
-      "title": "Per-RTD detail — RTD3 (bottom cube)",
+      "title": "Per-RTD detail — RTD3 (top cube)",
       "gridPos": { "h": 1, "w": 24, "x": 0, "y": 40 },
       "collapsed": false
     },
     {
       "type": "timeseries",
-      "title": "RTD3 bottom cube — resistance (Ω)",
+      "title": "RTD3 top cube — resistance (Ω)",
       "datasource": { "type": "influxdb", "uid": "${DS_INFLUX}" },
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 41 },
       "fieldConfig": { "defaults": { "unit": "ohm", "custom": { "drawStyle": "line", "showPoints": "never", "lineWidth": 1 } }, "overrides": [] },
@@ -181,7 +181,7 @@
     },
     {
       "type": "timeseries",
-      "title": "RTD3 bottom cube — temperature (K)",
+      "title": "RTD3 top cube — temperature (K)",
       "datasource": { "type": "influxdb", "uid": "${DS_INFLUX}" },
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 41 },
       "fieldConfig": { "defaults": { "unit": "kelvin", "custom": { "drawStyle": "line", "showPoints": "never", "lineWidth": 1 } }, "overrides": [] },

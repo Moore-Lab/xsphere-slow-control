@@ -126,19 +126,22 @@ def _utc_now() -> str:
 # Three RTDs are wired to the CLICK (DF1/DF2/DF3); DF4 is unused.
 # Global RTD numbering: 1-3 are on the LabJack, 4-6 are on the PLC.
 #   PLC RTD 4 = LN2-vessel base   (DF1)
-#   PLC RTD 5 = top clamp         (DF2)
-#   PLC RTD 6 = bottom clamp      (DF3)
+#   PLC RTD 5 = bottom clamp      (DF2)
+#   PLC RTD 6 = top clamp         (DF3)
+# (Until 2026-10-15 these two — and every other top/bottom name here — were
+#  the wrong way round: RTD5, LJ RTD2, PID 1 / HTR1 / Y004 and NGE ch 1 are
+#  on the physically *bottom* clamp.  Older Influx data is under the old names.)
 REG_RTD = {
     "rtd_base":         _df(1),   # DF1  RTD 4  LN2 vessel base (°C)
-    "rtd_top_clamp":    _df(2),   # DF2  RTD 5  top clamp        (°C)
-    "rtd_bottom_clamp": _df(3),   # DF3  RTD 6  bottom clamp     (°C)
+    "rtd_bottom_clamp": _df(2),   # DF2  RTD 5  bottom clamp     (°C)
+    "rtd_top_clamp":    _df(3),   # DF3  RTD 6  top clamp        (°C)
 }
 
 # MQTT sub-topics for RTD channels (matches topic schema: temperature/{src}/{type}/{ch})
 RTD_MQTT_PATH = {
     "rtd_base":         ("plc", "rtd", "4"),
-    "rtd_top_clamp":    ("plc", "rtd", "5"),
-    "rtd_bottom_clamp": ("plc", "rtd", "6"),
+    "rtd_bottom_clamp": ("plc", "rtd", "5"),
+    "rtd_top_clamp":    ("plc", "rtd", "6"),
 }
 
 # --- Level sensor inputs (read-only, DF, from C2-08D2-6V analog module) ---
@@ -190,7 +193,7 @@ LEVEL_PROBE_AGE_MAX_S = 9999.0
 # --- LabJack T7 temperatures mirrored into PLC DF registers (written by us) ---
 # The LabJack publishes its RTD/TC values over MQTT; we forward them into these
 # DF registers (°C, 32-bit float) so the CLICK ladder / display can use them.
-#   RTD (absolute °C):   DF210 = rtd1 nozzle, DF211 = rtd2 top cube, DF212 = rtd3 bottom cube
+#   RTD (absolute °C):   DF210 = rtd1 nozzle, DF211 = rtd2 bottom cube, DF212 = rtd3 top cube
 #   TC (gradient ΔT °C): DF213 = tc1 cube L/R, DF214 = tc2 LN↔base, DF215 = tc3 nipple, DF216 = tc4 cube F/B
 # (mapped by channel number — see the `labjack:` block in config.yaml for the
 #  channel→AIN→label/reference assignment.)
@@ -210,10 +213,10 @@ def _c(n: int) -> int:
     """Coil address for control relay C<n>."""
     return C_BASE + (n - 1)
 
-REG_PID_MODE_MANUAL    = {"top": _c(115), "bottom": _c(155), "nozzle": _c(195)}
-REG_PID_MODE_AUTO      = {"top": _c(116), "bottom": _c(156), "nozzle": _c(196)}
-REG_PID_AUTOTUNE_START = {"top": _c(117), "bottom": _c(157), "nozzle": _c(197)}
-REG_PID_CONTROLLER_PID = {"top": _c(107), "bottom": _c(147), "nozzle": _c(187)}  # 1 = PID, 0 = PI
+REG_PID_MODE_MANUAL    = {"bottom": _c(115), "top": _c(155), "nozzle": _c(195)}
+REG_PID_MODE_AUTO      = {"bottom": _c(116), "top": _c(156), "nozzle": _c(196)}
+REG_PID_AUTOTUNE_START = {"bottom": _c(117), "top": _c(157), "nozzle": _c(197)}
+REG_PID_CONTROLLER_PID = {"bottom": _c(107), "top": _c(147), "nozzle": _c(187)}  # 1 = PID, 0 = PI
 
 # Direct writes to the mode coils above turned out NOT to actually flip the
 # PID's internal Auto/Manual state on this PLC — the ladder needs to
@@ -230,11 +233,11 @@ REG_PID_CONTROLLER_PID = {"top": _c(107), "bottom": _c(147), "nozzle": _c(187)} 
 #             unreliable on this PLC.
 #
 # All three PIDs are wired the same way (added 2026-07-04):
-#   PID 1 (top)    — cmd DF175, status DF176
-#   PID 2 (bottom) — cmd DF177, status DF178
+#   PID 1 (bottom) — cmd DF175, status DF176
+#   PID 2 (top)    — cmd DF177, status DF178
 #   PID 3 (nozzle) — cmd DF179, status DF180
-_PID_MODE_CMD_DF_NUM    = {"top": 175, "bottom": 177, "nozzle": 179}
-_PID_MODE_STATUS_DF_NUM = {"top": 176, "bottom": 178, "nozzle": 180}
+_PID_MODE_CMD_DF_NUM    = {"bottom": 175, "top": 177, "nozzle": 179}
+_PID_MODE_STATUS_DF_NUM = {"bottom": 176, "top": 178, "nozzle": 180}
 REG_PID_MODE_CMD    = {zone: _df(n) for zone, n in _PID_MODE_CMD_DF_NUM.items()}
 REG_PID_MODE_STATUS = {zone: _df(n) for zone, n in _PID_MODE_STATUS_DF_NUM.items()}
 
@@ -251,13 +254,13 @@ REG_PID_MODE_STATUS = {zone: _df(n) for zone, n in _PID_MODE_STATUS_DF_NUM.items
 #    12 : PV_ProcessVar        (°C)   r   ← filtered PV used by PID
 #    4  : Bias                 (%)    r/w
 #
-#  HTR1 (top, Y004):    DF_Memory_Start = DF100
-#  HTR2 (bottom, Y003): DF_Memory_Start = DF125
+#  HTR1 (bottom, Y004): DF_Memory_Start = DF100
+#  HTR2 (top, Y003):    DF_Memory_Start = DF125
 #  HTR3 (nozzle, Y002): DF_Memory_Start = DF150  (SP confirmed at DF151)
 
 _PID_BLOCKS = {
-    "top":    100,   # HTR1 DF_Memory_Start
-    "bottom": 125,   # HTR2
+    "bottom": 100,   # HTR1 DF_Memory_Start
+    "top":    125,   # HTR2
     "nozzle": 150,   # HTR3
 }
 
@@ -340,8 +343,8 @@ PNEUMATIC_VALVES = {
 
 # PWM output coil addresses (for reading heater duty cycle state)
 REG_HTR_COIL = {
-    "top":    _y(4),
-    "bottom": _y(3),
+    "bottom": _y(4),
+    "top":    _y(3),
     "nozzle": _y(2),
 }
 

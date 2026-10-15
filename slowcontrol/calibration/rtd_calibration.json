@@ -47,7 +47,7 @@
       }
     },
     "2": {
-      "label": "top cube",
+      "label": "bottom cube",
       "gain": 1.000501,
       "offset_ohm": -0.134148,
       "measured": {
@@ -60,7 +60,7 @@
       }
     },
     "3": {
-      "label": "bottom cube",
+      "label": "top cube",
       "gain": 0.997531,
       "offset_ohm": -0.065161,
       "measured": {

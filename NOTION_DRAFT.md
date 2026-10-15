@@ -37,8 +37,8 @@ Outer Vacuum Chamber
 │   ├── Level sensor (coaxial FDC1004)
 │   └── Aluminum block → copper braids → Top Clamp, Bottom Clamp, Aluminum Disk
 │
-├── Top Clamp (around Xe cube)       → Heater Zone 1
-├── Bottom Clamp (around Xe cube)    → Heater Zone 2
+├── Top Clamp (around Xe cube)       → Heater Zone 2
+├── Bottom Clamp (around Xe cube)    → Heater Zone 1
 │
 └── Xe Cube (2.75" CF, 5 viewports)
     ├── Aluminum disk on fill flange → Heater Zone 3
@@ -77,11 +77,11 @@ Three independent PID-controlled heater zones, all running on the CLICK Plus PLC
 
 | Zone | Heater location | Heater | Drive | Preferred feedback |
 |---|---|---|---|---|
-| 1 — Top | Top clamp | 36 W DC resistive | DIN SSR + PLC PWM | Xe cube top RTD |
-| 2 — Bottom | Bottom clamp | 36 W DC resistive | DIN SSR + PLC PWM | Xe cube bottom RTD |
+| 1 — Bottom | Bottom clamp | 36 W DC resistive | DIN SSR + PLC PWM | Xe cube bottom RTD |
+| 2 — Top | Top clamp | 36 W DC resistive | DIN SSR + PLC PWM | Xe cube top RTD |
 | 3 — Nozzle | Aluminum disk on fill flange | 36 W DC resistive | DIN SSR + PLC PWM | Xe cube nozzle RTD |
 
-**Gradient control:** A vertical temperature gradient is established by offsetting Zone 2's setpoint relative to Zone 1 (e.g., bottom = top + 5 K). Currently this requires manually rewriting a PLC register. A planned software improvement will expose this as a simple gradient target input.
+**Gradient control:** A vertical temperature gradient is established by offsetting the bottom zone's (Zone 1) setpoint relative to the top zone's (Zone 2) (e.g., bottom = top + 5 K). Currently this requires manually rewriting a PLC register. A planned software improvement will expose this as a simple gradient target input.
 
 ### LN2 Supply
 

@@ -4,8 +4,8 @@ R&S NGE100-series heater supply driver (NGE102 / NGE103 on USB-TMC).
 The NGE103 is the DC supply behind the three cryostat heaters, one channel per
 heater:
 
-    NGE ch 1  →  heater 1  (zone 1, top clamp)
-    NGE ch 2  →  heater 2  (zone 2, bottom clamp)
+    NGE ch 1  →  heater 1  (zone 1, bottom clamp)
+    NGE ch 2  →  heater 2  (zone 2, top clamp)
     NGE ch 3  →  heater 3  (zone 3, nozzle / disk)
 
 The PLC still does the regulating — each PID loop PWMs its heater through an
