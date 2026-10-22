@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "enabledMcpjsonServers": ["xsphere"],
+  "allowedMcpServers": [
+    { "serverUrl": "http://xbox-pi:8089/*" },
+    { "serverUrl": "http://xbox-pi.local:8089/*" },
+    { "serverUrl": "http://192.168.8.116:8089/*" }
+  ],
+  "disableClaudeAiConnectors": true,
+  "autoMemoryEnabled": false,
+  "disableAllHooks": true,
+  "permissions": {
+    "defaultMode": "dontAsk",
+    "disableBypassPermissionsMode": "disable",
+    "disableAutoMode": "disable",
+    "blockReadsOutsideWorkingDirectories": true,
+    "allow": [
+      "mcp__xsphere__*"
+    ],
+    "deny": [
+      "Bash",
+      "PowerShell",
+      "Monitor",
+      "Edit",
+      "Write",
+      "NotebookEdit",
+      "WebFetch",
+      "WebSearch",
+      "Agent",
+      "Workflow",
+      "SendMessage",
+      "CronCreate",
+      "CronDelete",
+      "RemoteTrigger",
+      "EnterWorktree",
+      "TaskStop",
+      "Artifact",
+      "DesignSync",
+      "Cd",
+      "mcp__Claude_Browser__*",
+      "mcp__claude-in-chrome__*",
+      "mcp__computer-use__*",
+      "mcp__remote-devices__*",
+      "mcp__terminal__*",
+      "mcp__scheduled-tasks__*",
+      "mcp__visualize__*",
+      "mcp__mcp-registry__*",
+      "mcp__ccd_session__*",
+      "mcp__ccd_session_mgmt__*",
+      "mcp__ccd_directory__*",
+      "mcp__ccd_settings__*",
+      "mcp__ccd_host__*",
+      "mcp__ccd_window__*",
+      "mcp__ccd_view__*",
+      "mcp__ccd_sidebar__*",
+      "mcp__ccd_pr__*",
+      "mcp__ccd_connectors__*",
+      "mcp__claude_ai_*",
+      "mcp__*-*"
+    ]
+  }
+}

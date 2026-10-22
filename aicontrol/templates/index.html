@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>xsphere — AI control</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ccircle cx='8' cy='8' r='7' fill='%2311151c' stroke='%2358a6ff' stroke-width='1.5'/%3E%3Ctext x='8' y='11.5' font-size='9' text-anchor='middle' fill='%2358a6ff' font-family='sans-serif'%3EAI%3C/text%3E%3C/svg%3E">
+<!--
+  Read-only status page of the AI control service (aicontrol/, port 8089).
+  It only GETs /api/v1/ai_control and /api/v1/overview — a same-origin GET
+  carries no Origin header, so the service's "no browser Origin on /api/v1"
+  guard lets it through.  Nothing here can arm, disarm or change the rails:
+  the Control page on :8088 is the one human write path, on purpose.
+  Look copied from webcontrol/templates/control.html (same CSS variables).
+-->
+<style>
+  :root { --bg:#11151c; --panel:#1b2230; --panel2:#232c3d; --fg:#dde3ee; --mut:#8a93a6;
+          --ok:#3fb950; --warn:#d29922; --bad:#f85149; --acc:#58a6ff; --line:#2d3648; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:14px/1.45 -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif; }
+  header { display:flex; align-items:center; gap:.8rem; flex-wrap:wrap; padding:.6rem 1rem;
+           background:var(--panel); border-bottom:1px solid var(--line); position:sticky; top:0; z-index:5; }
+  header h1 { font-size:1.1rem; margin:0 .4rem 0 0; font-weight:600; letter-spacing:.3px; }
+  .pill { padding:.15rem .55rem; border-radius:999px; font-size:.78rem; font-weight:600; white-space:nowrap; }
+  .pill.ok{background:rgba(63,185,80,.18);color:var(--ok)} .pill.bad{background:rgba(248,81,73,.18);color:var(--bad)}
+  .pill.warn{background:rgba(210,153,34,.18);color:var(--warn)} .pill.mut{background:rgba(138,147,166,.15);color:var(--mut)}
+  a.nav { color:var(--acc); font-size:.85rem; text-decoration:none; padding:.18rem .5rem; border:1px solid var(--line); border-radius:6px; }
+  a.nav:hover { border-color:var(--acc); }
+  main { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(380px,100%),1fr)); gap:.6rem; padding:.6rem; align-items:start; }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:.5rem .85rem .7rem; min-width:0; }
+  .card.wide { grid-column:1 / -1; }
+  .card h2 { font-size:.92rem; margin:.05rem 0 .35rem; color:var(--acc); font-weight:600; letter-spacing:.3px; }
+  .row { display:flex; gap:.4rem; align-items:center; flex-wrap:wrap; margin:.18rem 0; }
+  .blk { border-top:1px solid var(--line); padding:.32rem 0 .18rem; }
+  .blk:first-of-type { border-top:0; padding-top:0; }
+  .blk .title { font-weight:600; }
+  .num { font-variant-numeric:tabular-nums; }
+  .cur { color:var(--mut); font-size:.82rem; }
+  .kv { display:inline-block; margin-right:1rem; }
+  .kv .k { color:var(--mut); margin-right:.25rem; }
+  small.hint { color:var(--mut); display:block; margin-top:.3rem; }
+  select { background:var(--panel2); color:var(--fg); border:1px solid var(--line); border-radius:6px; padding:.2rem .4rem; font:inherit; }
+  code, pre { font-family:ui-monospace,Menlo,Consolas,monospace; font-size:.8rem; }
+  code { background:var(--panel2); border-radius:4px; padding:.05rem .3rem; }
+  pre { background:var(--panel2); border:1px solid var(--line); border-radius:6px; padding:.5rem .6rem; margin:.3rem 0;
+        overflow-x:auto; white-space:pre; }
+  .tw { overflow-x:auto; }
+  table { border-collapse:collapse; width:100%; font-size:.82rem; }
+  th, td { text-align:left; padding:.18rem .45rem; border-bottom:1px solid var(--line); vertical-align:top; }
+  th { color:var(--mut); font-weight:600; white-space:nowrap; }
+  td.n { font-variant-numeric:tabular-nums; white-space:nowrap; }
+  .sub { color:var(--acc); font-weight:600; margin:.5rem 0 .15rem; font-size:.86rem; }
+  .unset { color:var(--mut); }
+  details > summary { cursor:pointer; color:var(--acc); font-size:.85rem; font-weight:600; }
+</style>
+</head>
+<body>
+<header>
+  <h1>xsphere&nbsp;·&nbsp;AI control</h1>
+  <span id="p-svc"   class="pill mut">service …</span>
+  <span id="p-arm"   class="pill mut">arms …</span>
+  <span id="p-rails" class="pill mut">rails …</span>
+  <span style="flex:1"></span>
+  <a class="nav" id="nav-control" href="#">Control page — arm, disarm, rails ↗</a>
+</header>
+
+<main>
+  <section class="card">
+    <h2>Arms</h2>
+    <div id="arms"></div>
+    <small class="hint">This page is read-only. Arming, disarming and the rails are on the Control page (:8088/control), the
+      one place a human changes them; no AI tool can. Arms start off every time this service starts and are never saved.
+      Disarming moves nothing — it only stops further AI changes.</small>
+  </section>
+
+  <section class="card">
+    <h2>Activity</h2>
+    <div id="activity"></div>
+  </section>
+
+  <section class="card wide">
+    <h2>Rails — limits the AI can never change</h2>
+    <div id="rails-state"></div>
+    <div id="rails"></div>
+    <small class="hint">“—” means not set: for a min / max pair the AI then may not change that quantity at all; for a step,
+      rate, max-open time or arm time it means no limit (except max open, which is needed to open a valve at all). Rails cap
+      what the AI may command; the PV interlock still caps temperature for everyone, and the service also keeps setpoints
+      5 K inside the interlock band.</small>
+  </section>
+
+  <section class="card wide">
+    <h2>Audit — newest first</h2>
+    <div class="row"><span class="cur">show</span>
+      <select id="kind" onchange="AUDIT_JSON=''; render()"><option value="">everything</option></select>
+      <span id="audit-count" class="cur"></span></div>
+    <div id="audit" class="tw"></div>
+  </section>
+
+  <section class="card wide">
+    <h2>Overview — what the AI is shown first (get_overview)</h2>
+    <details id="ov-box" open><summary id="ov-sum">overview</summary><pre id="overview">…</pre></details>
+  </section>
+
+  <section class="card wide">
+    <h2>Connecting Claude</h2>
+    <div class="blk">
+      <div class="row">Claude reaches this service over MCP (Streamable HTTP, JSON responses) at
+        <code id="mcp-url">http://xbox-pi:8089/mcp</code>. Add it to Claude Code with</div>
+      <pre id="mcp-add">claude mcp add --transport http xsphere http://xbox-pi:8089/mcp</pre>
+      <div class="row">or as a project <code>.mcp.json</code>:</div>
+      <pre id="mcp-json"></pre>
+      <small class="hint">Better: copy <code>aicontrol/operator/</code> (in the repo) to
+        <code>C:\Users\xbox\xsphere-ai-operator</code> — outside any git repository — and open Claude Code there. Its settings
+        allow only the xsphere tools plus reading files, and deny shell, editing, web, browser, terminal and other-session
+        tools, so the session cannot go around a refusal. Check it: ask it to run <code>hostname</code> and to open the
+        Control page — both must be refused.</small>
+    </div>
+    <div class="blk">
+      <div class="row"><span class="title">REST (same tools, for scripts — not for browsers)</span></div>
+      <pre id="rest"></pre>
+      <small class="hint">Requests carrying a browser <code>Origin</code> header are refused on <code>/mcp</code> and
+        <code>/api/v1</code>, POSTs must be <code>application/json</code>, and the Host must be one of the Pi's own names. Writes
+        answer 409 when refused (not armed, outside the rails, a precondition not met) and 400 for bad arguments.</small>
+    </div>
+  </section>
+</main>
+
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => (s===null || s===undefined ? "" : String(s)).replace(/[&<>"']/g,
+  c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const isObj = v => v!==null && typeof v==="object" && !Array.isArray(v);
+function when(iso){                           // time today, else weekday + date + time
+  if (!iso) return "?";
+  const t = new Date(iso); if (isNaN(t)) return String(iso);
+  return t.toDateString()===new Date().toDateString() ? t.toLocaleTimeString()
+    : t.toLocaleString([], {weekday:"short", month:"short", day:"numeric", hour:"2-digit", minute:"2-digit"});
+}
+function setHtml(id, html){ const e=$(id); if (e && e._h!==html){ e.innerHTML = html; e._h = html; } }
+function fmtNum(v){
+  if (v === null || v === undefined || v === "") return "–";
+  if (typeof v !== "number") return String(v);
+  const a = Math.abs(v);
+  if (a === 0) return "0";
+  if (a >= 1000) return v.toFixed(1);
+  if (a >= 1)   return v.toFixed(2);
+  if (a >= 0.01) return v.toFixed(3);
+  return v.toExponential(2);
+}
+
+const GROUPS = [["heaters","Heaters & temperature","PID setpoints, auto mode, PV source · NGE supply V / I / on-off"],
+                ["ln2","LN₂ fill valves","XV1–XV3 open / close, auto-open / auto-close"],
+                ["pneumatic","Pneumatic gas valves","ballast / pump / bottle open / close (the PLC valve gate must be enabled too)"]];
+const LABELS = {
+  arm_hours:"arm lasts (h)", setpoint_min_k:"SP min (K)", setpoint_max_k:"SP max (K)", max_step_k:"max step (K)",
+  max_rate_k_per_min:"max rate (K/min)", pv_sources:"PV sources", voltage_min_v:"V min", voltage_max_v:"V max",
+  current_min_a:"I min", current_max_a:"I max", may_switch_on:"may switch on", may_switch_off:"may switch off",
+  may_operate:"may operate", max_open_minutes:"max open (min)", may_set_auto_open:"may turn auto-open on",
+  may_disarm_auto_close:"may turn auto-close off", may_open:"may open", may_close:"may close",
+  forbid_open_together:"never open together", min_interval_s:"min interval (s)"};
+const EACH = {"heaters.zones":"Heaters — PID setpoints (software zone names)", "heaters.supply":"Heaters — NGE103 supply channels",
+              "ln2.vessels":"LN₂ fill valves", "pneumatic.valves":"Pneumatic gas valves"};
+const TITLES = {"general":"General", "pneumatic":"Gas valves — pairs and pacing"};
+const META = new Set(["version","revision","zone_fingerprints","updated_utc","updated_by"]);
+// Display order: the JSON arrives with sorted keys.
+const ORDER = ["general","heaters","ln2","pneumatic","zones","supply","vessels","valves",
+  "top","bottom","nozzle","cryostat","primary_xe","ballast","pump","bottle", ...Object.keys(LABELS)];
+function entries(obj){
+  const rank = k => { const i = ORDER.indexOf(k); return i < 0 ? 1e6 : i; };
+  return Object.entries(obj).sort((a, b) => rank(a[0]) - rank(b[0]) || (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0));
+}
+const KIND_COLOR = {action:"var(--ok)", ramp:"var(--ok)", refused:"var(--bad)", rails_refused:"var(--bad)",
+  arm:"var(--warn)", auto_disarm:"var(--warn)", auto_close:"var(--warn)", rails:"var(--acc)", note:"var(--acc)", disarm:"var(--mut)"};
+
+function cell(v){
+  if (v === null || v === undefined) return `<span class="unset" title="not set">—</span>`;
+  if (v === true) return "yes";
+  if (v === false) return `<span class="unset">no</span>`;
+  if (Array.isArray(v)) return v.length ? esc(v.map(x => Array.isArray(x) ? x.join("+") : String(x)).join(", ")) : `<span class="unset">none</span>`;
+  if (isObj(v)) return `<code>${esc(JSON.stringify(v))}</code>`;
+  return esc(v);
+}
+// The rails document as tables, generated from the document itself.
+function railsHtml(obj, path, zones){
+  const key = path.join(".");
+  if (EACH[key]){
+    const items = entries(obj), cols = [];
+    items.forEach(([, it]) => { if (isObj(it)) entries(it).forEach(([c]) => { if (!cols.includes(c)) cols.push(c); }); });
+    cols.sort((a, b) => (ORDER.indexOf(a) < 0 ? 1e6 : ORDER.indexOf(a)) - (ORDER.indexOf(b) < 0 ? 1e6 : ORDER.indexOf(b)));
+    return `<div class="sub">${esc(EACH[key])}</div><div class="tw"><table><tr><th></th>`
+      + cols.map(c => `<th>${esc(LABELS[c] || c.replace(/_/g," "))}</th>`).join("") + `</tr>`
+      + items.map(([k, it]) => `<tr><td><b>${esc(k)}</b>` + (key==="heaters.zones" && zones && zones[k] ? `<div class="cur">${esc(zones[k])}</div>` : "") + `</td>`
+        + cols.map(c => `<td class="n">${cell(isObj(it) ? it[c] : undefined)}</td>`).join("") + `</tr>`).join("")
+      + `</table></div>`;
+  }
+  let html = "", own = [];
+  for (const [k, v] of entries(obj)){
+    if (!path.length && META.has(k)) continue;
+    if (isObj(v)) html += railsHtml(v, [...path, k], zones);
+    else own.push([k, v]);
+  }
+  if (own.length) html += `<div class="sub">${esc(TITLES[key] || path.join(" · ") || "other")}</div><div class="tw"><table style="width:auto">`
+    + own.map(([k, v]) => `<tr><th>${esc(LABELS[k] || k.replace(/_/g," "))}</th><td class="n">${cell(v)}</td></tr>`).join("") + `</table></div>`;
+  return html;
+}
+
+let S = null, AUDIT = [], AUDIT_JSON = "", OV = "", ERR = "", LAST_OK = 0;
+function armed(g){ const a = S && isObj(S.arms) && S.arms[g]; return isObj(a) && typeof a.armed==="boolean" ? a.armed : !!(S && (S["armed_"+g]===1 || S["armed_"+g]===true)); }
+
+function render(){
+  // header
+  const ps = $("p-svc");
+  if (ERR){ ps.textContent = "service: page can't reach it"; ps.className = "pill bad"; }
+  else if (!S){ ps.textContent = "service …"; ps.className = "pill mut"; }
+  else if (!S.online){ ps.textContent = "service: offline"; ps.className = "pill bad"; }
+  else { ps.textContent = "service: up" + (S.instance && S.instance!=="production" ? " · instance " + S.instance : ""); ps.className = "pill " + (S.instance && S.instance!=="production" ? "warn" : "ok"); }
+  const on = GROUPS.filter(([g]) => armed(g));
+  const pa = $("p-arm");
+  pa.textContent = !S ? "arms …" : on.length ? on.map(([, n]) => n.split(" ")[0]).join(" · ") + " ARMED" : "nothing armed";
+  pa.className = "pill " + (!S ? "mut" : on.length ? "warn" : "mut");
+  const pr = $("p-rails");
+  if (!S || !isObj(S.rails)){ pr.textContent = "rails …"; pr.className = "pill mut"; }
+  else if (S.rails_error){ pr.textContent = "rails: INVALID — nothing writable"; pr.className = "pill bad"; }
+  else if ((S.rails_stale_zones || []).length){ pr.textContent = "rails: zones changed — re-save"; pr.className = "pill warn"; }
+  else { pr.textContent = "rails: revision " + S.rails.revision; pr.className = "pill mut"; }
+  if (!S){ setHtml("arms", `<div class="row"><span class="cur">${esc(ERR || "waiting for the service …")}</span></div>`); return; }
+
+  // arms
+  setHtml("arms", GROUPS.map(([g, name, what]) => {
+    const a = isObj(S.arms) && isObj(S.arms[g]) ? S.arms[g] : {}, isOn = armed(g), ld = isObj(a.last_disarm) ? a.last_disarm : null;
+    const state = isOn
+      ? `<span style="color:var(--warn)">⚠ ARMED since ${esc(when(a.since_utc))}${a.by ? " (" + esc(a.by) + ")" : ""}${a.expires_utc ? " — lapses " + esc(when(a.expires_utc)) : " — no time limit"}</span>`
+      : ld && ld.reason ? `disarmed ${esc(when(ld.utc))} — ${esc(ld.reason)}` : `disarmed since the service started${S.started_utc ? " (" + esc(when(S.started_utc)) + ")" : ""}`;
+    const may = isObj(S.may_now) && S.may_now[g] ? S.may_now[g] : "–";
+    return `<div class="blk"><div class="row"><span class="title">${esc(name)}</span><span class="cur">${esc(what)}</span></div>
+      <div class="row"><span class="cur">${state}</span></div>
+      <div class="row"><span class="kv cur"><span class="k">AI may now</span>${esc(may)}</span></div></div>`;
+  }).join(""));
+
+  // activity
+  const la = isObj(S.last_action) ? S.last_action : null, lf = isObj(S.last_refused) ? S.last_refused : null, lr = isObj(S.last_rails_result) ? S.last_rails_result : null;
+  const ramps = (Array.isArray(S.ramps) ? S.ramps : []).filter(isObj), timers = Object.entries(isObj(S.ln2_timers) ? S.ln2_timers : {}).filter(([, t]) => isObj(t));
+  const il = isObj(S.interlock) ? S.interlock : null;
+  setHtml("activity", `
+    <div class="blk"><div class="row">
+      <span class="kv"><span class="k">service up since</span>${esc(when(S.started_utc))}</span>
+      <span class="kv"><span class="k">actions</span><span class="num">${esc(S.actions ?? 0)}</span></span>
+      <span class="kv"><span class="k">refused</span><span class="num">${esc(S.refused ?? 0)}</span></span>
+      <span class="kv"><span class="k">automatic disarms</span><span class="num">${esc(S.auto_disarms ?? 0)}</span></span></div>
+      <div class="row"><span class="cur">${il ? "PV interlock band " + esc(fmtNum(il.min_k)) + "–" + esc(fmtNum(il.max_k)) + " K" + (il.tripped ? ` — <span style="color:var(--bad)">TRIPPED</span>` : " — not tripped") : "PV interlock: not seen yet"}</span></div></div>
+    <div class="blk">
+      <div class="row"><span class="cur">${la ? "last action " + esc(when(la.utc)) + " — " + esc([la.tool, la.detail].filter(Boolean).join(": ")) + (la.reason ? " — “" + esc(la.reason) + "”" : "") : "no AI action since the service started"}</span></div>
+      ${lf ? `<div class="row"><span class="cur">last refused ${esc(when(lf.utc))} — ${esc([lf.tool, lf.detail].filter(Boolean).join(": "))}</span></div>` : ""}
+      ${lr ? `<div class="row"><span class="cur">last rails save ${esc(when(lr.utc))} — ${lr.ok ? "accepted" : "refused: " + esc(lr.error || "?")}</span></div>` : ""}</div>
+    <div class="blk">
+      <div class="row"><span class="title">heater ramps</span></div>
+      ${ramps.length ? ramps.map(r => `<div class="row"><span class="num">${esc(r.zone)} → ${esc(fmtNum(r.target_k))} K at ${esc(fmtNum(r.rate_k_per_min))} K/min, now ${esc(fmtNum(r.current_k))} K</span><span class="cur">since ${esc(when(r.started_utc))}</span></div>`).join("") : `<div class="row"><span class="cur">none</span></div>`}
+      <div class="row"><span class="title">LN₂ valves the AI opened</span></div>
+      ${timers.length ? timers.map(([v, t]) => `<div class="row"><span style="color:var(--warn)">${esc(v)} opened ${esc(when(t.opened_utc))} — the service closes it at ${esc(when(t.deadline_utc))} if still open</span></div>`).join("") : `<div class="row"><span class="cur">none</span></div>`}
+    </div>`);
+
+  // rails
+  const rs = [];
+  if (S.rails_error) rs.push(`<div class="row"><span style="color:var(--bad)">⚠ rails file invalid — nothing is writable until the rails are saved again on the Control page: ${esc(S.rails_error)}</span></div>`);
+  const stale = Array.isArray(S.rails_stale_zones) ? S.rails_stale_zones : [];
+  if (stale.length) rs.push(`<div class="row"><span style="color:var(--warn)">⚠ zone names changed since these rails were saved (${esc(stale.join(", "))}) — those zones' heater rails count as unset until they are saved again</span></div>`);
+  if (isObj(S.rails)) rs.push(`<div class="row"><span class="cur">revision ${esc(S.rails.revision)}${S.rails_updated_utc ? ", saved " + esc(when(S.rails_updated_utc)) + (S.rails_updated_by ? " by " + esc(S.rails_updated_by) : "") : " — never saved: the defaults allow nothing"}</span></div>`);
+  setHtml("rails-state", rs.join(""));
+  setHtml("rails", isObj(S.rails) ? railsHtml(S.rails, [], isObj(S.zones) ? S.zones : null) : `<span class="cur">no rails document</span>`);
+
+  // audit
+  const kinds = [...new Set(AUDIT.map(e => e.kind).filter(Boolean))].sort(), sel = $("kind");
+  kinds.forEach(k => { if (![...sel.options].some(o => o.value === k)) sel.add(new Option(k, k)); });
+  const shown = sel.value ? AUDIT.filter(e => e.kind === sel.value) : AUDIT;
+  const json = JSON.stringify(shown);
+  if (json !== AUDIT_JSON){
+    AUDIT_JSON = json;
+    $("audit-count").textContent = shown.length + " of " + AUDIT.length + " entries";
+    $("audit").innerHTML = !shown.length ? `<span class="cur">nothing yet</span>` : `<table><tr><th>time</th><th>kind</th><th>tool</th><th>detail</th><th>reason</th><th>published</th><th>confirmed</th><th>by</th></tr>`
+      + shown.map(e => {
+        const c = Object.prototype.hasOwnProperty.call(KIND_COLOR, e.kind) ? KIND_COLOR[e.kind] : "var(--fg)";
+        const pub = Array.isArray(e.published) ? e.published.map(x => isObj(x) ? (x.topic || "") + " " + JSON.stringify(x.payload) : JSON.stringify(x)).join("\n") : "";
+        return `<tr><td class="n" title="${esc(e.utc)}">${esc(when(e.utc))}</td><td style="color:${c}">${esc(e.kind || "?")}</td>`
+          + `<td>${esc(e.tool || "")}${e.args ? `<div class="cur" style="max-width:22rem;overflow-wrap:anywhere">${esc(JSON.stringify(e.args))}</div>` : ""}</td>`
+          + `<td>${esc(e.detail || "")}</td><td>${e.reason ? "“" + esc(e.reason) + "”" : ""}</td>`
+          + `<td>${pub ? `<code style="white-space:pre-wrap;overflow-wrap:anywhere">${esc(pub)}</code>` : ""}</td>`
+          + `<td>${e.confirmed === true ? "yes" : e.confirmed === false ? `<span style="color:var(--warn)">no</span>` : ""}</td><td>${esc(e.by || "")}</td></tr>`;
+      }).join("") + `</table>`;
+  }
+}
+
+// /api/v1/overview returns the get_overview tool result; take its text
+// whichever way it is wrapped.
+function overviewText(j){
+  if (typeof j === "string") return j;
+  if (!isObj(j)) return JSON.stringify(j, null, 2);
+  for (const k of ["text", "overview"]) if (typeof j[k] === "string") return j[k];
+  if (Array.isArray(j.content)) return j.content.map(c => (c && c.text) || "").join("\n");
+  return JSON.stringify(j, null, 2);
+}
+async function tick(){
+  try {
+    const r = await fetch("/api/v1/ai_control", {cache: "no-store"});
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    const j = await r.json();
+    const st = isObj(j.status) ? j.status : j;          // the status object, with "audit" alongside
+    const au = Array.isArray(j.audit) ? j.audit : isObj(j.audit) && Array.isArray(j.audit.entries) ? j.audit.entries : [];
+    S = st; AUDIT = au.filter(isObj); ERR = ""; LAST_OK = Date.now();
+  } catch(e){ ERR = "can't reach /api/v1/ai_control (" + e.message + ")"; if (Date.now() - LAST_OK > 10000) S = null; }
+  render();
+  if ($("ov-box").open){
+    try {
+      const r = await fetch("/api/v1/overview?format=text", {cache: "no-store"});
+      const ct = r.headers.get("Content-Type") || "";
+      const t = ct.includes("json") ? overviewText(await r.json()) : await r.text();
+      if (t !== OV){ OV = t; $("overview").textContent = r.ok ? t : "HTTP " + r.status + "\n" + t; }
+      $("ov-sum").textContent = "overview — as of " + new Date().toLocaleTimeString();
+    } catch(e){ $("ov-sum").textContent = "overview — can't reach /api/v1/overview (" + e.message + ")"; }
+  }
+}
+
+// static bits: links and the connection snippets, from the address this page was opened at
+(function(){
+  $("nav-control").href = `${location.protocol}//${location.hostname}:8088/control`;
+  const here = `${location.protocol}//${location.host}`;
+  $("mcp-json").textContent = JSON.stringify({mcpServers: {xsphere: {type: "http", url: "http://xbox-pi:8089/mcp", alwaysLoad: true, timeout: 60000}}}, null, 2);
+  $("rest").textContent = [
+    "POST " + here + "/mcp                        the MCP endpoint",
+    "GET  " + here + "/api/v1/overview            get_overview",
+    "GET  " + here + "/api/v1/states              list_states",
+    "GET  " + here + "/api/v1/states/<id>         get_states for one id",
+    "GET  " + here + "/api/v1/history             query_history",
+    "GET  " + here + "/api/v1/ai_control          get_ai_control (what this page shows)",
+    "GET  " + here + "/api/v1/guide               get_guide",
+    "POST " + here + "/api/v1/actions/<tool>      any tool, arguments as a JSON body (writes need an armed group)",
+    "GET  " + here + "/healthz"].join("\n");
+})();
+tick(); setInterval(tick, 3000);
+</script>
+</body>
+</html>
