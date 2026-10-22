@@ -63,6 +63,7 @@ from typing import Dict, List, Optional, Tuple
 UNITS: Dict[str, tuple] = {
     "slowcontrol": ("xsphere-slowcontrol", "Slow Control Service"),
     "webcontrol":  ("xsphere-webcontrol",  "Web Control Panel"),
+    "aicontrol":   ("xsphere-aicontrol",   "AI Control Service"),
 }
 
 ACTIONS = ("start", "stop", "restart", "enable", "disable")
@@ -87,6 +88,16 @@ STOP_WARNINGS: Dict[str, str] = {
         "The browser control panel on port 8088 will be unreachable until it "
         "is started again, and any follow or ramp loop it is running stops. "
         "The slow control service and the PLC are not affected.",
+    # Stopping or restarting it disarms every AI group, which is the safe
+    # direction; the one thing it leaves undone is closing an LN2 valve that
+    # the AI opened, so say that.
+    "aicontrol":
+        "Claude loses its access to the experiment: every AI group is "
+        "disarmed and stays disarmed until you arm it again on the Control "
+        "page. Nothing on the hardware moves.\n\n"
+        "If the AI opened an LN2 valve, the service's close-on-timeout does "
+        "not run while it is stopped (it resumes when the service starts); "
+        "the PLC's own level and timer logic still applies.",
 }
 
 DEFAULT_HOST = "192.168.8.116"      # xbox-pi
@@ -638,7 +649,7 @@ def _build_panel(parent, controller: "ServiceController", **kw):
             # -- global controls ---------------------------------------
             bar = ttk.Frame(self)
             bar.pack(fill="x", padx=10, pady=(6, 4))
-            ttk.Button(bar, text="Restart Both",
+            ttk.Button(bar, text="Restart All",
                        command=self._restart_all).pack(side="left")
             ttk.Button(bar, text="Refresh",
                        command=self.refresh).pack(side="left", padx=6)
@@ -744,7 +755,7 @@ def _build_panel(parent, controller: "ServiceController", **kw):
             for key in UNITS:
                 self._log(f"$ sudo systemctl restart {UNITS[key][0]}")
                 self._submit(lambda c, k=key: (k, c.action("restart", k)),
-                             "action", "restarting both…")
+                             "action", "restarting all…")
 
         def _logs(self, key: str) -> None:
             self._log(f"$ journalctl -u {UNITS[key][0]} -n 200")

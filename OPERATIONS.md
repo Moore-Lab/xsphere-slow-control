@@ -323,6 +323,122 @@ Reverse of cooling:
 
 ---
 
+## AI control (Claude)
+
+The `xsphere-aicontrol` service (port 8089) lets a Claude session read
+everything and, when you allow it, change the heaters, the LN2 fill valves and
+the pneumatic gas valves. Design, tool list and deploy steps:
+`aicontrol/README.md`.
+
+### Arming
+
+The **AI control (Claude)** card at the top of the Control page
+(`http://xbox-pi:8088/control`) has one row per group: heaters, ln2 and
+pneumatic.
+
+- **arm** lets Claude write in that group, within the rails, for
+  `arm_hours` (8 h by default). **disarm**, or **disarm all**, stops it at
+  once. Disarming moves nothing.
+- Each row says what Claude may do right now, or why the group is disarmed.
+  The header pill shows "AI: off" or which groups are ARMED. "AI: no status"
+  (or "ARMED? (no status)") means the card has heard nothing from the service
+  for over 10 s: it may still be running, with the arms shown last. Arm
+  buttons are disabled then, and while this web panel has lost the broker;
+  **disarm** always stays clickable, and the page says if it was not sent.
+- Everything starts disarmed whenever the service starts. The service also
+  disarms by itself in these cases:
+  - **All groups:** the arm expires; slow control restarts; the snapshot goes
+    stale; the AI service reconnects to the broker.
+  - **Heaters:** the PV interlock trips, or the interlocks go not-ok.
+  - **LN2:** a valve the AI opened is still open (by its live status) at its
+    time limit. The service closes the valve, then disarms. It never acts on
+    an unknown valve state; if the status stays unknown past the limit, the
+    activity list says so — check the valve.
+- Pneumatic valves have two gates. Claude needs both the AI arm and the
+  existing "enable control" gate on the pneumatic card.
+
+### Rails
+
+Open **rails — limits the AI can never change** on the card. The rails set:
+
+- the setpoint range, the step and the rate per zone, and which sensors may
+  be the PID's PV;
+- the voltage and current range per supply channel, and whether Claude may
+  switch a channel on or off;
+- per LN2 vessel, whether Claude may operate it, its maximum open time, and
+  the auto flags;
+- per pneumatic valve, open and close permission, the pairs that must never
+  be open together, and the minimum interval between commands.
+
+Empty fields work like this:
+
+- An empty min / max pair means Claude may not change that quantity at all.
+- An empty step, rate or arm time means no limit.
+- A supply minimum of 0 V or 0 A needs "may switch off" too: it unpowers the
+  heater just as switching the output off does.
+- An unticked permission means "not allowed".
+- With no rails saved, or an invalid rails file, nothing is writable.
+
+**save rails** sends the whole set. If someone saved in between, your save is
+refused: press **discard edits** to load the newer rails, re-apply your change
+and save again (reloading the page also works). If the heater zones' sensor
+mapping changes, for example after the top/bottom swap is deployed, the card
+asks you to save the rails again before those zones are writable.
+
+The rails cap what Claude may *command*. The PV interlock still caps the
+temperature for everyone, Claude included.
+
+Every AI action and refusal, with Claude's stated reason, is listed under
+**recent AI activity** (the last 10). The last 20 are at
+`http://xbox-pi:8089/`; the full log is `aicontrol/audit.jsonl` on the Pi (and
+`audit.jsonl.1` … `.5` after rotation, 5 MB each). Notes are limited to 6 a
+minute, and calls that send nothing (refusals, no-ops) beyond 30 a minute are
+counted and summed up in one entry, so a looping session cannot flood the log.
+
+### Checks after deploying it
+
+Two paths have never run end to end before the first deploy; check them once
+on the Pi (with everything disarmed — nothing below moves hardware):
+
+1. **History** (needs the InfluxDB token, see `aicontrol/README.md`). Each of
+   these must return non-empty series, the expected `every_s`, no unexpected
+   `truncated`, and log an elapsed time well under 20 s
+   (`journalctl -u xsphere-aicontrol | grep history:`):
+   ```bash
+   curl -s 'http://localhost:8089/api/v1/history?ids=t_cube_top&start=-6h'
+   curl -s 'http://localhost:8089/api/v1/history?ids=level_cryostat&start=-6h'   # field filtered|raw
+   curl -s 'http://localhost:8089/api/v1/history?ids=valve_cryostat&start=-7d&fn=changes'
+   curl -s 'http://localhost:8089/api/v1/history?ids=turbo_ghs_state&start=-6h'  # text, last
+   curl -s 'http://localhost:8089/api/v1/history?ids=t_cube_top,t_cube_bottom,t_cube_nozzle,pid_top_pv,pid_bottom_pv,pid_nozzle_pv,level_cryostat,valve_cryostat&start=-30d'
+   ```
+2. **A real MCP tool call.** In the operator profile, ask Claude for
+   `get_overview`, then (nothing armed) for a heater setpoint: the first must
+   return the overview, the second must be refused with "not armed"
+   (acceptance step 6 in `aicontrol/operator/README.md`). The journal shows
+   the protocol era of the first request at INFO; start the service once with
+   `XSPHERE_AICONTROL_LOG_LEVEL=DEBUG` to see every `tools/call`. Note the
+   date in the operator README's "Verified on" paragraph.
+
+### Connecting Claude
+
+To confine a session to the AI control tools, copy the operator profile
+(`aicontrol/operator/`, see its README) to `C:\Users\xbox\xsphere-ai-operator`,
+open Claude Code there, and run the acceptance check.
+
+Any other Claude Code session can add the tools with
+`claude mcp add --transport http xsphere http://xbox-pi:8089/mcp`, but it keeps
+its shell and browser.
+
+### Limitations
+
+Arms and rails only bind clients that go through this service. The MQTT
+broker is anonymous, `/api/cmd` on the Control page relays commands, and
+code-server and Node-RED are open on the LAN. A session with a shell or a
+browser can therefore bypass all of it, arming included. Use the operator
+profile for any AI that should be confined.
+
+---
+
 ## Data access
 
 ### InfluxDB / Grafana
@@ -347,6 +463,7 @@ names (set by Telegraf):
 | `pneumatic_control` | — | `enabled` (1 = pneumatic open/close commands acted on), `refused` (count since the service started) |
 | `environment` | `location` (ghs), `parameter` (temperature/humidity/baro_pressure) | `value` |
 | `service_heartbeat` | — | `uptime_s` |
+| `ai_control` | — | `online`, `armed_heaters`, `armed_ln2`, `armed_pneumatic` (1 = armed for Claude), `actions`, `refused`, `auto_disarms` (counts since the AI service started) |
 
 ### Changing what Telegraf records
 
@@ -411,6 +528,9 @@ journalctl -u xsphere-slowcontrol --since "1 hour ago"
 
 # Omega logger
 journalctl -u xsphere-omega-logger -f
+
+# AI control service
+journalctl -u xsphere-aicontrol -f
 
 # Telegraf (IOTstack container)
 docker logs telegraf -f

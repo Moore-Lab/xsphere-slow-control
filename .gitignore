@@ -23,6 +23,15 @@ slowcontrol/nge_state.json.tmp
 slowcontrol/turbovac_state.json
 slowcontrol/turbovac_state.json.tmp
 
+# Runtime state of the AI control service: the human rails (set on the Control
+# page), its audit log, and the LN2 open timers.  Operator decisions and
+# history, not project config.
+aicontrol/rails.json*
+aicontrol/audit.jsonl*
+aicontrol/runtime.json*
+# A test instance's own state (python -m aicontrol without the unit's environment).
+aicontrol/test-state/
+
 # Editor / OS
 *.swp
 .DS_Store

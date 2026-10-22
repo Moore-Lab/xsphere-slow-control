@@ -47,6 +47,15 @@
   .kv .k { color:var(--mut); margin-right:.25rem; }
   .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:.4rem 1rem; }
   small.hint { color:var(--mut); display:block; margin-top:.3rem; }
+  /* AI control card: rails editor and activity list */
+  details.ai { border-top:1px solid var(--line); margin-top:.3rem; padding-top:.25rem; }
+  details.ai > summary { cursor:pointer; color:var(--acc); font-size:.85rem; font-weight:600; padding:.1rem 0; }
+  .rf { display:inline-flex; align-items:center; gap:.3rem; color:var(--mut); font-size:.82rem; margin-right:.55rem; white-space:nowrap; }
+  span.rf { flex-wrap:wrap; white-space:normal; }
+  .rf input[type=number] { width:4.8rem; }
+  .rf input[type=text] { width:11rem; }
+  .rl { padding:.2rem 0 .1rem; }
+  .aud { font-size:.8rem; gap:.45rem; align-items:baseline; margin:.1rem 0; }
 </style>
 </head>
 <body>
@@ -54,6 +63,7 @@
   <h1>xsphere&nbsp;·&nbsp;control</h1>
   <span id="p-svc" class="pill mut">service …</span>
   <span id="p-ilk" class="pill mut">interlocks …</span>
+  <span id="p-ai"  class="pill mut">AI …</span>
   <span id="p-lj"  class="pill mut">labjack …</span>
   <span id="p-nge" class="pill mut">supply …</span>
   <span id="p-mq"  class="pill mut">mqtt …</span>
@@ -66,6 +76,41 @@
 </header>
 
 <main>
+
+  <!-- AI control (Claude): arms, rails, recent activity -->
+  <section class="card">
+    <h2>AI control (Claude)</h2>
+    <div id="ai"></div>
+    <details id="ai-rails-box" class="ai">
+      <summary id="ai-rails-sum">rails — limits the AI can never change</summary>
+      <small class="hint">Rails cap what the AI may command; the PV interlock still caps temperature for everyone, the AI included.
+        An empty number means “not set”: for a min / max pair the AI then may not change that quantity at all; for a step,
+        rate or arm time it means no limit. Live values are shown next to each item. <b>Save</b> sends the whole set; the
+        service refuses it if the rails were saved somewhere else since this form was filled in.</small>
+      <div id="ai-rails-err"></div>
+      <div id="ai-rails-form"></div>
+      <div class="row" style="margin-top:.4rem">
+        <button id="ai-rails-save" onclick="aiSaveRails()">save rails</button>
+        <button id="ai-rails-discard" onclick="aiDiscardRails()">discard edits</button>
+        <span id="ai-rails-msg" class="cur"></span>
+      </div>
+      <div class="row"><span id="ai-rails-last" class="cur"></span></div>
+    </details>
+    <details class="ai" open>
+      <summary>recent AI activity</summary>
+      <div id="ai-audit"></div>
+    </details>
+    <small class="hint">Lets a Claude session work the heaters, the LN₂ fill valves and the gas valves through the AI control
+      service (port 8089) — only in a group armed here, and only within the rails. <b>Arming or disarming moves nothing</b>:
+      disarming only stops further AI changes, and every setpoint and valve stays where it is. Arms come up off every time the
+      AI service starts and lapse after the rails' arm time; the service also disarms by itself (it never re-arms) on a slow-control
+      restart, stale data or a lost broker connection, and the heaters on a PV interlock trip or an interlock alert.
+      <b>Rails cap what the AI may command; the PV interlock still caps temperature for everyone.</b> The AI's tools can read
+      the rails but cannot change them or arm anything, and cannot reach the turbos, the interlock limits, the valve and turbo
+      gates or the Sequencer. <b>Gas valves need the PLC valve gate in the Pneumatic card enabled as well</b> — both must be on.
+      An LN₂ valve the AI opened is closed by the service when the rail's max open time runs out, armed or not. No per-click
+      confirmation: arming is the safety step.</small>
+  </section>
 
   <!-- PV safety interlock -->
   <section class="card">
@@ -93,21 +138,21 @@
 
   <!-- Valves -->
   <section class="card">
-    <h2>Solenoid valves — LN₂ manifold</h2>
+    <h2>Solenoid valves — LN₂ manifold <span class="pill warn aitag" data-g="ln2" hidden>AI armed</span></h2>
     <div id="valves"></div>
     <small class="hint">“actual” is the energised state read back from the PLC; “desired” is the last command sent. Auto-open / auto-close arm the PLC ladder’s autofill enables for that vessel.</small>
   </section>
 
   <!-- Pneumatic valves -->
   <section class="card">
-    <h2>Pneumatic valves — gas handling</h2>
+    <h2>Pneumatic valves — gas handling <span class="pill warn aitag" data-g="pneumatic" hidden>AI armed</span></h2>
     <div id="pneumatic"></div>
     <small class="hint"><b>Open / close only work while valve control is enabled</b> — the buttons at the top of the card. The lock is in the PLC driver, so it holds for the Sequencer and anything else on the bus, not only this page; control comes up <em>disabled</em> every time the slow-control service starts, and disabling it moves no valve. Once control is on there is no per-click confirmation. <b>Open / close always mean the valve, not the relay.</b> Ballast and bottle are <b>normally open</b>: their relay is energised to <em>close</em> them, so with the PLC outputs off they sit open. The pump valve is normally closed. “actual” is worked out from the PLC output (Y105–Y107) read back, “desired” from the register (DS151–DS153), and “relay” is the output itself. The ladder has no auto-open, auto-close or timer behind these, so a valve stays where it was last put — through a service restart too.</small>
   </section>
 
   <!-- Heaters / PID -->
   <section class="card">
-    <h2>Heaters — PID loops</h2>
+    <h2>Heaters — PID loops <span class="pill warn aitag" data-g="heaters" hidden>AI armed</span></h2>
     <div id="pid"></div>
     <small class="hint">Everything is in <b>Kelvin</b>. Expression fields accept arithmetic over the aliases
       <code>rtd1..rtd6</code>, <code>tc1..tc4</code> (each = the latest <code>value_k</code> in K) plus
@@ -120,7 +165,7 @@
 
   <!-- Heater supply -->
   <section class="card">
-    <h2>Heater supply — R&amp;S NGE103</h2>
+    <h2>Heater supply — R&amp;S NGE103 <span class="pill warn aitag" data-g="heaters" hidden>AI armed</span></h2>
     <div class="blk">
       <div class="row"><span class="title" id="ng-state">…</span></div>
       <div class="row">
@@ -193,9 +238,11 @@ function hhmm(iso){ const t = new Date(iso); return isNaN(t) ? "" : t.toLocaleTi
 let SNAP = {states:{}};                       // last snapshot.states
 let RAW = {};                                 // last raw status/sensor cache, by topic
 function S(id){ return SNAP.states[id] || null; }
+// Resolves to the fetch Response (null if the server was unreachable); most
+// callers ignore it, the AI card reports a refused send.
 async function cmd(topic, payload){
-  try { await fetch("/api/cmd",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({topic,payload})}); }
-  catch(e){ console.error(e); }
+  try { return await fetch("/api/cmd",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({topic,payload})}); }
+  catch(e){ console.error(e); return null; }
 }
 function buildPayload(tmpl, value){
   const out = {};
@@ -252,6 +299,473 @@ function turboControl(on){ cmd("xsphere/commands/turbo_control/enable", {enabled
 // moves nothing by itself, and the valves are meant to be worked without a
 // dialog once control is on.
 function pneumaticControl(on){ cmd("xsphere/commands/pneumatic_control/enable", {enabled: !!on}); }
+
+// ---- AI control (Claude) ----------------------------------------------------
+// The AI control service (aicontrol/, unit xsphere-aicontrol, port 8089) is
+// the only way a Claude session changes anything, and it acts only in a group
+// armed on this card and only within the rails set on this card.  Both are
+// plain commands on xsphere/commands/ai_control/{arm,rails}; the service
+// answers on xsphere/status/ai_control (retained, every 2 s) and
+// …/ai_control/audit, read here from the raw cache.  That cache never
+// expires: the service's retained "online 0" last will reads as "not
+// running", and a status older than 10 s as "no status — arms unknown" with
+// the last known arms still shown (it may be this panel that lost the
+// broker, not the service).  No confirm dialogs, as for
+// the valve and turbo gates: arming moves nothing by itself.  Disarm stays
+// clickable even when the service looks down — it is always the safe way.
+const AI_STATUS = "xsphere/status/ai_control";
+const AI_CMD = "xsphere/commands/ai_control/";
+// [group, title, what it covers, short name for the header pill]
+const AI_GROUPS = [
+  ["heaters",   "Heaters & temperature", "PID setpoints, auto mode, PV source · NGE supply V / I / on-off", "heaters"],
+  ["ln2",       "LN₂ fill valves",       "XV1–XV3 open / close, auto-open / auto-close",                   "LN₂"],
+  ["pneumatic", "Pneumatic gas valves",  "ballast / pump / bottle open / close",                           "pneumatic"]];
+let AI_P = null;                              // the service's status while it is up, else null
+let AI_PANY = null;                           // its last status, up or not
+let AI_MSG = null;                            // {text, t}: the last send that did not go through
+let AI_AUDIT_JSON = "";
+const aiIsObj = v => v!==null && typeof v==="object" && !Array.isArray(v);
+const esc = s => (s===null || s===undefined ? "" : String(s)).replace(/[&<>"']/g,
+  c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+function when(iso){                           // time today, else weekday + date + time
+  if (!iso) return "?";
+  const t = new Date(iso); if (isNaN(t)) return String(iso);
+  return t.toDateString()===new Date().toDateString() ? t.toLocaleTimeString()
+    : t.toLocaleString([], {weekday:"short", month:"short", day:"numeric", hour:"2-digit", minute:"2-digit"});
+}
+function setHtml(id, html){ const e=$(id); if (e && e._h!==html){ e.innerHTML = html; e._h = html; } }
+function aiArmed(p, g){
+  if (!p) return false;
+  const a = p.arms && p.arms[g];
+  return aiIsObj(a) && typeof a.armed==="boolean" ? a.armed : (p["armed_"+g]===1 || p["armed_"+g]===true);
+}
+// Arm / disarm.  The page only asks; the service decides, and its status
+// shows the outcome within ~2 s.  A send the web server refused is shown.
+async function aiArm(group, armed){
+  await aiSent(await cmd(AI_CMD+"arm", {group, armed: !!armed, by: "control page"}),
+               (armed ? "arm " : "disarm ") + group);
+}
+async function aiSent(r, what){
+  if (r && r.ok){ AI_MSG = null; return true; }
+  let why = "the page could not reach the web server";
+  if (r){ let e = ""; try { e = (await r.json()).error || ""; } catch(_){}
+          why = "the web server refused it (HTTP " + r.status + (e ? ": " + e : "") + ")"; }
+  AI_MSG = {text: "⚠ " + what + " not sent — " + why, t: Date.now()};
+  return false;
+}
+function aiBuild(){
+  $("ai").innerHTML = `
+    <div class="blk">
+      <div class="row">
+        <span class="title" id="ai-state">AI control service …</span>
+        <span style="flex:1"></span>
+        <a class="nav" id="ai-link" target="_blank" rel="noopener">status &amp; audit ↗</a>
+        <button class="danger" id="ai-dis-all" onclick="aiArm('all',false)">disarm all</button>
+      </div>
+      <div class="row"><span id="ai-note" class="cur"></span></div>
+    </div>` + AI_GROUPS.map(([g,name,what])=>`
+    <div class="blk">
+      <div class="row">
+        <span class="title">${name}</span>
+        <span style="flex:1"></span>
+        <button id="ai-arm-${g}" onclick="aiArm('${g}',true)">arm</button>
+        <button id="ai-dis-${g}" onclick="aiArm('${g}',false)">disarm</button>
+      </div>
+      <div class="row"><span class="cur">${what}</span></div>
+      <div class="row"><span id="ai-st-${g}" class="cur"></span></div>
+      <div class="row"><span class="kv cur"><span class="k">AI may now</span><span id="ai-may-${g}">–</span></span></div>${g==="pneumatic" ? `
+      <div class="row"><span id="ai-gate" class="cur"></span></div>` : ""}
+    </div>`).join("") + `
+    <div class="blk">
+      <div class="row"><span id="ai-last" class="cur"></span></div>
+      <div class="row"><span id="ai-lastref" class="cur"></span></div>
+      <div class="row"><span id="ai-run" class="cur"></span></div>
+    </div>`;
+  $("ai-link").href = `${location.protocol}//${location.hostname}:8089/`;
+  $("ai-rails-form").addEventListener("input", aiRailsEdited);
+  $("ai-rails-form").addEventListener("change", aiRailsEdited);
+}
+
+// Rails editor.  The form is generated from the rails document the service
+// publishes, so a field added to the schema shows up without a page change.
+// The whole document goes back on save with the revision it was opened at;
+// the service refuses it if someone saved in between.  While a field has
+// focus or there are unsaved edits the 1.5 s refresh leaves the form alone
+// and only updates the live values next to it.
+const AI_RAIL_INFO = {                        // key: [label, hint]
+  arm_hours:             ["arm lasts (h)", "how long an arm stays on; empty = until disarmed (at most 168 h)"],
+  setpoint_min_k:        ["SP min (K)", "lowest setpoint the AI may command; min and max are both needed or the AI cannot change this zone"],
+  setpoint_max_k:        ["SP max (K)", "highest setpoint the AI may command; min and max are both needed or the AI cannot change this zone"],
+  max_step_k:            ["max step (K)", "largest single setpoint change, from the current setpoint (from the measured PV while the setpoint is outside these rails); empty = no limit"],
+  max_rate_k_per_min:    ["max rate (K/min)", "average rate of change, and the fastest ramp; empty = no limit"],
+  pv_sources:            ["PV sources", "the sensors the AI may make this PID regulate on"],
+  voltage_min_v:         ["V min", "volts; min and max are both needed to change the voltage (0–32 V). 0 lets the AI unpower the heater, so it needs \"may switch off\" too"],
+  voltage_max_v:         ["V max", "volts; min and max are both needed to change the voltage (0–32 V)"],
+  current_min_a:         ["I min", "amps; min and max are both needed to change the current limit (0–3 A). 0 lets the AI unpower the heater, so it needs \"may switch off\" too"],
+  current_max_a:         ["I max", "amps; min and max are both needed to change the current limit (0–3 A)"],
+  may_switch_on:         ["may switch on", "may switch the channel's output on (only with its V and I inside the rails, and the PID zone it feeds in auto at a setpoint inside its rails with a live PV)"],
+  may_switch_off:        ["may switch off", "may switch the channel's output off"],
+  may_operate:           ["may operate", "nothing else for this vessel counts without it"],
+  max_open_minutes:      ["max open (min)", "needed to open: the service closes a valve the AI opened when this runs out, armed or not (at most 120)"],
+  may_set_auto_open:     ["may turn auto-open on", "only while auto-close is on and the level reading is fresh"],
+  may_disarm_auto_close: ["may turn auto-close off", "only while the valve is closed"],
+  may_open:              ["may open", ""],
+  may_close:             ["may close", ""],
+  forbid_open_together:  ["never open together", "pairs the AI may never have open at once, e.g. pump+bottle, pump+ballast"],
+  min_interval_s:        ["min interval (s)", "between two AI moves of one gas valve (at least 2)"],
+};
+const AI_REQUIRED_NUM = new Set(["min_interval_s"]);   // numbers that may not be left empty
+// The service's own bookkeeping: not shown, sent back as received.
+const AI_META = new Set(["version","revision","zone_fingerprints","updated_utc","updated_by"]);
+// Collections shown one block per item: title, live-value span, hint, item name.
+const AI_EACH = {
+  "heaters.zones":    {title:"Heaters — PID setpoints", live:"ai-lv-ilk",
+    hint:"Software zone names. A setpoint can only go up while that PID has a live PV source; PV sources lists the ones the AI may pick.",
+    name:k=>"zone "+k},
+  "heaters.supply":   {title:"Heaters — NGE103 supply", hint:"", name:k=>"channel "+k},
+  "ln2.vessels":      {title:"LN₂ fill valves",
+    hint:"Opening also needs auto-close on and a fresh level reading for that vessel.",
+    name:k=>{ const v = VESSELS.find(([x])=>x===k); return v ? v[1] : k; }},
+  "pneumatic.valves": {title:"Pneumatic gas valves", live:"ai-lv-gate", hint:"",
+    name:k=>{ const v = PNEUMATIC.find(([x])=>x==="pneumatic_"+k); return v ? v[1] : k; }},
+};
+const AI_TITLES = {"general":"General", "pneumatic":"Gas valves — pairs and pacing"};
+// Display order.  The document arrives with its keys sorted (Flask's jsonify),
+// so the form puts sections, items and fields in this order; anything else
+// follows alphabetically.
+const AI_ORDER = ["general","heaters","ln2","pneumatic","zones","supply","vessels","valves",
+  "top","bottom","nozzle","cryostat","primary_xe","ballast","pump","bottle", ...Object.keys(AI_RAIL_INFO)];
+function aiEntries(obj){
+  const rank = k => { const i = AI_ORDER.indexOf(k); return i < 0 ? 1e6 : i; };
+  return Object.entries(obj).sort((a, b) => rank(a[0]) - rank(b[0]) || (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0));
+}
+let AI_ED = {json:null, doc:null, rev:null, dirty:false, bad:{}, pending:null, msg:"", msgBad:false};
+function aiGet(o, path){ for (const k of path){ if (!aiIsObj(o)) return undefined; o = o[k]; } return o; }
+function aiSet(o, path, v){ for (const k of path.slice(0,-1)) o = o[k]; o[path[path.length-1]] = v; }
+const aiId = path => path.join("-").replace(/[^A-Za-z0-9_-]/g, "_");
+function aiHead(title, liveId, hint){
+  return `<div class="row" style="margin-top:.45rem"><span class="title" style="color:var(--acc)">${esc(title)}</span>`
+    + (liveId ? `<span id="${liveId}" class="cur"></span>` : "") + `</div>`
+    + (hint ? `<small class="hint" style="margin:0 0 .15rem">${esc(hint)}</small>` : "");
+}
+// One object of the document: its own numbers / flags / lists in a row,
+// nested objects recursively, the AI_EACH collections one block per item.
+function aiNode(obj, path){
+  const each = AI_EACH[path.join(".")];
+  if (each){
+    let html = aiHead(each.title, each.live, each.hint);
+    for (const [k, item] of aiEntries(obj)){
+      const ip = [...path, k], id = aiId(ip);
+      html += `<div class="blk rl">
+        <div class="row"><span class="title">${esc(each.name(k))}</span><span id="ai-zd-${id}" class="cur"></span></div>
+        <div class="row">${aiIsObj(item) ? aiEntries(item).map(([f,v])=>aiField(f, v, [...ip, f])).join("") : aiField(k, item, ip)}</div>
+        <div class="row"><span id="ai-lv-${id}" class="cur"></span></div></div>`;
+    }
+    return html;
+  }
+  let html = "", own = [];
+  for (const [k, v] of aiEntries(obj)){
+    if (!path.length && AI_META.has(k)) continue;
+    if (aiIsObj(v)) html += aiNode(v, [...path, k]);
+    else own.push(aiField(k, v, [...path, k]));
+  }
+  if (own.length) html += aiHead(AI_TITLES[path.join(".")] || path.join(" · ") || "other")
+    + `<div class="blk rl"><div class="row">${own.join("")}</div></div>`;
+  return html;
+}
+function aiField(k, v, path){
+  const [lab, hint] = AI_RAIL_INFO[k] || [k.replace(/_/g, " "), ""];
+  const dp = esc(JSON.stringify(path)), t = hint ? ` title="${esc(hint)}"` : "";
+  if (typeof v === "boolean")
+    return `<label class="rf"${t}><input type="checkbox" data-kind="bool" data-path="${dp}"${v ? " checked" : ""}>${esc(lab)}</label>`;
+  if (v === null || typeof v === "number")
+    return `<label class="rf"${t}>${esc(lab)}<input type="number" step="any" data-kind="num" data-path="${dp}" value="${v===null ? "" : v}" placeholder="none"></label>`;
+  if (Array.isArray(v) && k === "pv_sources"){
+    const zone = path[path.length-2];
+    const choices = [...new Set([...(zone === "nozzle" ? ["cube"] : ["cube","clamp"]), ...v.map(String)])];
+    return `<span class="rf"${t}>${esc(lab)}` + choices.map(c =>
+      `<label class="rf" style="margin-right:.25rem"><input type="checkbox" data-kind="set" data-path="${dp}" data-val="${esc(c)}"${v.includes(c) ? " checked" : ""}>${esc(c)}<span id="ai-pvl-${aiId([zone, c])}"></span></label>`).join("") + `</span>`;
+  }
+  if (Array.isArray(v) && (k === "forbid_open_together" || (v.length && v.every(Array.isArray))))
+    return `<label class="rf"${t}>${esc(lab)}<input type="text" data-kind="pairs" data-path="${dp}" value="${esc(v.map(x => Array.isArray(x) ? x.join("+") : String(x)).join(", "))}" placeholder="none, e.g. pump+bottle"></label>`;
+  if (typeof v === "string")
+    return `<label class="rf"${t}>${esc(lab)}<input type="text" data-kind="str" data-path="${dp}" value="${esc(v)}"></label>`;
+  return `<span class="rf"${t}>${esc(lab)} <code>${esc(JSON.stringify(v))}</code></span>`;   // shown, not editable, sent back as is
+}
+function aiParsePairs(text){
+  const valves = Object.keys(aiGet(AI_ED.doc, ["pneumatic","valves"]) || {}), pairs = [];
+  for (const part of text.split(/[,;\n]/).map(s => s.trim()).filter(Boolean)){
+    const names = part.split(/\s*[+&\/]\s*|\s+/).filter(Boolean).map(s => s.toLowerCase());
+    if (names.length !== 2 || names[0] === names[1]) return {error: "“" + part + "” is not a pair like pump+bottle"};
+    const unknown = names.find(n => valves.length && !valves.includes(n));
+    if (unknown) return {error: "no gas valve called “" + unknown + "” (there are " + valves.join(", ") + ")"};
+    pairs.push(names);
+  }
+  return {pairs};
+}
+function aiRailsEdited(ev){
+  const el = ev.target;
+  if (!el || !el.dataset || !el.dataset.kind || !AI_ED.doc) return;
+  const key = el.dataset.path, path = JSON.parse(key), last = path[path.length-1];
+  let val, err = null;
+  switch (el.dataset.kind){
+    case "num": {
+      const s = el.value.trim();
+      if (el.validity && el.validity.badInput) err = "not a number";
+      else if (s === "") { if (AI_REQUIRED_NUM.has(last)) err = "needs a number"; else val = null; }
+      else { val = Number(s); if (!isFinite(val)) err = "not a number"; }
+      break; }
+    case "bool":  val = el.checked; break;
+    case "set":   val = [...$("ai-rails-form").querySelectorAll('input[data-kind="set"]')]
+                          .filter(e => e.dataset.path === key && e.checked).map(e => e.dataset.val); break;
+    case "pairs": { const r = aiParsePairs(el.value); if (r.error) err = r.error; else val = r.pairs; break; }
+    case "str":   val = el.value; break;
+    default: return;
+  }
+  if (err){ AI_ED.bad[key] = (AI_RAIL_INFO[last] ? AI_RAIL_INFO[last][0] : last) + ": " + err; el.style.borderColor = "var(--bad)"; }
+  else { delete AI_ED.bad[key]; el.style.borderColor = ""; aiSet(AI_ED.doc, path, val); }
+  AI_ED.dirty = true; AI_ED.msg = ""; AI_ED.msgBad = false;
+  aiRailsButtons();
+}
+async function aiSaveRails(){
+  if (!AI_ED.doc || AI_ED.pending || !AI_P) return;
+  const bad = Object.values(AI_ED.bad);
+  if (bad.length){ AI_ED.msg = "⚠ fix first — " + bad[0]; AI_ED.msgBad = true; aiRailsButtons(); return; }
+  // A nonce the service echoes in last_rails_result, so this tab takes only
+  // the answer to its own save (not another tab's that lands meanwhile).
+  const id = Date.now().toString(36) + Math.random().toString(36).slice(2);
+  AI_ED.pending = {id, before: JSON.stringify(AI_P.last_rails_result || null), t0: Date.now()};
+  AI_ED.msg = ""; AI_ED.msgBad = false; aiRailsButtons();
+  const ok = await aiSent(await cmd(AI_CMD+"rails", {rails: AI_ED.doc, base_revision: AI_ED.rev, by: "control page", request_id: id}), "rails");
+  if (!ok){ AI_ED.pending = null; AI_ED.msg = AI_MSG.text; AI_ED.msgBad = true; aiRailsButtons(); }
+}
+function aiDiscardRails(){                    // back to the rails the service holds now
+  AI_ED = {json:null, doc:null, rev:null, dirty:false, bad:{}, pending:null, msg:"", msgBad:false};
+  aiRailsUpdate(AI_PANY, SNAP.states || {});
+}
+function aiRailsButtons(){
+  const nbad = Object.keys(AI_ED.bad).length, s = $("ai-rails-save");
+  s.disabled = !AI_P || !AI_ED.doc || !!AI_ED.pending || nbad > 0;
+  s.textContent = AI_ED.pending ? "saving…" : "save rails";
+  s.className = AI_ED.dirty && !s.disabled ? "act" : "";
+  $("ai-rails-discard").disabled = !AI_ED.dirty || !!AI_ED.pending;
+  // A "saved" note fades after 15 s; a refusal stays until the next edit.
+  if (AI_ED.msg && !AI_ED.msgBad && Date.now() - (AI_ED.msgT || 0) > 15000) AI_ED.msg = "";
+  const m = $("ai-rails-msg");
+  m.textContent = AI_ED.pending ? "sent — waiting for the AI control service …" : [
+    AI_ED.msg || (nbad ? "⚠ " + Object.values(AI_ED.bad)[0] : AI_ED.dirty ? "unsaved changes — the AI still works to the saved rails" : ""),
+    !AI_P && AI_ED.doc ? "the AI control service is not running — rails cannot be saved now" : ""].filter(Boolean).join(" · ");
+  m.style.color = AI_ED.msgBad || nbad ? "var(--bad)" : AI_ED.dirty ? "var(--warn)" : "";
+}
+function aiRailsUpdate(pAny, st){
+  const rails = pAny && aiIsObj(pAny.rails) ? pAny.rails : null;
+  // A save in flight: its answer is the last_rails_result carrying its nonce
+  // (a service without request_id: the first new result, as before).
+  if (AI_ED.pending){
+    const res = AI_P && AI_P.last_rails_result;
+    const mine = aiIsObj(res) && ("request_id" in res ? res.request_id === AI_ED.pending.id
+                                                      : JSON.stringify(res) !== AI_ED.pending.before);
+    if (mine){
+      AI_ED.pending = null;
+      if (res.ok){ AI_ED.dirty = false; AI_ED.bad = {}; AI_ED.json = null; AI_ED.msgBad = false;
+                   AI_ED.msg = "saved" + (rails && rails.revision!=null ? " — now revision " + rails.revision : ""); AI_ED.msgT = Date.now(); }
+      else { AI_ED.msg = "⚠ not saved — " + (res.error || "refused by the AI control service"); AI_ED.msgBad = true; }
+    } else if (Date.now() - AI_ED.pending.t0 > 8000){
+      AI_ED.pending = null; AI_ED.msgBad = true;
+      AI_ED.msg = "⚠ no answer from the AI control service in 8 s — probably not saved";
+    }
+  }
+  const json = rails ? JSON.stringify(rails) : "", form = $("ai-rails-form");
+  if (!AI_ED.dirty && !AI_ED.pending && !form.contains(document.activeElement) && json !== AI_ED.json){
+    AI_ED.json = json; AI_ED.doc = rails ? JSON.parse(json) : null; AI_ED.rev = rails ? rails.revision : null; AI_ED.bad = {};
+    form.innerHTML = rails ? aiNode(AI_ED.doc, [])
+      : `<div class="row"><span class="cur">no rails to show — ${AI_P ? "the AI control service has not published any" : "the AI control service is not running"}</span></div>`;
+  }
+  const rev = rails ? rails.revision : null;
+  $("ai-rails-sum").textContent = "rails — limits the AI can never change" + (!rails ? ""
+    : " · revision " + rev + (pAny.rails_updated_utc ? ", saved " + when(pAny.rails_updated_utc) + (pAny.rails_updated_by ? " by " + pAny.rails_updated_by : "")
+                                                     : " · never saved: nothing is writable"));
+  const errs = [];
+  if (pAny && pAny.rails_error) errs.push(["var(--bad)", "⚠ rails file invalid — nothing is writable until the rails are saved again: " + pAny.rails_error]);
+  const stale = pAny && Array.isArray(pAny.rails_stale_zones) ? pAny.rails_stale_zones : [];
+  if (stale.length) errs.push(["var(--warn)", "⚠ zone names changed since these rails were saved (" + stale.join(", ")
+    + ") — those zones' heater rails count as unset; check them and press save to confirm"]);
+  if (AI_ED.dirty && rails && rev !== AI_ED.rev) errs.push(["var(--bad)", "⚠ the rails were saved elsewhere since you started editing (revision "
+    + AI_ED.rev + " → " + rev + ") — saving will be refused; discard edits to load them"]);
+  setHtml("ai-rails-err", errs.map(([c, e]) => `<div class="row"><span style="color:${c}">${esc(e)}</span></div>`).join(""));
+  const lr = pAny && pAny.last_rails_result;
+  $("ai-rails-last").textContent = aiIsObj(lr) ? "last rails save " + when(lr.utc) + " — " + (lr.ok ? "accepted" : "refused: " + (lr.error || "?")) : "";
+  aiRailsLive(st, pAny);
+  aiRailsButtons();
+}
+// Live values next to the rails, from the snapshot, checked against what is
+// in the form (edited or not).
+function aiRailsLive(st, p){
+  const doc = AI_ED.doc; if (!doc) return;
+  const val = s => (s && s.value!==null && s.value!==undefined && s.freshness!=="invalid") ? s.value : null;
+  const num = x => typeof x === "number" && isFinite(x);
+  const onoff = (x, t, f) => x===null ? "?" : x ? t : f;
+  const line = (info, warns) => esc(info) + warns.map(w => `<br><span style="color:var(--warn)">⚠ ${esc(w)}</span>`).join("");
+  const ilMin = val(st.pv_interlock_min_k), ilMax = val(st.pv_interlock_max_k), ilT = val(st.pv_interlock_tripped);
+  setHtml("ai-lv-ilk", num(ilMin) && num(ilMax)
+    ? line(" PV interlock band now " + fmtNum(ilMin) + "–" + fmtNum(ilMax) + " K, so whatever these say the AI stays within "
+           + fmtNum(ilMin + 5) + "–" + fmtNum(ilMax - 5) + " K", ilT===true ? ["interlock TRIPPED"] : [])
+    : " PV interlock band: ?");
+  const stale = p && Array.isArray(p.rails_stale_zones) ? p.rails_stale_zones : [];
+  for (const [z, r] of Object.entries(aiGet(doc, ["heaters","zones"]) || {})){
+    if (!aiIsObj(r)) continue;
+    const id = aiId(["heaters","zones",z]), P = "pid_"+z+"_";
+    const sp = val(st[P+"setpoint"]), spe = val(st[P+"setpoint_expr"]), pv = val(st[P+"pv"]), pve = val(st[P+"pv_expr"]);
+    const out = val(st[P+"output"]), mode = val(st[P+"mode"]), lo = r.setpoint_min_k, hi = r.setpoint_max_k, w = [];
+    let info = "now SP " + fmtNum(sp) + " K" + (spe ? " (“" + spe + "”)" : "")
+      + " · PV " + fmtNum(pv) + " K" + (pve ? " (“" + pve + "”)" : " (no PV source" + (pv===500 ? ": 500 K is the interlock's stand-in" : "") + ")")
+      + " · out " + fmtNum(out) + " %" + (mode ? " · " + mode : "");
+    if (!(num(lo) && num(hi))) info += " · min or max empty: the AI cannot change this setpoint";
+    else if (lo >= hi) w.push("min must be below max");
+    else if (num(sp) && (sp < lo || sp > hi)) w.push("the setpoint now is outside these rails — an AI change is then measured from the PV (if it has a live source), and from outside the rails it may land at most one max step inside the nearest edge");
+    if (num(hi) && num(ilMax) && hi > ilMax - 5) w.push("max is above interlock max − 5 K: the AI stays at or below " + fmtNum(ilMax - 5) + " K anyway");
+    if (num(lo) && num(ilMin) && lo < ilMin + 5) w.push("min is below interlock min + 5 K: the AI stays at or above " + fmtNum(ilMin + 5) + " K anyway");
+    if (stale.includes(z)) w.push("zone names changed since these were saved — unset until saved again");
+    setHtml("ai-lv-"+id, line(info, w));
+    setHtml("ai-zd-"+id, p && aiIsObj(p.zones) && p.zones[z] ? " " + esc(p.zones[z]) : "");
+    for (const [c, sid] of [["cube", "t_cube_"+z], ["clamp", "t_"+z+"_clamp"]]){
+      const s = st[sid], m = s && typeof s.label === "string" && s.label.match(/\(([^)]*)\)\s*$/);
+      setHtml("ai-pvl-"+aiId([z, c]), s ? `<span class="cur">&nbsp;${esc((m ? m[1] + " " : "") + fmtNum(val(s)) + " K")}</span>` : "");
+    }
+  }
+  for (const [n, r] of Object.entries(aiGet(doc, ["heaters","supply"]) || {})){
+    if (!aiIsObj(r)) continue;
+    const P = "nge_ch"+n+"_", vs = val(st[P+"voltage_set"]), il = val(st[P+"current_limit"]), o = val(st[P+"output"]), w = [];
+    if (num(r.voltage_min_v) && num(r.voltage_max_v)){
+      if (r.voltage_min_v > r.voltage_max_v) w.push("V min above V max");
+      else if (num(vs) && (vs < r.voltage_min_v || vs > r.voltage_max_v)) w.push("the voltage now is outside these rails");
+    }
+    if (num(r.current_min_a) && num(r.current_max_a) && r.current_min_a > r.current_max_a) w.push("I min above I max");
+    setHtml("ai-lv-"+aiId(["heaters","supply",n]), line("now " + fmtNum(vs) + " V set · " + fmtNum(il) + " A limit · output " + onoff(o, "ON", "OFF"), w));
+  }
+  for (const [v, r] of Object.entries(aiGet(doc, ["ln2","vessels"]) || {})){
+    if (!aiIsObj(r)) continue;
+    const P = "valve_"+v, o = val(st[P]), ao = val(st[P+"_auto_open"]), ac = val(st[P+"_auto_close"]), w = [];
+    const probe = v === "cryostat" ? st.level_cryostat_probe : null;
+    if (r.may_operate === true && !num(r.max_open_minutes)) w.push("max open is empty — the AI cannot open this valve (it can still close it)");
+    setHtml("ai-lv-"+aiId(["ln2","vessels",v]), line("now " + onoff(o, "OPEN", "closed") + " · auto-open " + onoff(ao, "on", "off")
+      + " · auto-close " + onoff(ac, "on", "off") + " · level " + fmtNum(val(st["level_"+v]))
+      + (probe ? " (probe " + fmtNum(val(probe)) + " V)" : ""), w));
+  }
+  const gate = val(st.pneumatic_control_enabled);
+  setHtml("ai-lv-gate", esc(" PLC valve gate now " + onoff(gate, "enabled", "disabled")
+    + (gate===true ? "" : " — the AI cannot move a gas valve until it is enabled in the Pneumatic card as well")));
+  for (const [v] of Object.entries(aiGet(doc, ["pneumatic","valves"]) || {}))
+    setHtml("ai-lv-"+aiId(["pneumatic","valves",v]), esc("now " + onoff(val(st["pneumatic_"+v]), "OPEN", "closed")));
+}
+const AI_KIND_COLOR = {action:"var(--ok)", ramp:"var(--ok)", refused:"var(--bad)", rails_refused:"var(--bad)",
+  arm:"var(--warn)", auto_disarm:"var(--warn)", auto_close:"var(--warn)", rails:"var(--acc)", note:"var(--acc)", disarm:"var(--mut)"};
+function aiAuditUpdate(){
+  const a = RAW[AI_STATUS + "/audit"];
+  const ents = (a && aiIsObj(a.payload) && Array.isArray(a.payload.entries) ? a.payload.entries : []).filter(aiIsObj).slice(0, 10);
+  const json = JSON.stringify(ents);
+  if (json === AI_AUDIT_JSON) return;
+  AI_AUDIT_JSON = json;
+  $("ai-audit").innerHTML = !ents.length ? `<div class="row"><span class="cur">nothing yet</span></div>` : ents.map(e => {
+    const c = Object.prototype.hasOwnProperty.call(AI_KIND_COLOR, e.kind) ? AI_KIND_COLOR[e.kind] : "var(--fg)";
+    return `<div class="row aud"><span class="cur num">${esc(when(e.utc))}</span><span style="color:${c}">${esc(e.kind || "?")}</span>`
+      + (e.tool ? `<b>${esc(e.tool)}</b>` : "") + `<span>${esc(e.detail || "")}</span>`
+      + (e.reason ? `<span class="cur">“${esc(e.reason)}”</span>` : "") + (e.by ? `<span class="cur">— ${esc(e.by)}</span>` : "") + `</div>`;
+  }).join("");
+}
+function aiUpdate(d, st){
+  const r = RAW[AI_STATUS], pAny = r && aiIsObj(r.payload) ? r.payload : null;
+  const age = r ? d.now - r.ts : null;
+  // Three states.  Signed off: no status at all, or the service's own
+  // "online 0" (its goodbye or last will) — nothing the AI asks for happens.
+  // Stale: it said it was running, then nothing for > 10 s — it may still be
+  // running and armed (this panel may have lost the broker, not it), so the
+  // last known arms stay shown.  Up: a fresh status.
+  const signedOff = !pAny || !pAny.online;
+  const stale = !signedOff && (age === null || age > 10);
+  const up = !signedOff && !stale;
+  const blind = !d.mqtt_connected;            // this web panel has lost the broker
+  const p = AI_P = up ? pAny : null;
+  AI_PANY = pAny;
+  const known = up ? p : stale ? pAny : null; // the arms shown: live, or last known
+  const armed = AI_GROUPS.filter(([g]) => aiArmed(known, g));
+  const pill = $("p-ai");
+  if (signedOff){ pill.textContent = "AI: service down"; pill.className = "pill mut"; }
+  else if (stale){ pill.textContent = armed.length ? "AI: " + armed.map(a => a[3]).join("·") + " ARMED? (no status)" : "AI: no status";
+                   pill.className = "pill warn"; }
+  else if (armed.length){ pill.textContent = "AI: " + armed.map(a => a[3]).join("·") + " ARMED"; pill.className = "pill warn"; }
+  else { pill.textContent = "AI: off"; pill.className = "pill mut"; }
+  document.querySelectorAll(".aitag").forEach(e => { e.hidden = !aiArmed(known, e.dataset.g); });
+  const se = $("ai-state");
+  if (signedOff){
+    se.textContent = "AI control service not running" + (pAny ? " — it signed off" : "")
+      + " · nothing the AI asks for is carried out";
+    se.style.color = "var(--mut)";
+  } else if (stale){
+    se.textContent = "⚠ no status from the AI control service for " + (age === null ? "?" : Math.round(age)) + " s — its arms are unknown"
+      + (armed.length ? " (last known: armed for " + armed.map(a => a[3]).join(", ") + ")" : "")
+      + (blind ? " · this web panel has lost the MQTT broker" : "");
+    se.style.color = "var(--warn)";
+  } else if (armed.length){
+    se.textContent = "⚠ AI armed for " + armed.map(a => a[3]).join(", ") + " — it may act there, within the rails";
+    se.style.color = "var(--warn)";
+  } else { se.textContent = "AI disarmed — it can read everything and change nothing"; se.style.color = "var(--mut)"; }
+  const bits = [];
+  if (pAny && pAny.instance && pAny.instance !== "production") bits.push("instance: " + pAny.instance);
+  if (up && p.started_utc) bits.push("service up since " + when(p.started_utc));
+  if (up) bits.push((p.actions || 0) + " actions · " + (p.refused || 0) + " refused · " + (p.notes || 0) + " notes · " + (p.auto_disarms || 0) + " automatic disarms");
+  const ne = $("ai-note");
+  if (AI_MSG && Date.now() - AI_MSG.t < 20000){ ne.textContent = AI_MSG.text; ne.style.color = "var(--bad)"; }
+  else { ne.textContent = bits.join(" · "); ne.style.color = ""; }
+  AI_GROUPS.forEach(([g]) => {
+    const on = aiArmed(known, g), a = (known && aiIsObj(known.arms) && aiIsObj(known.arms[g])) ? known.arms[g] : {};
+    // Arming needs a running service AND this panel on the broker (the web
+    // server refuses to relay it otherwise).  Disarm stays clickable.
+    $("ai-arm-"+g).disabled = !up || blind;
+    $("ai-arm-"+g).className = on ? "held" : "";
+    $("ai-dis-"+g).className = up && !on ? "on" : "";
+    const s = $("ai-st-"+g);
+    if (!known){ s.textContent = ""; s.style.color = ""; }
+    else if (stale){
+      s.textContent = on ? "⚠ last known: ARMED since " + when(a.since_utc) + (a.expires_utc ? " — lapses " + when(a.expires_utc) : "")
+        : "last known: disarmed";
+      s.style.color = on ? "var(--warn)" : "var(--mut)";
+    }
+    else if (on){
+      s.textContent = "⚠ ARMED since " + when(a.since_utc) + (a.by ? " (" + a.by + ")" : "")
+        + (a.expires_utc ? " — lapses " + when(a.expires_utc) : " — no time limit");
+      s.style.color = "var(--warn)";
+    } else {
+      const ld = aiIsObj(a.last_disarm) ? a.last_disarm : null;
+      s.textContent = ld && ld.reason ? "disarmed " + when(ld.utc) + " — " + ld.reason
+        : "disarmed since the AI service started" + (p.started_utc ? " (" + when(p.started_utc) + ")" : "");
+      s.style.color = "";
+    }
+    $("ai-may-"+g).textContent = up && aiIsObj(p.may_now) && p.may_now[g] ? p.may_now[g] : "–";
+  });
+  // The PLC valve gate is a second, separate lock in front of the gas valves.
+  const pnEn = st.pneumatic_control_enabled;
+  const pnKnown = !!pnEn && pnEn.value!==null && pnEn.freshness!=="invalid", pnOn = pnKnown && pnEn.value===true;
+  const ge = $("ai-gate");
+  ge.textContent = !pnKnown ? "PLC valve gate: ? — no word from the PLC driver; no gas valve moves without it"
+    : pnOn ? "PLC valve gate: enabled — so an armed AI can move gas valves, within the rails"
+    : "PLC valve gate: disabled — the AI cannot move a gas valve, armed or not, until the gate in the Pneumatic card is enabled as well";
+  ge.style.color = aiArmed(p, "pneumatic") && !pnOn ? "var(--warn)" : "";
+  const la = p && aiIsObj(p.last_action) ? p.last_action : null, lf = p && aiIsObj(p.last_refused) ? p.last_refused : null;
+  $("ai-last").textContent = la ? "last action " + when(la.utc) + " — " + [la.tool, la.detail].filter(Boolean).join(": ") + (la.reason ? " — “" + la.reason + "”" : "")
+    : up ? "no AI action since the service started" : "";
+  $("ai-lastref").textContent = lf ? "last refused " + when(lf.utc) + " — " + [lf.tool, lf.detail].filter(Boolean).join(": ") : "";
+  const run = [];
+  (p && Array.isArray(p.ramps) ? p.ramps : []).filter(aiIsObj).forEach(x => run.push("ramp " + x.zone + " → " + fmtNum(x.target_k) + " K at "
+    + fmtNum(x.rate_k_per_min) + " K/min, now " + fmtNum(x.current_k) + " K"));
+  Object.entries(p && aiIsObj(p.ln2_timers) ? p.ln2_timers : {}).forEach(([v, t]) => { if (aiIsObj(t)) run.push("LN₂ " + v
+    + " opened by the AI " + when(t.opened_utc) + " — the service closes it at " + when(t.deadline_utc) + " if still open"); });
+  $("ai-run").textContent = run.join(" · ");
+  $("ai-run").style.color = run.length ? "var(--warn)" : "";
+  aiRailsUpdate(pAny, st);
+  aiAuditUpdate();
+}
+
 let built = false;
 // One valve block.  `sid` is the state carrying the control; its commanded
 // twin is `${sid}_desired`.  `auto` adds the LN₂ autofill enable toggles;
@@ -274,6 +788,7 @@ function valveBlock(sid, name, auto, relay){
     </div>`;
 }
 function build(){
+  aiBuild();
   $("valves").innerHTML = VESSELS.map(([v,name])=>valveBlock("valve_"+v, name, true, false)).join("");
   $("pneumatic").innerHTML = `
     <div class="blk">
@@ -380,6 +895,10 @@ function update(d){
   sp("p-lj", st.labjack_connected, "labjack", "ok");
   sp("p-nge", st.nge_connected, "supply", "ok");
   $("p-mq").textContent="mqtt: "+(d.mqtt_connected?"connected":"DOWN"); $("p-mq").className="pill "+(d.mqtt_connected?"ok":"bad");
+
+  // AI control card — fenced off so a surprise in its status can never stop
+  // the rest of the page from updating.
+  try { aiUpdate(d, st); } catch(e){ console.error("AI control card:", e); }
 
   // valves — LN₂ manifold and pneumatic share the actual / desired / open / close part
   [...VESSELS.map(([v])=>"valve_"+v), ...PNEUMATIC.map(([sid])=>sid)].forEach(sid=>{

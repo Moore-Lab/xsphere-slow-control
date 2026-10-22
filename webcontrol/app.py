@@ -19,6 +19,8 @@ Run:
 Environment overrides:
     XSPHERE_MQTT_HOST (default localhost)   XSPHERE_MQTT_PORT (1883)
     XSPHERE_WEB_HOST  (default 0.0.0.0)      XSPHERE_WEB_PORT  (8088)
+    XSPHERE_AICONTROL_ALLOWED_HOSTS   names a page may be opened at to send
+        xsphere/commands/ai_control/* (default xbox-pi,xbox-pi.local,192.168.8.116,localhost,127.0.0.1)
 """
 
 from __future__ import annotations
@@ -30,6 +32,7 @@ import threading
 import time
 from pathlib import Path
 from typing import Optional
+from urllib.parse import urlsplit
 
 import markdown as _md
 import numpy as np
@@ -88,10 +91,10 @@ _client.on_connect = _on_connect
 _client.on_message = _on_message
 
 
-def _publish(topic: str, payload) -> None:
+def _publish(topic: str, payload, qos: int = 1):
     if not isinstance(payload, (str, bytes)):
         payload = json.dumps(payload)
-    _client.publish(topic, payload, qos=1)
+    return _client.publish(topic, payload, qos=qos)
 
 
 # ---------------------------------------------------------------------------
@@ -136,13 +139,66 @@ def api_state():
     })
 
 
+# The AI control switches (arm a group, replace the rails) are commands on
+# xsphere/commands/ai_control/ — see aicontrol/.  /api/cmd reads any body as
+# JSON (force=True), so a cross-site "simple" text/plain POST from any page
+# open in a LAN browser would otherwise reach them.  For those topics only,
+# insist on a real JSON request (cross-site, that needs a CORS preflight this
+# app never answers) and, when the browser names the page it came from, on one
+# of the Pi's own names — a fixed list, not the Host header, so DNS rebinding
+# does not get through either.  Every other topic is relayed as before.
+AI_CONTROL_PREFIX = "xsphere/commands/ai_control/"
+AI_CONTROL_ALLOWED_HOSTS = frozenset(
+    h.strip().lower()
+    for h in os.environ.get("XSPHERE_AICONTROL_ALLOWED_HOSTS",
+                            "xbox-pi,xbox-pi.local,192.168.8.116,localhost,127.0.0.1").split(",")
+    if h.strip())
+
+
+def _ai_control_refusal() -> Optional[str]:
+    """Why this request may not publish an ai_control command, or None."""
+    if not request.is_json:
+        return "ai_control commands must be sent as application/json"
+    origin = request.headers.get("Origin")
+    if origin is not None:
+        host = urlsplit(origin).hostname   # ports ignored; "null" -> None
+        if not host or host.lower() not in AI_CONTROL_ALLOWED_HOSTS:
+            return f"ai_control commands are not accepted from origin {origin!r}"
+    return None
+
+
 @app.route("/api/cmd", methods=["POST"])
 def api_cmd():
     d = request.get_json(force=True, silent=True) or {}
     topic = str(d.get("topic", ""))
     if not topic.startswith("xsphere/commands/"):
         return jsonify({"error": "topic must be under xsphere/commands/"}), 400
+    if topic.startswith(AI_CONTROL_PREFIX) or topic == AI_CONTROL_PREFIX.rstrip("/"):
+        refusal = _ai_control_refusal()
+        if refusal:
+            return jsonify({"error": refusal}), 403
+        return _relay_ai_control(topic, d.get("payload", {}))
     _publish(topic, d.get("payload", {}))
+    return jsonify({"ok": True})
+
+
+def _relay_ai_control(topic: str, payload):
+    """Send an AI arm / rails command now, or say it was not sent.
+
+    paho keeps a qos-1 message published while disconnected and delivers it
+    after the next connect — an "arm" clicked during a broker outage would arm
+    the AI minutes later, after the AI service's own reconnect disarm, with
+    nobody watching.  So: refused while disconnected, and arm / rails go out
+    at qos 0 (never held for later).  A disarm stays qos 1: arriving late is
+    harmless, arriving at all is what matters."""
+    if not _client.is_connected():
+        return jsonify({"error": "the web panel is not connected to the MQTT broker — "
+                                 "not sent"}), 503
+    disarm = isinstance(payload, dict) and payload.get("armed") is False
+    info = _publish(topic, payload, qos=1 if disarm else 0)
+    if info is not None and info.rc != mqtt.MQTT_ERR_SUCCESS:
+        return jsonify({"error": f"the MQTT publish failed ({mqtt.error_string(info.rc)}) — "
+                                 f"not sent"}), 503
     return jsonify({"ok": True})
 
 
