@@ -28,12 +28,17 @@ the group's ``last_disarm``.
 
 **LN2 open timers.**  When the AI opens a fill valve, the open time and a
 deadline ``max_open_minutes`` later are persisted in ``runtime.json`` (before
-the open is published).  At the deadline, if the valve is still open, the
-supervisor turns ``auto_open`` off and closes the valve — the service's own
-safety action, done even while ln2 is disarmed — audits it and disarms ln2.
-The PLC ladder's fill timer only runs with auto-close armed and the Python
-autovalve is disabled, so this is the backstop for a valve the AI opened.
-Timers are reloaded at start, so a restarted service still closes.
+the open is published).  At the deadline, if a live status shows the valve
+still open (state or desired 1), the supervisor turns ``auto_open`` off and
+closes the valve — the service's own safety action, done even while ln2 is
+disarmed — audits it and disarms ln2.  It never acts on an unknown state (no
+live status: it waits, and audits once if that lasts a minute).  A "closed"
+status clears the timer only once the AI's open has been seen, or at the
+deadline: the open may still be queued in slowcontrol.  The PLC ladder's fill
+timer only runs with auto-close armed and the Python autovalve is disabled,
+so this is the backstop for a valve the AI opened.  Timers are reloaded at
+start, so a restarted service still closes.  Deadlines and arm expiry run on
+the monotonic clock, so a step of the system clock cannot stretch them.
 
 **Heater ramps.**  :class:`Ramps` holds in-memory ramp entries and runs a
 thread that every 10 s asks the action layer (``Actions.ramp_step``) to move
@@ -73,11 +78,14 @@ INTERLOCKS_TOPIC = "xsphere/status/interlocks"
 SNAPSHOT_DISARM_AGE_S = 30.0
 #: A valve status is "live" when delivered (not as a retained replay) this recently.
 LIVE_STATUS_S = 3.0
-#: After an open, the timer is not cleared by a "closed" status for this long
-#: (the PLC may not have acted on the open yet).
-TIMER_CLEAR_GRACE_S = 15.0
 #: Re-send the auto-close while a valve stays open past its deadline.
 AUTO_CLOSE_RETRY_S = 10.0
+#: A timer past its deadline with no live valve status for this long gets
+#: one audit entry (the service never acts on an unknown valve state).
+UNKNOWN_STATUS_NOTE_S = 60.0
+#: AI-provided text is cut to this many characters in the service log (the
+#: audit keeps all of it).
+LOG_TEXT_MAX = 200
 
 
 def utc_iso(ts: Optional[float]) -> Optional[str]:
@@ -85,6 +93,20 @@ def utc_iso(ts: Optional[float]) -> Optional[str]:
     if ts is None:
         return None
     return datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def log_text(text: Any, limit: int = LOG_TEXT_MAX) -> str:
+    """Text for one service-log line: line breaks shown as ``\\n`` (a raw
+    newline would start a second journal entry), cut to ``limit`` characters."""
+    s = str(text).replace("\r", "\\r").replace("\n", "\\n")
+    return s if len(s) <= limit else s[:limit - 1] + "…"
+
+
+def default_mono(clock: Callable[[], float]) -> Callable[[], float]:
+    """The clock deadlines are kept on: ``time.monotonic`` beside the real
+    wall clock (a step of the system clock must neither stretch an arm nor
+    delay an LN2 close), the injected clock itself when a test fakes time."""
+    return time.monotonic if clock is time.time else clock
 
 
 def _is_number(x: Any) -> bool:
@@ -103,12 +125,16 @@ def _is_number(x: Any) -> bool:
 class ArmState:
     """Who may write what right now.  Never persisted; all off at start."""
 
-    def __init__(self, rails, audit=None, *, clock: Callable[[], float] = time.time):
+    def __init__(self, rails, audit=None, *, clock: Callable[[], float] = time.time,
+                 mono: Optional[Callable[[], float]] = None):
         self._rails = rails
         self._audit = audit
         self._clock = clock
+        self._mono = mono if mono is not None else default_mono(clock)
         self._lock = threading.Lock()            # bookkeeping only, never held while waiting
         # Read without the lock by is_armed(): single dict lookups are atomic.
+        # Expiry is kept on the monotonic clock (arms are never persisted);
+        # the wall-clock time is for display only.
         self._flags: Dict[str, bool] = {g: False for g in GROUPS}
         self._expires: Dict[str, Optional[float]] = {g: None for g in GROUPS}
         self._info: Dict[str, dict] = {g: {"since_utc": None, "expires_utc": None, "by": None,
@@ -123,7 +149,7 @@ class ArmState:
         if not self._flags.get(group, False):
             return False
         exp = self._expires.get(group)
-        return exp is None or self._clock() < exp
+        return exp is None or self._mono() < exp
 
     def armed_groups(self) -> List[str]:
         return [g for g in GROUPS if self.is_armed(g)]
@@ -135,7 +161,7 @@ class ArmState:
 
     def expired_groups(self) -> List[str]:
         """Groups still flagged armed whose expiry time has passed."""
-        now = self._clock()
+        now = self._mono()
         return [g for g in GROUPS
                 if self._flags[g] and self._expires[g] is not None and now >= self._expires[g]]
 
@@ -188,9 +214,10 @@ class ArmState:
         hours = self._rails.arm_hours
         now = self._clock()
         expires = now + float(hours) * 3600.0 if hours is not None else None
+        expires_mono = self._mono() + float(hours) * 3600.0 if hours is not None else None
         with self._lock:
             again = self._flags[group] and self.is_armed(group)
-            self._expires[group] = expires          # expiry before the flag
+            self._expires[group] = expires_mono     # expiry before the flag
             self._info[group].update(since_utc=utc_iso(now), expires_utc=utc_iso(expires), by=by)
             self._flags[group] = True
         until = f"expires {utc_iso(expires)} ({hours:g} h)" if expires else "no time limit"
@@ -278,13 +305,24 @@ class ArmState:
 # ──────────────────────────────────────────────────────────────────────────
 
 class Ln2Timers:
-    """``{vessel: {opened_ts, deadline_ts, opened_utc, deadline_utc, max_open_minutes}}``
-    persisted atomically in ``runtime.json`` so a restarted service still closes."""
+    """``{vessel: {opened_ts, deadline_ts, opened_utc, deadline_utc, max_open_minutes,
+    seen_open}}`` persisted atomically in ``runtime.json`` so a restarted
+    service still closes.
+
+    ``seen_open`` turns true once a status after the AI's open showed the
+    valve open (or commanded open).  Until then a "closed" status proves
+    nothing — the open may still be queued in slowcontrol — so it does not
+    clear the timer before the deadline.  Each entry also carries an
+    in-memory ``deadline_mono`` on the monotonic clock: a backward step of
+    the wall clock cannot delay the close (wall time is only what survives a
+    restart)."""
 
     def __init__(self, path, *, clock: Callable[[], float] = time.time,
+                 mono: Optional[Callable[[], float]] = None,
                  on_change: Optional[Callable[[], None]] = None):
         self.path = Path(path)
         self._clock = clock
+        self.mono = mono if mono is not None else default_mono(clock)
         self._lock = threading.Lock()
         self._timers: Dict[str, dict] = {}
         self._on_change = on_change
@@ -292,6 +330,11 @@ class Ln2Timers:
 
     def set_on_change(self, fn: Optional[Callable[[], None]]) -> None:
         self._on_change = fn
+
+    def is_due(self, t: dict, now: float) -> bool:
+        """True once the deadline has passed on either clock (a forward step
+        only closes early — the safe direction)."""
+        return now >= t["deadline_ts"] or self.mono() >= t["deadline_mono"]
 
     def load(self) -> None:
         """Read runtime.json.  A broken file is logged and reported, never fatal."""
@@ -313,18 +356,22 @@ class Ln2Timers:
             log.error("%s — LN2 auto-close timers from before the restart are lost", self.error)
             return
         loaded = {}
+        now, mono = self._clock(), self.mono()
         for vessel, t in timers.items():
             if vessel not in VESSELS:
                 log.error("runtime.json: ignoring an LN2 timer for unknown vessel %r", vessel)
                 continue
             if (isinstance(t, dict) and _is_number(t.get("opened_ts"))
                     and _is_number(t.get("deadline_ts"))):
+                deadline = float(t["deadline_ts"])
                 loaded[str(vessel)] = {
-                    "opened_ts": float(t["opened_ts"]), "deadline_ts": float(t["deadline_ts"]),
+                    "opened_ts": float(t["opened_ts"]), "deadline_ts": deadline,
                     "opened_utc": utc_iso(float(t["opened_ts"])),
-                    "deadline_utc": utc_iso(float(t["deadline_ts"])),
+                    "deadline_utc": utc_iso(deadline),
                     "max_open_minutes": t.get("max_open_minutes"),
-                    "close_attempts": 0, "last_attempt_ts": None}
+                    "seen_open": t.get("seen_open") is True,
+                    "deadline_mono": mono + max(0.0, deadline - now),
+                    "close_attempts": 0, "last_attempt_ts": None, "last_attempt_mono": None}
             else:
                 log.error("runtime.json: ignoring malformed LN2 timer for %r: %r", vessel, t)
         with self._lock:
@@ -334,16 +381,29 @@ class Ln2Timers:
                         ", ".join(f"{v} (deadline {t['deadline_utc']})" for v, t in loaded.items()))
 
     def set(self, vessel: str, minutes: float, opened_ts: Optional[float] = None) -> dict:
-        now = self._clock() if opened_ts is None else opened_ts
+        wall = self._clock()
+        now = wall if opened_ts is None else opened_ts
         deadline = now + float(minutes) * 60.0
         entry = {"opened_ts": now, "deadline_ts": deadline, "opened_utc": utc_iso(now),
                  "deadline_utc": utc_iso(deadline), "max_open_minutes": minutes,
-                 "close_attempts": 0, "last_attempt_ts": None}
+                 "seen_open": False, "deadline_mono": self.mono() + (deadline - wall),
+                 "close_attempts": 0, "last_attempt_ts": None, "last_attempt_mono": None}
         with self._lock:
             self._timers[vessel] = entry
             self._save_locked()
         self._changed()
         return dict(entry)
+
+    def mark_seen_open(self, vessel: str) -> None:
+        """A status after the AI's open showed the valve open: from now on a
+        "closed" status means the fill is over (persisted)."""
+        with self._lock:
+            t = self._timers.get(vessel)
+            if t is None or t["seen_open"]:
+                return
+            t["seen_open"] = True
+            self._save_locked()
+        log.info("LN2 %s: the AI's open has been seen", vessel)
 
     def clear(self, vessel: str) -> bool:
         with self._lock:
@@ -361,6 +421,7 @@ class Ln2Timers:
                 return 0
             t["close_attempts"] += 1
             t["last_attempt_ts"] = ts
+            t["last_attempt_mono"] = self.mono()
             return t["close_attempts"]
 
     def get(self, vessel: str) -> Optional[dict]:
@@ -386,7 +447,8 @@ class Ln2Timers:
                 log.exception("Error in LN2 timer change callback")
 
     def _save_locked(self) -> None:
-        keys = ("opened_ts", "deadline_ts", "opened_utc", "deadline_utc", "max_open_minutes")
+        keys = ("opened_ts", "deadline_ts", "opened_utc", "deadline_utc", "max_open_minutes",
+                "seen_open")
         doc = {"ln2_timers": {v: {k: t[k] for k in keys} for v, t in self._timers.items()}}
         tmp = self.path.with_name(self.path.name + ".tmp")
         try:
@@ -423,6 +485,11 @@ class Supervisor:
         self._pv_tripped: Optional[bool] = None
         self._interlocks_ok: Optional[bool] = None
         self._alive_prev: Optional[bool] = None
+        # (vessel, opened_ts) → monotonic time a due timer first had no live
+        # valve status; the ones already audited for it.
+        self._unknown_since: Dict[Tuple[str, float], float] = {}
+        self._unknown_noted: set = set()
+        self._unknown_logged: Dict[str, float] = {}
         bus.on_connect_hook(self._on_connect)
         bus.on_status(HEARTBEAT_TOPIC, self._on_heartbeat)
         bus.on_status(PV_INTERLOCK_TOPIC, self._on_pv_interlock)
@@ -532,31 +599,69 @@ class Supervisor:
                 log.exception("LN2 auto-close check for %s failed", vessel)
 
     def _check_timer(self, vessel: str, t: dict, now: float) -> None:
+        """Act only on positive, live evidence: a valve whose state is unknown
+        (no live status yet — the first ticks after a start, or the PLC
+        driver down) is never closed, nor its timer cleared."""
         v = self._zones.vessels.get(vessel) if self._zones is not None else None
         topic = v["status_topic"] if v else f"xsphere/status/valve/{vessel}"
         prefix = v["command_prefix"] if v else f"xsphere/commands/valve/{vessel}"
         st = self._bus.live_payload(topic, LIVE_STATUS_S)
-        closed = (isinstance(st, dict) and st.get("state") == 0 and st.get("desired") == 0)
-        if closed and now - t["opened_ts"] >= TIMER_CLEAR_GRACE_S:
+        due = self._timers.is_due(t, now)
+        key = (vessel, t["opened_ts"])
+        if not isinstance(st, dict):
+            if due:
+                self._status_unknown(vessel, t, key)
+            return
+        self._unknown_since.pop(key, None)
+        is_open = st.get("state") == 1 or st.get("desired") == 1
+        if is_open and not t.get("seen_open"):
+            self._timers.mark_seen_open(vessel)
+            t["seen_open"] = True
+        closed = st.get("state") == 0 and st.get("desired") == 0
+        # "Closed" ends the timer once the open was seen; before that the open
+        # may still be queued in slowcontrol, so only at the deadline.
+        if closed and (t.get("seen_open") or due):
             self._timers.clear(vessel)
             if t["close_attempts"]:
                 log.warning("LN2 %s: closed after the service's auto-close", vessel)
-            else:
+            elif t.get("seen_open"):
                 log.info("LN2 %s: valve shows closed — AI open timer cleared", vessel)
+            else:
+                log.info("LN2 %s: deadline passed with the valve closed (the AI's open was "
+                         "never seen open) — AI open timer cleared", vessel)
             return
-        if now < t["deadline_ts"]:
+        if not due or not is_open:
             return
-        last = t.get("last_attempt_ts")
-        if last is not None and now - last < AUTO_CLOSE_RETRY_S:
+        last = t.get("last_attempt_mono")
+        if last is not None and self._timers.mono() - last < AUTO_CLOSE_RETRY_S:
             return
         self._auto_close(vessel, t, st, prefix, now)
 
-    def _auto_close(self, vessel: str, t: dict, st: Any, prefix: str, now: float) -> None:
+    def _status_unknown(self, vessel: str, t: dict, key: Tuple[str, float]) -> None:
+        mono = self._timers.mono()
+        first = self._unknown_since.setdefault(key, mono)
+        last_log = self._unknown_logged.get(vessel)
+        if last_log is None or mono - last_log >= 60.0:
+            self._unknown_logged[vessel] = mono
+            log.warning("LN2 %s: the AI open timer passed its deadline %s, but there is no live "
+                        "valve status — not acting on an unknown state", vessel,
+                        t["deadline_utc"])
+        if mono - first >= UNKNOWN_STATUS_NOTE_S and key not in self._unknown_noted:
+            self._unknown_noted.add(key)
+            if self._audit is not None:
+                self._audit.record("auto_close", f"LN2 {vessel}: the AI open timer passed its "
+                                   f"deadline {t['deadline_utc']}, but there has been no live "
+                                   f"valve status for over {UNKNOWN_STATUS_NOTE_S:.0f} s — the "
+                                   f"service cannot tell whether the valve is open and has not "
+                                   f"acted; check the valve", vessel=vessel)
+
+    def _auto_close(self, vessel: str, t: dict, st: dict, prefix: str, now: float) -> None:
         attempt = self._timers.note_attempt(vessel, now)
         published = []
-        # auto_open off first (if on, or unknown), then the valve: both are
-        # the safe direction, so this runs whether ln2 is armed or not.
-        if not (isinstance(st, dict) and st.get("auto_open") == 0):
+        # auto_open off first (if on — or missing from the live status of a
+        # valve seen open), then the valve: both are the safe direction, so
+        # this runs whether ln2 is armed or not.
+        if st.get("auto_open") != 0:
             payload = {"enabled": False}
             if self._bus.publish_command(f"{prefix}/auto_open", payload):
                 published.append({"topic": f"{prefix}/auto_open", "payload": payload})
@@ -696,7 +801,7 @@ class Ramps:
         for z, e in stopped.items():
             detail = (f"ramp {z} → {e['target_k']:g} K stopped at {e['current_k']:g} K after "
                       f"{e['steps']} step(s): {reason}")
-            log.warning(detail)
+            log.warning("%s", log_text(detail, 500))    # the reason may be the AI's words
             if audit and self._audit is not None:
                 self._audit.record(kind, detail, zone=z)
         if stopped:

@@ -155,7 +155,6 @@ def test_full_document_is_valid():
     (("heaters", "zones", "top", "setpoint_max_k"), 400),
     (("heaters", "zones", "top", "pv_sources"), []),
     (("heaters", "zones", "top", "pv_sources"), ["clamp", "cube"]),
-    (("heaters", "supply", "1", "voltage_min_v"), 0),
     (("heaters", "supply", "1", "voltage_min_v"), 24),          # min == max allowed
     (("heaters", "supply", "1", "current_max_a"), 3),
     (("ln2", "vessels", "cryostat", "max_open_minutes"), 120),
@@ -836,6 +835,45 @@ def test_replace_from_command(tmp_path, main_map):
     assert ok and store.updated_by == "control page"
     ok, _, _ = store.replace_from_command({"rails": full_doc(), "base_revision": 1, "by": "Lucas"})
     assert ok and store.updated_by == "Lucas"
+    # request_id: the editor's nonce, echoed by the service, not part of the rails.
+    ok, err, _ = store.replace_from_command({"rails": full_doc(), "base_revision": 2,
+                                             "request_id": "abc123"})
+    assert ok and store.revision == 3 and "request_id" not in store.stored()
+    for bad in (5, None, "x" * 65, ["a"]):
+        ok, err, _ = store.replace_from_command({"rails": full_doc(), "base_revision": 3,
+                                                 "request_id": bad})
+        assert not ok and "request_id must be a string" in err
+    assert store.revision == 3
+
+
+@pytest.mark.parametrize("key", ["voltage_min_v", "current_min_a"])
+def test_zero_supply_minimum_needs_may_switch_off(key):
+    """0 V or a 0 A limit unpowers the heater just as "output off" does."""
+    doc = full_doc()
+    sr = doc["heaters"]["supply"]["1"]
+    assert sr["may_switch_off"] is False
+    sr[key] = 0
+    errs = validate_rails(doc)
+    assert len(errs) == 1 and f"heaters.supply.1.{key}" in errs[0]
+    assert "unpower the heater" in errs[0] and "may_switch_off" in errs[0]
+    sr["may_switch_off"] = True
+    assert validate_rails(doc) == []
+    sr[key] = 0.01
+    sr["may_switch_off"] = False
+    assert validate_rails(doc) == []
+
+
+def test_zero_supply_minimum_in_a_saved_file_makes_it_invalid(tmp_path):
+    """A rails file saved before this rule, with a 0 minimum and no
+    may_switch_off, now loads as invalid: nothing writable (deny by default)."""
+    doc = full_doc()
+    doc["heaters"]["supply"]["1"]["voltage_min_v"] = 0
+    doc.update(revision=4, zone_fingerprints={"top": "", "bottom": "", "nozzle": ""})
+    (tmp_path / "rails.json").write_text(json.dumps(doc), encoding="utf-8")
+    store = RailsStore(tmp_path / "rails.json")
+    store.load()
+    assert store.error and "voltage_min_v" in store.error
+    assert store.channel("1")["voltage_min_v"] is None
 
 
 def test_store_without_zone_map(tmp_path):

@@ -765,15 +765,144 @@ def test_first_change_bucket_counts_from_service_start(tmp_path):
     assert_ok(rig.call("set_heater_setpoints", {"setpoints": {"top": 166}, "reason": "r"}))
 
 
-def test_move_into_rails_from_outside_ignores_step_and_rate(rig):
-    rig.arm("heaters")
-    p = rig.fake.pid["top"]
-    p["setpoint_expr"], p["setpoint_k"] = "", 3.0        # after a slowcontrol restart
+def _setpoint_at(rig, zone, expr, sp_k=None, pv=None, pv_expr=None):
+    """Put a zone's setpoint (and optionally its fed PV) where a test needs it."""
+    p = rig.fake.pid[zone]
+    p["setpoint_expr"] = expr
+    if sp_k is not None:
+        p["setpoint_k"] = sp_k
+    if pv_expr is not None:
+        p["pv_expr"] = pv_expr
+        if not pv_expr:
+            p["pv_k"] = 500.0                           # the interlock's stand-in
+    if pv is not None:
+        rig.fake.sensors[p["pv_expr"]] = pv
     rig.fake.poll()
-    rig.svc.actions.started_ts = rig.clock()             # empty bucket
-    out = assert_ok(rig.call("set_heater_setpoints", {"setpoints": {"top": 165}, "reason": "r"}))
-    assert out["readback"]["top"]["previous_setpoint_k"] == 3.0
-    assert rig.cmds() == [("xsphere/commands/pid/top/setpoint", {"value_k": 165.0})]
+
+
+def test_restart_case_measured_from_the_fed_pv(rig):
+    """After a slowcontrol restart the setpoint register reads 3 K (outside the
+    rails); with a fed PV at 165 K the step is measured from 165 K."""
+    rig.arm("heaters")
+    _setpoint_at(rig, "top", "", sp_k=3.0, pv=165.0)
+    out = assert_refused(rig.call("set_heater_setpoints",
+                                  {"setpoints": {"top": 190}, "reason": "r"}),
+                         "the measured PV 165 K", "max_step_k is 10 K")
+    assert out["published"] == [] and rig.cmds() == []
+    out = assert_ok(rig.call("set_heater_setpoints", {"setpoints": {"top": 175}, "reason": "r"}))
+    rb = out["readback"]["top"]
+    assert rb["previous_setpoint_k"] == 3.0
+    assert rb["anchor_k"] == 165.0 and rb["anchor_source"] == "pv"
+    assert "measured_from_rail_edge_k" not in rb
+    assert rig.cmds() == [("xsphere/commands/pid/top/setpoint", {"value_k": 175.0})]
+    assert "top 3 → 175 K (measured from PV 165 K)" in rig.svc.audit.recent(1)[0]["detail"]
+
+
+def test_restart_case_rate_is_measured_from_the_pv_too(rig):
+    rig.arm("heaters")
+    _setpoint_at(rig, "top", "", sp_k=3.0, pv=165.0)
+    rig.svc.actions.started_ts = rig.clock() - 30       # 0.5 min × 5 K/min = 2.5 K
+    assert_refused(rig.call("set_heater_setpoints", {"setpoints": {"top": 168}, "reason": "r"}),
+                   "exceeds the rate allowance of 2.50 K", "the measured PV 165 K")
+    assert_ok(rig.call("set_heater_setpoints", {"setpoints": {"top": 167.5}, "reason": "r"}))
+
+
+def test_warm_case_lands_within_one_step_of_the_near_edge(rig):
+    """PV 295 K (warm), rails 150–200 K, max_step_k 10 K: 190–200 K only."""
+    rig.arm("heaters")
+    _setpoint_at(rig, "top", "", sp_k=3.0, pv=295.0)
+    out = assert_refused(rig.call("set_heater_setpoints",
+                                  {"setpoints": {"top": 170}, "reason": "r"}),
+                         "the measured PV 295 K is outside Lucas's rails", "190–200 K")
+    assert out["published"] == []
+    out = assert_ok(rig.call("set_heater_setpoints", {"setpoints": {"top": 195}, "reason": "r"}))
+    rb = out["readback"]["top"]
+    assert rb["anchor_k"] == 295.0 and rb["anchor_source"] == "pv"
+    assert rb["measured_from_rail_edge_k"] == 200.0
+
+
+def test_cold_case_lands_within_one_step_of_the_near_edge(rig):
+    """PV 80 K (cold), rails 150–200 K, max_step_k 10 K: 150–160 K only."""
+    rig.arm("heaters")
+    _setpoint_at(rig, "top", "", sp_k=3.0, pv=80.0)
+    assert_refused(rig.call("set_heater_setpoints", {"setpoints": {"top": 161}, "reason": "r"}),
+                   "150–160 K")
+    out = assert_ok(rig.call("set_heater_setpoints", {"setpoints": {"top": 160}, "reason": "r"}))
+    assert out["readback"]["top"]["measured_from_rail_edge_k"] == 150.0
+
+
+def test_from_outside_without_a_step_rail_any_landing_inside(rig):
+    doc = full_rails()
+    doc["heaters"]["zones"]["top"]["max_step_k"] = None
+    rig.set_rails(doc)
+    rig.arm("heaters")
+    _setpoint_at(rig, "top", "", sp_k=3.0, pv=295.0)
+    assert_ok(rig.call("set_heater_setpoints", {"setpoints": {"top": 155}, "reason": "r"}))
+
+
+def test_from_outside_with_no_fed_pv(rig):
+    """E = 3 K and no PV source: measured from 3 K, i.e. from the 150 K edge —
+    and an increase still needs a live PV."""
+    rig.arm("heaters")
+    _setpoint_at(rig, "top", "", sp_k=3.0, pv_expr="")
+    assert_refused(rig.call("set_heater_setpoints", {"setpoints": {"top": 190}, "reason": "r"}),
+                   "the setpoint 3 K is outside Lucas's rails", "150–160 K")
+    assert_refused(rig.call("set_heater_setpoints", {"setpoints": {"top": 155}, "reason": "r"}),
+                   "no live PV source")
+    assert rig.cmds() == []
+
+
+def test_decrease_from_above_the_rails(rig):
+    """A setpoint a person left above the rails (250 K), PV not fed: measured
+    from it, so 190–200 K; a decrease needs no PV."""
+    rig.arm("heaters")
+    _setpoint_at(rig, "top", "250.0", pv_expr="")
+    assert_refused(rig.call("set_heater_setpoints", {"setpoints": {"top": 185}, "reason": "r"}),
+                   "190–200 K")
+    out = assert_ok(rig.call("set_heater_setpoints", {"setpoints": {"top": 195}, "reason": "r"}))
+    rb = out["readback"]["top"]
+    assert rb["previous_setpoint_k"] == 250.0 and rb["anchor_source"] == "setpoint"
+    assert rb["anchor_k"] == 250.0 and rb["measured_from_rail_edge_k"] == 200.0
+
+
+def test_decrease_from_above_the_rails_measured_from_the_fed_pv(rig):
+    """Same setpoint (250 K) but a fed PV at 165 K: the change is measured
+    from the temperature, so 200 K (35 K above it) is too far."""
+    rig.arm("heaters")
+    _setpoint_at(rig, "top", "250.0", pv=165.0)
+    assert_refused(rig.call("set_heater_setpoints", {"setpoints": {"top": 200}, "reason": "r"}),
+                   "the measured PV 165 K", "max_step_k is 10 K")
+    out = assert_ok(rig.call("set_heater_setpoints", {"setpoints": {"top": 160}, "reason": "r"}))
+    assert out["readback"]["top"]["anchor_k"] == 165.0
+
+
+def test_inside_the_rails_the_setpoint_is_the_anchor(rig):
+    rig.arm("heaters")
+    out = assert_ok(rig.call("set_heater_setpoints", {"setpoints": {"top": 170}, "reason": "r"}))
+    rb = out["readback"]["top"]
+    assert rb["anchor_k"] == 165.0 and rb["anchor_source"] == "setpoint"
+    assert "measured_from_rail_edge_k" not in rb
+
+
+def test_live_pi_state_first_write_is_held_to_step(rig):
+    """The Pi today: every PID at setpoint_expr "", SP 3 K, no PV source.
+    Rails 150–200 K, max_step_k 2, max_rate 0.5 K/min.  Giving each zone a PV
+    and then asking for 200 K everywhere must not jump 3 → 200 K."""
+    doc = full_rails()
+    for z in ZONES:
+        doc["heaters"]["zones"][z].update(max_step_k=2, max_rate_k_per_min=0.5)
+    rig.set_rails(doc)
+    for z in ZONES:
+        rig.fake.pid[z].update(setpoint_expr="", setpoint_k=3.0, pv_expr="", pv_k=500.0)
+    rig.advance(1)
+    rig.arm("heaters")
+    for z in ZONES:
+        assert_ok(rig.call("set_pv_source", {"zone": z, "source": "cube", "reason": "r"}))
+        rig.advance(1)
+    rig.transport.clear()
+    assert_refused(rig.call("set_heater_gradient", {"base_k": 200, "dv_k": 0, "dl_k": 0,
+                                                    "reason": "r"}), "max_step_k is 2 K")
+    assert [t for t, _p in rig.cmds() if t.endswith("/setpoint")] == []
 
 
 def test_interlock_tripped_refuses(rig):
@@ -1177,6 +1306,38 @@ def test_pv_source_reverted_when_not_confirmed(rig):
     assert out["confirmed"] is False
 
 
+def test_pv_source_reverted_when_the_command_never_showed(rig):
+    """The status still shows the previous source (the AI's command may yet be
+    applied late): the revert goes out, after it."""
+    rig.arm("heaters")
+    rig.fake.respond = False
+    assert_refused(rig.call("set_pv_source", {"zone": "top", "source": "cube", "reason": "r"}),
+                   "reverted to the previous pv_expr 'rtd5'")
+    assert rig.cmds()[-1] == ("xsphere/commands/pid/top/pv_expr", {"expr": "rtd5"})
+
+
+def test_pv_source_not_reverted_over_someone_elses_change(rig):
+    """A person chose a third source (and disarmed) while the AI's change was
+    unconfirmed: the service's revert must not overwrite that."""
+    rig.arm("heaters")
+    p = rig.fake.pid["top"]
+
+    def hook(topic, payload):
+        if topic.endswith("/top/pv_expr") and payload.get("expr") == "rtd2":
+            rig.fake.respond = False                  # the AI's command is not applied …
+            p["pv_expr"] = "rtd4"                     # … Lucas picks rtd4 on the Control page
+            rig.fake.publish_pid("top")
+            rig.fake.publish_pid("top")
+            rig.svc.arms.disarm("heaters", "disarmed by control page")
+    rig.fake.on_command_hook = hook
+    out = assert_refused(rig.call("set_pv_source", {"zone": "top", "source": "cube",
+                                                    "reason": "r"}),
+                         "pv_expr now reads 'rtd4'", "not reverted")
+    assert rig.cmds() == [("xsphere/commands/pid/top/pv_expr", {"expr": "rtd2"})]
+    assert out["published"] == [{"topic": "xsphere/commands/pid/top/pv_expr",
+                                 "payload": {"expr": "rtd2"}}]
+
+
 # ──────────────────────────────────────────────────────────────────────────
 # Heater supply
 # ──────────────────────────────────────────────────────────────────────────
@@ -1298,6 +1459,86 @@ def test_supply_refused_while_tripped(rig):
     rig.fake.set_interlock(tripped=True)
     rig.arm("heaters")
     assert_refused(rig.call("set_heater_supply", GOOD["set_heater_supply"]), "tripped")
+
+
+def _top_channel(rig):
+    chs = [ch for ch in (1, 2, 3) if rig.svc.zones.channel_zone(ch) == "top"]
+    assert chs, "no NGE channel is labelled for software zone top"
+    return chs[0]
+
+
+@pytest.mark.parametrize("setup,needle", [
+    # A person left the setpoint above the rails, with no PV source: the PID
+    # would heat towards 300 K, or open-loop.
+    (lambda p: p.update(setpoint_expr="300.0", pv_expr="", pv_k=80.0, output_pct=100.0),
+     "outside Lucas's rails"),
+    (lambda p: p.update(mode="manual", output_pct=100.0), "mode 'manual'"),
+    (lambda p: p.update(setpoint_expr="rtd5 + 50"), "not a plain number"),
+    (lambda p: p.update(pv_expr="", pv_k=500.0), "no live PV source"),
+])
+def test_supply_on_needs_the_fed_pid_zone_ready(rig, setup, needle):
+    rig.arm("heaters")
+    ch = _top_channel(rig)
+    rig.fake.nge_ch[ch].update(output=0, desired=0)
+    setup(rig.fake.pid["top"])
+    rig.fake.poll()
+    out = assert_refused(rig.call("set_heater_supply", {"channel": ch, "output": True,
+                                                        "reason": "r"}),
+                         f"supply ch{ch} feeds software zone top", needle)
+    assert out["published"] == [] and rig.cmds() == []
+
+
+def test_supply_raise_while_on_needs_the_zone_ready_but_lowering_does_not(rig):
+    rig.arm("heaters")
+    ch = _top_channel(rig)                      # output on, 21.5 V / 1.5 A held
+    rig.fake.pid["top"].update(mode="manual", output_pct=100.0)
+    rig.fake.poll()
+    assert_refused(rig.call("set_heater_supply", {"channel": ch, "voltage_v": 24,
+                                                  "reason": "r"}), "mode 'manual'")
+    assert_refused(rig.call("set_heater_supply", {"channel": ch, "current_a": 2.0,
+                                                  "reason": "r"}), "mode 'manual'")
+    assert rig.cmds() == []
+    assert_ok(rig.call("set_heater_supply", {"channel": ch, "voltage_v": 20, "current_a": 1.0,
+                                             "reason": "less power"}))
+
+
+def test_supply_raise_while_off_is_not_power(rig):
+    rig.arm("heaters")
+    ch = _top_channel(rig)
+    rig.fake.nge_ch[ch].update(output=0, desired=0)
+    rig.fake.pid["top"].update(mode="manual", output_pct=100.0)
+    rig.fake.poll()
+    assert_ok(rig.call("set_heater_supply", {"channel": ch, "voltage_v": 24, "reason": "r"}))
+    assert_refused(rig.call("set_heater_supply", {"channel": ch, "output": True, "reason": "r"}),
+                   "mode 'manual'")
+
+
+def test_supply_zero_needs_may_switch_off_even_with_old_rails(rig, monkeypatch):
+    """validate_rails now refuses a 0 V / 0 A minimum without may_switch_off;
+    the action checks it again for whatever rails are in force."""
+    rig.arm("heaters")
+    real = rig.svc.rails.channel
+
+    def zero_min(ch):
+        sr = real(ch)
+        sr.update(voltage_min_v=0, current_min_a=0, may_switch_off=False)
+        return sr
+    monkeypatch.setattr(rig.svc.rails, "channel", zero_min)
+    assert_refused(rig.call("set_heater_supply", {"channel": 1, "voltage_v": 0, "reason": "r"}),
+                   "0 V would leave the heater without power", "may_switch_off is false")
+    assert_refused(rig.call("set_heater_supply", {"channel": 1, "current_a": 0.0004,
+                                                  "reason": "r"}),
+                   "a 0 A current limit would leave the heater without power")
+    assert rig.cmds() == []
+
+
+def test_supply_zero_with_may_switch_off(rig):
+    doc = full_rails()
+    doc["heaters"]["supply"]["1"].update(voltage_min_v=0, may_switch_off=True)
+    rig.set_rails(doc)
+    rig.arm("heaters")
+    assert_ok(rig.call("set_heater_supply", {"channel": 1, "voltage_v": 0, "reason": "r"}))
+    assert rig.cmds() == [("xsphere/commands/nge/1/voltage", {"value_v": 0.0})]
 
 
 # ──────────────────────────────────────────────────────────────────────────
@@ -1470,6 +1711,171 @@ def test_ln2_timers_file_problems_are_reported(tmp_path):
     assert t.error and t.all() == {}
 
 
+def _deliver_late(rig, vessel, state):
+    """slowcontrol finally processes a command that was queued behind slow work."""
+    rig.fake.respond = True
+    rig.fake._on_command(f"xsphere/commands/valve/{vessel}/state", {"state": state},
+                         rig.transport)
+
+
+def test_ln2_close_after_an_unseen_open_is_sent_and_keeps_the_timer(rig):
+    """The open is queued in slowcontrol (not confirmed); the valve still reads
+    closed.  A close is not a silent no-op that drops the auto-close timer."""
+    rig.arm("ln2")
+    v = "cryostat"
+    rig.fake.respond = False
+    out = assert_ok(rig.call("set_ln2_valve", {"vessel": v, "open": True, "reason": "fill"}))
+    assert out["confirmed"] is False and rig.svc.timers.get(v) is not None
+    rig.advance(1)
+    assert_refused(rig.call("set_ln2_valve", {"vessel": v, "open": False, "reason": "r"}),
+                   "wait 9 s more")
+    assert rig.svc.timers.get(v) is not None
+    rig.advance(10)
+    rig.fake.respond = True
+    out = assert_ok(rig.call("set_ln2_valve", {"vessel": v, "open": False, "reason": "r"}))
+    assert ("xsphere/commands/valve/cryostat/state", {"state": 0}) in rig.cmds()
+    assert "sent although it reads closed" in rig.svc.audit.recent(1)[0]["detail"]
+    assert any("timer stays" in w for w in out["warnings"])
+    assert rig.svc.timers.get(v) is not None               # kept: the open was never seen
+
+
+def test_ln2_open_landing_late_is_still_auto_closed(rig):
+    """An open delayed well past the old 15 s grace: the timer must survive the
+    "closed" statuses before it lands, and close the valve at the deadline."""
+    rig.arm("ln2")
+    v = "cryostat"
+    rig.fake.valves[v]["auto_open"] = 1
+    rig.fake.respond = False
+    assert_ok(rig.call("set_ln2_valve", {"vessel": v, "open": True, "reason": "fill"}))
+    for _ in range(4):                                     # 20 s of "closed"
+        rig.advance(5)
+        rig.svc.supervisor.tick()
+    assert rig.svc.timers.get(v) is not None
+    _deliver_late(rig, v, 1)
+    assert rig.fake.valves[v]["state"] == 1
+    rig.transport.clear()
+    rig.advance(1)
+    rig.svc.supervisor.tick()
+    assert rig.svc.timers.get(v)["seen_open"] is True
+    assert json.loads(rig.svc.settings.runtime_path.read_text(
+        encoding="utf-8"))["ln2_timers"][v]["seen_open"] is True
+    for _ in range(8):                                     # past the 1 min deadline
+        rig.advance(5)
+        rig.svc.supervisor.tick()
+    assert rig.cmds()[:2] == [("xsphere/commands/valve/cryostat/auto_open", {"enabled": False}),
+                              ("xsphere/commands/valve/cryostat/state", {"state": 0})]
+    assert rig.fake.valves[v]["state"] == 0
+    assert "auto_close" in rig.audit_kinds()
+
+
+def test_ln2_late_open_after_the_ai_close_ends_closed(rig):
+    """The AI's close is sent after its unseen open, on the same topic: when
+    both are finally processed, in order, the valve ends closed."""
+    rig.arm("ln2")
+    v = "ballast"
+    rig.fake.respond = False
+    assert_ok(rig.call("set_ln2_valve", {"vessel": v, "open": True, "reason": "fill"}))
+    rig.advance(11)
+    assert_ok(rig.call("set_ln2_valve", {"vessel": v, "open": False, "reason": "r"}))
+    assert rig.svc.timers.get(v) is not None
+    rig.transport.clear()
+    _deliver_late(rig, v, 1)
+    rig.svc.supervisor.tick()                              # the PLC reports it open
+    assert rig.svc.timers.get(v)["seen_open"] is True
+    _deliver_late(rig, v, 0)
+    assert rig.fake.valves[v]["state"] == 0
+    rig.svc.supervisor.tick()                              # seen open, now closed
+    assert rig.svc.timers.get(v) is None
+    assert rig.cmds() == []                                # no auto-close needed
+
+
+def test_ln2_unseen_timer_cleared_at_the_deadline_when_closed(rig):
+    rig.arm("ln2")
+    v = "primary_xe"
+    rig.fake.respond = False
+    assert_ok(rig.call("set_ln2_valve", {"vessel": v, "open": True, "reason": "fill"}))
+    rig.fake.respond = True
+    rig.advance(30)
+    rig.svc.supervisor.tick()
+    assert rig.svc.timers.get(v) is not None               # closed, never seen open: kept
+    rig.transport.clear()
+    rig.advance(31)
+    rig.svc.supervisor.tick()
+    assert rig.svc.timers.get(v) is None and rig.cmds() == []
+
+
+def test_ln2_restart_with_a_stale_timer_never_acts_on_an_unknown_status(tmp_path):
+    """A timer left in runtime.json, the valve closed with auto_open ON for the
+    PLC's own refills: the restarted service, still without a live valve
+    status, must not switch auto_open off (nor close anything)."""
+    clock = Clock()
+    (tmp_path / "runtime.json").write_text(json.dumps({"ln2_timers": {"cryostat": {
+        "opened_ts": clock() - 3 * 86400, "deadline_ts": clock() - 3 * 86400 + 60,
+        "max_open_minutes": 1}}}), encoding="utf-8")
+    transport = LoopbackTransport()
+    # What the broker retains: closed, auto-close and auto-open on.
+    transport.inject("xsphere/status/valve/cryostat",
+                     {"state": 0, "desired": 0, "auto_close": 1, "auto_open": 1}, retain=True)
+    svc = Service(Settings(state_dir=tmp_path), transport, clock=clock, history=None,
+                  confirm_timeout_s=0.3)
+    svc.start(threads=False)
+    assert svc.timers.get("cryostat") is not None
+    for _ in range(3):
+        clock.advance(1)
+        svc.supervisor.tick()
+    assert transport.published_to("xsphere/commands/#") == []
+    assert svc.timers.get("cryostat") is not None          # unknown: not cleared either
+    # A minute with no live status: one audit entry says so (still no command).
+    for _ in range(62):
+        clock.advance(1)
+        svc.supervisor.tick()
+    notes = [e for e in svc.audit.recent(50) if e["kind"] == "auto_close"]
+    assert len(notes) == 1 and "no live valve status" in notes[0]["detail"]
+    assert transport.published_to("xsphere/commands/#") == []
+    # The first live status: closed → the timer goes, nothing is sent.
+    transport.inject("xsphere/status/valve/cryostat",
+                     {"state": 0, "desired": 0, "auto_close": 1, "auto_open": 1})
+    svc.supervisor.tick()
+    assert svc.timers.get("cryostat") is None
+    assert transport.published_to("xsphere/commands/#") == []
+
+
+def test_ln2_auto_close_leaves_auto_open_alone_when_it_is_off(rig):
+    rig.arm("ln2")
+    assert_ok(rig.call("set_ln2_valve", {"vessel": "ballast", "open": True, "reason": "r"}))
+    rig.transport.clear()
+    rig.advance(61)
+    rig.svc.supervisor.tick()
+    assert rig.cmds() == [("xsphere/commands/valve/ballast/state", {"state": 0})]
+
+
+def test_ln2_timer_deadline_and_arm_expiry_ignore_a_backward_clock_step(tmp_path):
+    """Deadlines run on the monotonic clock: setting the system clock back must
+    neither keep an AI-opened valve open longer nor stretch an arm."""
+    from aicontrol.arms import ArmState
+    from aicontrol.rails import RailsStore
+    wall, mono = Clock(), Clock(t=1000.0)
+    timers = Ln2Timers(tmp_path / "runtime.json", clock=wall, mono=mono)
+    t = timers.set("cryostat", 1)
+    wall.advance(-600)                                     # the clock is set back 10 min
+    mono.advance(61)
+    assert timers.is_due(timers.get("cryostat"), wall())
+    # Reloaded after a restart: the deadline left is taken from the wall clock.
+    wall2, mono2 = Clock(t=t["opened_ts"] + 30), Clock(t=50.0)
+    again = Ln2Timers(tmp_path / "runtime.json", clock=wall2, mono=mono2)
+    again.load()
+    e = again.get("cryostat")
+    assert e["deadline_mono"] == pytest.approx(50.0 + 30.0) and not again.is_due(e, wall2())
+
+    rails = RailsStore(tmp_path / "rails.json")
+    rails.load()                                           # defaults: arm_hours 8
+    arms = ArmState(rails, clock=wall, mono=mono)
+    arms.arm("ln2", "pytest")
+    wall.advance(-3600)
+    mono.advance(8 * 3600 + 1)
+    assert not arms.is_armed("ln2") and arms.expired_groups() == ["ln2"]
+
+
 def test_ln2_auto_order_close_then_open(rig):
     rig.arm("ln2")
     rig.fake.valves["primary_xe"]["auto_close"] = 0
@@ -1525,6 +1931,21 @@ def test_ln2_auto_open_needs_fresh_level(rig):
                                              "reason": "r"}), "level_primary_xe")
 
 
+def test_ln2_auto_close_off_refused_while_auto_open_is_on(rig):
+    """auto-open only works with auto-close armed — also across two calls."""
+    rig.arm("ln2")
+    v = "ballast"
+    assert_ok(rig.call("set_ln2_auto", {"vessel": v, "auto_open": True, "reason": "r"}))
+    rig.advance(11)
+    assert_refused(rig.call("set_ln2_auto", {"vessel": v, "auto_close": False, "reason": "r"}),
+                   "auto-open is on", "turn it off first")
+    assert rig.fake.valves[v]["auto_open"] == 1 and rig.fake.valves[v]["auto_close"] == 1
+    out = assert_ok(rig.call("set_ln2_auto", {"vessel": v, "auto_open": False,
+                                              "auto_close": False, "reason": "r"}))
+    assert [p["topic"] for p in out["published"]] == [
+        "xsphere/commands/valve/ballast/auto_open", "xsphere/commands/valve/ballast/auto_close"]
+
+
 # ──────────────────────────────────────────────────────────────────────────
 # Pneumatic
 # ──────────────────────────────────────────────────────────────────────────
@@ -1567,6 +1988,47 @@ def test_pneumatic_forbid_open_together(rig):
     assert_refused(rig.call("set_pneumatic_valve", {"valve": "pump", "open": True,
                                                     "reason": "r"}), "state is not known")
     assert rig.cmds() == []
+
+
+def test_pneumatic_forbid_counts_an_unconfirmed_open_of_the_partner(rig):
+    """An open queued in slowcontrol reads "closed" until it lands: the
+    partner may not be opened meanwhile."""
+    rig.arm("pneumatic")
+    rig.fake.respond = False
+    out = assert_ok(rig.call("set_pneumatic_valve", {"valve": "pump", "open": True,
+                                                     "reason": "r"}))
+    assert out["confirmed"] is False
+    rig.fake.respond = True
+    rig.advance(1)                                        # pump reads closed
+    assert_refused(rig.call("set_pneumatic_valve", {"valve": "bottle", "open": True,
+                                                    "reason": "r"}),
+                   "an AI open of pump was sent 1 s ago and is not confirmed",
+                   "forbid bottle and pump")
+    assert ("xsphere/commands/pneumatic/bottle/state", {"state": 1}) not in rig.cmds()
+    rig.advance(120)                                      # long gone, or visible by now
+    assert_ok(rig.call("set_pneumatic_valve", {"valve": "bottle", "open": True, "reason": "r"}))
+
+
+def test_pneumatic_forbid_cleared_by_a_close_or_by_the_open_landing(rig):
+    rig.arm("pneumatic")
+    rig.fake.respond = False
+    assert_ok(rig.call("set_pneumatic_valve", {"valve": "pump", "open": True, "reason": "r"}))
+    rig.fake.respond = True
+    rig.advance(10)
+    assert_ok(rig.call("set_pneumatic_valve", {"valve": "pump", "open": False, "reason": "r"}))
+    rig.advance(1)
+    assert_ok(rig.call("set_pneumatic_valve", {"valve": "bottle", "open": True, "reason": "r"}))
+    # The other way round: bottle's open lands late (seen open), then closes.
+    rig.advance(10)
+    assert_ok(rig.call("set_pneumatic_valve", {"valve": "bottle", "open": False, "reason": "r"}))
+    rig.advance(10)
+    rig.fake.respond = False
+    assert_ok(rig.call("set_pneumatic_valve", {"valve": "bottle", "open": True, "reason": "r"}))
+    rig.fake.respond = True
+    rig.fake._on_command("xsphere/commands/pneumatic/bottle/state", {"state": 1}, rig.transport)
+    rig.advance(1)
+    assert_refused(rig.call("set_pneumatic_valve", {"valve": "pump", "open": True,
+                                                    "reason": "r"}), "bottle is open")
 
 
 def test_pneumatic_close_ignores_forbid_pairs(rig):
@@ -1633,6 +2095,120 @@ def test_add_note_needs_no_arm(rig):
     assert out["published"] == []
 
 
+def test_notes_have_their_own_budget_and_never_become_the_last_action(rig):
+    """A flood of notes must not push a real action off the card's and the
+    status page's short lists, nor take its place as "last action"."""
+    from aicontrol.actions import MAX_NOTES_PER_MIN
+    rig.arm("heaters")
+    assert_ok(rig.call("set_heater_setpoints", {"setpoints": {"top": 166}, "reason": "real"}))
+    for i in range(MAX_NOTES_PER_MIN):
+        assert_ok(rig.call("add_note", {"text": f"note {i}"}))
+    assert_refused(rig.call("add_note", {"text": "one too many"}),
+                   f"at most {MAX_NOTES_PER_MIN} notes a minute")
+    st = rig.svc.status_payload()
+    assert st["actions"] == 1 and st["last_action"]["tool"] == "set_heater_setpoints"
+    assert st["notes"] == MAX_NOTES_PER_MIN and st["last_note"]["detail"] == "note 5"
+    rig.advance(60)
+    assert_ok(rig.call("add_note", {"text": "later"}))
+
+
+def test_refusals_beyond_the_budget_are_counted_then_summed_up(rig):
+    from aicontrol.actions import MAX_AUDITED_REFUSALS_PER_MIN as N
+    before = len(rig.svc.audit.recent(500))
+    for _ in range(N + 15):                       # disarmed: every call refused
+        assert_refused(rig.call("set_heater_setpoints", {"setpoints": {"top": 170},
+                                                         "reason": "r"}), "not armed")
+    entries = rig.svc.audit.recent(500)
+    assert len(entries) - before == N              # only the first N one by one
+    assert rig.svc.actions.stats()["refused"] == N + 15
+    rig.svc.actions.flush_unaudited()              # < 1 min: not yet
+    assert len(rig.svc.audit.recent(500)) - before == N
+    rig.clock.advance(61)
+    rig.svc.actions.flush_unaudited()
+    e = rig.svc.audit.recent(1)[0]
+    assert e["kind"] == "refused" and e["unaudited"] == 15
+    assert "15 more call(s) that sent nothing" in e["detail"]
+    assert "set_heater_setpoints ×15" in e["detail"]
+    # The budget is free again: the next refusal is audited by itself.
+    assert_refused(rig.call("set_ln2_valve", GOOD["set_ln2_valve"]), "not armed")
+    assert rig.svc.audit.recent(1)[0]["tool"] == "set_ln2_valve"
+
+
+def test_no_op_calls_share_the_budget_and_never_become_the_last_action(rig):
+    """stop_heater_ramp needs no arm and, with no ramp, does nothing: a loop of
+    them must not flood the audit nor replace the real last action."""
+    from aicontrol.actions import MAX_AUDITED_REFUSALS_PER_MIN as N
+    rig.arm("heaters")
+    assert_ok(rig.call("set_heater_setpoints", {"setpoints": {"top": 166}, "reason": "real"}))
+    before = len(rig.svc.audit.recent(500))
+    for _ in range(N + 5):
+        out = assert_ok(rig.call("stop_heater_ramp", {"reason": "again"}))
+        assert out["note"].startswith("no ramp was running")
+    assert len(rig.svc.audit.recent(500)) - before == N
+    st = rig.svc.actions.stats()
+    assert st["last_action"]["tool"] == "set_heater_setpoints"
+    rig.advance(61)
+    rig.svc.actions.flush_unaudited()
+    e = rig.svc.audit.recent(1)[0]
+    assert e["unaudited"] == 5 and "stop_heater_ramp ×5" in e["detail"]
+    # A stop that does stop something is always audited, budget or not.
+    rig.actions._quiet_times.extend([rig.clock()] * N)
+    assert_ok(rig.call("start_heater_ramp", {"targets": {"top": 175}, "rate_k_per_min": 1,
+                                             "reason": "r"}))
+    assert_ok(rig.call("stop_heater_ramp", {"reason": "enough"}))
+    assert rig.svc.audit.recent(2)[0]["detail"].startswith("stopped ramp(s): top")
+
+
+@pytest.mark.parametrize("tool,args,needle", [
+    # A lone surrogate is valid JSON but no UTF-8: the audit write would fail
+    # after the command was out.
+    ("set_heater_setpoints", {"setpoints": {"top": 167}, "reason": "routine \ud800"},
+     "unpaired surrogate"),
+    # A newline in a reason forges a second journal line.
+    ("set_heater_setpoints", {"setpoints": {"top": 167}, "reason": "ok\n2026 WARNING forged"},
+     "control character"),
+    ("set_heater_setpoints", {"setpoints": {"top": 167}, "reason": "ok\rforged"},
+     "control character"),
+    ("set_heater_setpoints", {"setpoints": {"top": 167}, "reason": "ok ‮desrever"},
+     "text-direction"),
+    ("set_heater_setpoints", {"setpoints": {"top": 167}, "reason": "a b"},
+     "line-separator"),
+    ("stop_heater_ramp", {"reason": "x\x00y"}, "control character"),
+    ("add_note", {"text": "fine\x1b[2Jcleared"}, "control character"),
+    ("add_note", {"text": "x \udfff"}, "unpaired surrogate"),
+])
+def test_text_arguments_must_be_plain_text(rig, tool, args, needle):
+    rig.arm("heaters")
+    out = assert_refused(rig.call(tool, args), needle)
+    assert out["invalid_arguments"] is True and rig.cmds() == []
+
+
+def test_a_note_may_span_lines_but_logs_on_one(rig, caplog):
+    import logging
+    forged = "\n2026-10-22 03:00:00 WARNING  aicontrol.arms: AI control: heaters disarmed"
+    with caplog.at_level(logging.DEBUG):
+        assert_ok(rig.call("add_note", {"text": "line one" + forged + "\n\tend"}))
+    assert rig.svc.audit.recent(1)[0]["detail"].startswith("line one\n2026")
+    for rec in caplog.records:
+        assert "\n" not in rec.getMessage(), rec.getMessage()
+    assert any("line one\\n2026" in rec.getMessage() for rec in caplog.records)
+
+
+def test_log_text_escapes_and_cuts():
+    from aicontrol.arms import log_text
+    assert log_text("a\nb\r\nc") == "a\\nb\\r\\nc"
+    assert log_text("x" * 300, 10) == "x" * 9 + "…"
+
+
+def test_lone_surrogate_through_rest_is_400_and_publishes_nothing(client, rig):
+    rig.arm("heaters")
+    body = '{"setpoints": {"top": 167}, "reason": "routine \\ud800"}'      # valid JSON
+    r = client.post("/api/v1/actions/set_heater_setpoints", data=body,
+                    content_type="application/json")
+    assert r.status_code == 400 and "unpaired surrogate" in r.get_json()["error"]
+    assert rig.cmds() == []
+
+
 # ──────────────────────────────────────────────────────────────────────────
 # Arms and the supervisor
 # ──────────────────────────────────────────────────────────────────────────
@@ -1696,6 +2272,20 @@ def test_reconnect_disarms_everything(rig):
     assert "broker" in rig.svc.arms.last_disarm("pneumatic")["reason"]
     st = rig.transport.retained_payload(rig.settings.status_topic)
     assert st["armed_heaters"] == 0 and st["auto_disarms"] == 1
+
+
+def test_reconnect_republishes_the_audit_with_the_auto_disarm(rig):
+    rig.arm("heaters")
+    rig.transport.set_connected(False)
+    rig.transport.set_connected(True)
+    au = rig.transport.retained_payload(f"{rig.settings.status_topic}/audit")
+    assert au["entries"][0]["kind"] == "auto_disarm"
+    assert rig.svc.audit.pending is True            # once more from the 2 s status loop
+    # Status and audit are retained at qos 0: never re-sent stale after a reconnect.
+    for topic, _p, qos, retain in rig.transport.published_to(f"{rig.settings.status_topic}/#"):
+        assert qos == 0 and retain is True
+    for _t, _p, qos, _r in rig.transport.published_to(rig.settings.status_topic):
+        assert qos == 0
 
 
 def test_slowcontrol_restart_disarms(rig):
@@ -1787,6 +2377,30 @@ def test_rails_command_with_base_revision(rig):
     assert rig.svc.audit.recent(1)[0]["kind"] == "rails_refused"
     st = rig.transport.retained_payload(rig.settings.status_topic)
     assert st["last_rails_result"]["ok"] is False and st["rails"]["revision"] == rev + 1
+
+
+def test_rails_command_echoes_the_editors_request_id(rig):
+    """Two tabs saving at once: each tells its own answer by its nonce."""
+    rev = rig.svc.rails.revision
+    rig.transport.inject(f"{rig.settings.cmd_prefix}/rails",
+                         {"rails": full_rails(), "base_revision": rev, "by": "tab A",
+                          "request_id": "tab-a-1"})
+    assert rig.svc.last_rails_result["ok"] is True
+    assert rig.svc.last_rails_result["request_id"] == "tab-a-1"
+    rig.transport.inject(f"{rig.settings.cmd_prefix}/rails",
+                         {"rails": full_rails(), "base_revision": rev, "by": "tab B",
+                          "request_id": "tab-b-1"})
+    res = rig.transport.retained_payload(rig.settings.status_topic)["last_rails_result"]
+    assert res["ok"] is False and res["request_id"] == "tab-b-1"
+    rig.transport.inject(f"{rig.settings.cmd_prefix}/rails",
+                         {"rails": full_rails(), "base_revision": rev + 1, "request_id": 5})
+    assert rig.svc.last_rails_result["ok"] is False
+    assert "request_id must be a string" in rig.svc.last_rails_result["error"]
+    assert rig.svc.last_rails_result["request_id"] is None
+    rig.transport.inject(f"{rig.settings.cmd_prefix}/rails",
+                         {"rails": full_rails(), "base_revision": rev + 1})
+    res = rig.svc.last_rails_result
+    assert res["ok"] is True and res["request_id"] is None
 
 
 def test_no_tool_can_change_rails_or_arms(rig):
@@ -2116,6 +2730,98 @@ def test_rest_reads(client):
     r = client.get("/api/v1/history?ids=t_cube_top&start=-1h")
     assert r.status_code == 400 and "history unavailable" in r.get_json()["error"]
     assert client.get("/api/v1/nothing").status_code == 404
+
+
+@pytest.mark.parametrize("value", ["²", "¹", "①", "٣", "１", "-1", "1.5", "1234567"])
+def test_rest_integer_parameters_are_ascii_digits(client, value):
+    r = client.get("/api/v1/states", query_string={"limit": value})
+    assert r.status_code == 400 and r.is_json
+    assert "limit must be a positive integer" in r.get_json()["error"]
+
+
+def test_rest_reads_survive_a_lone_surrogate_in_the_audit(client, rig):
+    # "by" of an arm command (any MQTT client) can carry one; UTF-8 cannot.
+    rig.transport.inject(f"{rig.settings.cmd_prefix}/arm",
+                         {"group": "heaters", "armed": True, "by": "x \ud800"})
+    r = client.get("/api/v1/ai_control")
+    assert r.status_code == 200 and r.get_json()["arms"]["heaters"]["by"] == "x \ud800"
+
+
+def test_rest_deeply_nested_body_is_400(client, rig):
+    body = "[" * 200_000 + "]" * 200_000
+    r = client.post("/api/v1/actions/add_note", data=body, content_type="application/json")
+    assert r.status_code == 400 and r.get_json()["invalid_arguments"] is True
+    assert "invalid JSON body" in r.get_json()["error"]
+
+
+def test_rest_empty_query_values_mean_not_given(client):
+    # The README's templates, filled in only where needed.
+    r = client.get("/api/v1/states?group=&query=&limit=")
+    assert r.status_code == 200 and r.get_json()["ok"] is True
+    r = client.get("/api/v1/states?group=pid&query=&limit=")
+    assert r.status_code == 200 and r.get_json()["count"] > 0
+    assert client.get("/api/v1/guide?topic=").status_code == 200
+
+
+def test_rest_history_template_with_empty_values(tmp_path):
+    class FakeHistory:
+        def __init__(self):
+            self.args = None
+
+        def query(self, args):
+            self.args = args
+            return False, {"ok": True, "tool": "query_history", "series": []}
+
+    h = FakeHistory()
+    client = create_app(Rig(tmp_path, history=h).svc).test_client()
+    r = client.get("/api/v1/history?ids=t_cube_top,pid_top_pv&start=-6h&stop=&every=&fn="
+                   "&max_points=")
+    assert r.status_code == 200
+    assert h.args == {"ids": ["t_cube_top", "pid_top_pv"], "start": "-6h"}
+
+
+#: Fields whose text the AI writes or shapes (a reason, a note, refusal texts
+#: quoting its arguments, …) — never to reach innerHTML unescaped.
+_AI_TEXT_RE = re.compile(r"\.(detail|reason|args|by|error|tool|published|last_note|may_now)\b")
+_HTML_SINK_RE = re.compile(r"\$\{|innerHTML|setHtml\(|[`\"]<")
+
+
+def _unescaped_ai_text(script: str) -> list:
+    """Lines that build HTML from an AI text field outside an esc(...) call
+    (a ternary's condition, ``x.reason ? …``, does not render it)."""
+    bad = []
+    for n, line in enumerate(script.splitlines(), 1):
+        if not _HTML_SINK_RE.search(line):
+            continue
+        for m in _AI_TEXT_RE.finditer(line):
+            if re.match(r"\s*\?", line[m.end():]):
+                continue
+            inside = False
+            for q in (k.start() for k in re.finditer(r"\besc\(", line[:m.start()])):
+                seg = line[q + 4:m.start()]
+                if seg.count("(") - seg.count(")") >= 0:
+                    inside = True
+                    break
+            if not inside:
+                bad.append((n, line.strip()))
+    return bad
+
+
+def _ai_scripts():
+    control = (REPO / "webcontrol" / "templates" / "control.html").read_text(encoding="utf-8")
+    index = (REPO / "aicontrol" / "templates" / "index.html").read_text(encoding="utf-8")
+    card = control[control.index("// ---- AI control (Claude)"):control.index("let built = false;")]
+    return {"control.html AI card": card, "aicontrol index.html": index[index.index("<script>"):]}
+
+
+def test_ai_supplied_text_is_escaped_in_the_pages():
+    for name, script in _ai_scripts().items():
+        assert "const esc = " in script, name
+        assert _unescaped_ai_text(script) == [], name
+    # The check has teeth: an unescaped audit detail is caught.
+    card = _ai_scripts()["control.html AI card"]
+    assert "${esc(e.detail" in card
+    assert _unescaped_ai_text(card.replace("${esc(e.detail", "${(e.detail"))
 
 
 def test_index_page_is_served(client):

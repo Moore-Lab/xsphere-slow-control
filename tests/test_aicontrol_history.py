@@ -678,6 +678,27 @@ def test_changes_capped_to_latest():
     s = res["series"][0]
     assert s["truncated"] and s["v"] == [0, 1, 0, 1] and s["dt_s"] == [0, 1, 2, 3]
     assert s["t0"] == ts(6)
+    # The earliest changes were dropped: v[0] is not the state at the start.
+    assert "v[0] is NOT the state at the start" in s["note"]
+    assert "the first point is the state at the start" not in s["note"]
+
+
+def test_changes_not_truncated_first_point_is_the_start_state():
+    rows = [(ts(i), i % 2) for i in range(4)]
+    is_err, res = make(FakePost(body=body(table("s0", "long", rows)))).query(
+        {"ids": ["valve_cryostat"], "start": "-6h", "fn": "changes"})
+    s = res["series"][0]
+    assert not is_err and not s["truncated"]
+    assert "the first point is the state at the start" in s["note"]
+
+
+def test_times_note_says_first_and_last_windows_are_cut():
+    # Flux clips the epoch-aligned windows to the range: the first starts at
+    # `start`, the last ends at `stop` (now), both possibly short.
+    is_err, res = make(FakePost()).query(OK)
+    assert not is_err
+    assert "first and the last are cut at start and stop" in res["times"]
+    assert "every_s long." not in res["times"]
 
 
 def test_multi_key_level_prefers_filtered_then_raw():
@@ -770,6 +791,68 @@ def test_urllib_post_reads_and_caps():
     big = b"x" * (hist.MAX_RESPONSE_BYTES + 1000)
     status, data = urllib_post("http://h/", {}, b"{}", 20.0, opener=_FakeOpener(_FakeResp(big)))
     assert len(data) == hist.MAX_RESPONSE_BYTES + 1
+
+
+@pytest.fixture
+def drip_server():
+    """A local HTTP server answering POST with a chunked body: /drip sends 50 B
+    every 0.3 s for ~3 s, /stall one chunk then nothing for 3 s, /fast all at once."""
+    import http.server
+    import threading
+    import time as _time
+
+    class Drip(http.server.BaseHTTPRequestHandler):
+        protocol_version = "HTTP/1.1"
+
+        def do_POST(self):
+            self.rfile.read(int(self.headers.get("Content-Length") or 0))
+            self.send_response(200)
+            self.send_header("Transfer-Encoding", "chunked")
+            self.end_headers()
+            try:
+                if self.path == "/fast":
+                    plan = [(b"a,b\r\n", 0.0)] * 3
+                elif self.path == "/stall":
+                    plan = [(b"x" * 50, 3.0)]
+                else:
+                    plan = [(b"x" * 50, 0.3)] * 10
+                for chunk, gap in plan:
+                    self.wfile.write(b"%x\r\n%s\r\n" % (len(chunk), chunk))
+                    self.wfile.flush()
+                    _time.sleep(gap)
+                self.wfile.write(b"0\r\n\r\n")
+                self.wfile.flush()
+            except OSError:
+                pass                                 # the client gave up: expected
+
+        def log_message(self, *a):
+            pass
+
+    srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Drip)
+    srv.daemon_threads = True
+    t = threading.Thread(target=srv.serve_forever, daemon=True)
+    t.start()
+    try:
+        yield f"http://127.0.0.1:{srv.server_address[1]}"
+    finally:
+        srv.shutdown()
+        srv.server_close()
+
+
+@pytest.mark.parametrize("path", ["/drip", "/stall"])
+def test_urllib_post_deadline_holds_for_a_slow_chunked_body(drip_server, path):
+    """read(n) on a chunked body would keep reading until it had n bytes, each
+    recv with its own socket timeout: a drip ran far past the deadline."""
+    import time as _time
+    t0 = _time.monotonic()
+    with pytest.raises(TimeoutError, match="took longer than 1 s"):
+        urllib_post(drip_server + path, {}, b"{}", 1.0)
+    assert _time.monotonic() - t0 < 2.0
+
+
+def test_urllib_post_reads_a_fast_chunked_body(drip_server):
+    status, data = urllib_post(drip_server + "/fast", {}, b"{}", 5.0)
+    assert (status, data) == (200, b"a,b\r\n" * 3)
 
 
 def test_urllib_post_returns_http_error_body():

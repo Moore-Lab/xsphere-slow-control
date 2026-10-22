@@ -29,6 +29,8 @@ slowcontrol/turbovac_state.json.tmp
 aicontrol/rails.json*
 aicontrol/audit.jsonl*
 aicontrol/runtime.json*
+# A test instance's own state (python -m aicontrol without the unit's environment).
+aicontrol/test-state/
 
 # Editor / OS
 *.swp

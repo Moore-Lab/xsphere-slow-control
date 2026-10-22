@@ -50,7 +50,7 @@ a revision number.
 | Group | Rails (per item) |
 |---|---|
 | heaters, per zone (top / bottom / nozzle) | `setpoint_min_k` and `setpoint_max_k`: both are needed before anything for the zone can be written. `max_step_k`: largest single change. `max_rate_k_per_min`: average rate, also the ramp-speed cap. `pv_sources`: `cube` / `clamp`, the sensors the AI may make the PID's process value (nozzle: `cube` only) |
-| heaters, per supply channel (1 / 2 / 3) | `voltage_min_v` / `voltage_max_v` (≤ 32 V): both are needed to change the voltage. `current_min_a` / `current_max_a` (≤ 3 A): both are needed to change the current. `may_switch_on`, `may_switch_off` |
+| heaters, per supply channel (1 / 2 / 3) | `voltage_min_v` / `voltage_max_v` (≤ 32 V): both are needed to change the voltage. `current_min_a` / `current_max_a` (≤ 3 A): both are needed to change the current. `may_switch_on`, `may_switch_off` (a minimum of 0 V or 0 A needs it too: it unpowers the heater just as "off" does) |
 | ln2, per vessel (cryostat / primary_xe / ballast) | `may_operate`. `max_open_minutes` (≤ 120): required before the AI may open the valve. `may_set_auto_open`, `may_disarm_auto_close` |
 | pneumatic, per valve (ballast / pump / bottle) | `may_open`, `may_close`. Also, for the group: `forbid_open_together` (pairs that may not be open at once) and `min_interval_s` (default 10 s between commands to one valve) |
 | general | `arm_hours`: default 8; null means arms never expire |
@@ -67,7 +67,9 @@ These checks run in this order:
 
 1. **Arguments.** They must have exact JSON types (no NaN, no booleans posing
    as numbers, no unknown keys), and include a `reason` of 200 characters or
-   fewer.
+   fewer. Text is plain: no control characters (a newline in a reason would
+   forge a journal line; only a note may span lines), no unpaired surrogates,
+   no text-direction marks.
 2. **One write at a time.** A second concurrent write is refused, not queued.
 3. **Group armed.**
 4. **Rails** for the specific item.
@@ -83,20 +85,37 @@ These checks run in this order:
        - A setpoint increase needs a live PV source.
        - A non-numeric setpoint expression is only replaced when the call
          says `replace_expression: true`.
-       - `max_step_k` and `max_rate_k_per_min` apply, but a move toward the
-         rails range is always allowed.
+       - `max_step_k` and `max_rate_k_per_min` apply to the change measured
+         from the current setpoint — or, while that is outside the rails (3 K
+         after every slow-control restart), from the zone's measured PV when
+         it has a live source. When even that point is outside the rails, the
+         new value may land at most `max_step_k` inside the nearest rail edge
+         (PV 295 K, rails 150–200 K, step 10 K → 190–200 K; no step rail: any
+         value inside). The result's readback names the `anchor_k` used.
+       - Switching a supply channel on, or raising its V or I while it is on,
+         needs the PID zone it feeds in auto, at a numeric setpoint inside its
+         rails and the interlock band, with a live PV source.
      - **LN2:**
        - Opening needs `auto_close` on (live) and a fresh level reading: the
          probe for the cryostat; the level plus the GHS ESP32 for
          ballast / primary_xe.
-       - Closing turns `auto_open` off first.
-       - `auto_open` can only be switched on while `auto_close` is on.
+       - Closing turns `auto_open` off first. After an AI open that was never
+         seen (not confirmed), a close is sent even though the valve reads
+         closed: the open may still be queued in slow control.
+       - `auto_open` can only be switched on while `auto_close` is on, and
+         `auto_close` only switched off while `auto_open` is off.
      - **Pneumatic:**
        - The PLC's pneumatic gate on the Control page must also be enabled.
          This is a second, independent gate.
-       - A `forbid_open_together` partner must not be open.
+       - A `forbid_open_together` partner must not be open, nor have an AI
+         open sent to it in the last 2 min that was never confirmed (queued
+         commands land late).
 6. **Rate limits:**
-   - 20 write calls per minute overall.
+   - 20 write calls per minute overall; 6 notes per minute.
+   - Calls that send nothing (refused, invalid, or a no-op such as "already
+     closed") are audited one by one up to 30 a minute; beyond that they are
+     counted and summed up in one audit entry. A no-op is never the card's
+     "last action".
    - The pneumatic `min_interval_s` and 10 s per LN2 valve.
    - At most 6 heater-supply commands per minute, each one waiting for the
      supply's status.
@@ -104,9 +123,11 @@ These checks run in this order:
    A disarm in the middle of a multi-step call stops the remaining steps.
 8. **Confirm** from the status topics, within 5 s, on two consecutive messages
    where possible. When a PV-source change is not confirmed, it is reverted.
-9. **Audit.** The call is written to `aicontrol/audit.jsonl` and to the
-   retained `xsphere/status/ai_control/audit` (last 50 entries, shown on the
-   card).
+9. **Audit.** The call is written to `aicontrol/audit.jsonl` (rotated at
+   5 MB, keeping `audit.jsonl.1` … `.5`) and to the retained
+   `xsphere/status/ai_control/audit` (last 50 entries; the card shows 10, the
+   status page 20). Notes do not count as actions: the card's "last action" is
+   always a real one.
 
 ### Automatic disarm
 
@@ -126,8 +147,9 @@ shown on the card with its reason.
 ### LN2 auto-close timer
 
 When the AI opens a fill valve, the service records the opening time and a
-deadline `max_open_minutes` later in `aicontrol/runtime.json`. If the valve is
-still open at the deadline, the service:
+deadline `max_open_minutes` later in `aicontrol/runtime.json`. If a live
+valve status shows it still open (state or desired 1) at the deadline, the
+service:
 
 1. turns `auto_open` off, if it is on;
 2. closes the valve;
@@ -135,9 +157,14 @@ still open at the deadline, the service:
 4. disarms ln2.
 
 This is the service's own safety action, so it runs even while ln2 is
-disarmed. The timer survives a service restart, because it is reloaded at
-start. It does **not** run while the service is stopped; the PLC ladder's own
-level and timer logic still applies then.
+disarmed. It never acts on an unknown valve state (no live status, e.g. in the
+first seconds after a start): it waits, and if that lasts a minute past the
+deadline it says so in the audit. A "closed" status ends the timer only once
+the AI's open has been seen, or at the deadline. The timer survives a service
+restart, because it is reloaded at start; the deadline (like an arm's expiry)
+runs on the monotonic clock, so a step of the system clock cannot stretch it.
+It does **not** run while the service is stopped; the PLC ladder's own level
+and timer logic still applies then.
 
 ### What the AI can and cannot do
 
@@ -242,12 +269,16 @@ The base URL is `http://xbox-pi:8089`. Responses are JSON, apart from `/`.
 | `GET /` | read-only status page: arms, rails, ramps, timers, audit, how to connect |
 | `POST /mcp` | the MCP endpoint (Streamable HTTP, JSON responses, no sessions; protocol 2026-07-28, and 2025-11-25 / 2025-06-18 for older clients) |
 | `GET /api/v1/overview` | `get_overview` (`?format=json`) |
-| `GET /api/v1/states` | `list_states` (`?group=&query=&limit=`) |
+| `GET /api/v1/states` | `list_states` (optional `group`, `query`, `limit`) |
 | `GET /api/v1/states/<id>` | `get_states` for one id |
-| `GET /api/v1/history` | `query_history` (`?ids=a,b&start=-6h&stop=&every=&fn=&max_points=`) |
+| `GET /api/v1/history` | `query_history` (`?ids=a,b&start=-6h`, optional `stop`, `every`, `fn`, `max_points`) |
 | `GET /api/v1/ai_control` | `get_ai_control` |
 | `GET /api/v1/guide` | `get_guide` (`?topic=`) |
 | `POST /api/v1/actions/<tool>` | any tool, with its arguments as the JSON body |
+
+An empty query parameter (`stop=`) counts as not given. In a query string,
+write times with `Z` or a negative offset, or percent-encode `+` as `%2B`
+(a bare `+` decodes to a space).
 
 | Status | Meaning |
 |---|---|
@@ -276,7 +307,11 @@ curl -s -X POST http://xbox-pi:8089/api/v1/actions/get_states \
 | Topic | Payload |
 |---|---|
 | `xsphere/commands/ai_control/arm` | `{"group": "heaters"\|"ln2"\|"pneumatic", "armed": true\|false, "by": "…"}`. Use `"group": "all"` with `false` only |
-| `xsphere/commands/ai_control/rails` | `{"rails": {full document}, "base_revision": N, "by": "…"}` |
+| `xsphere/commands/ai_control/rails` | `{"rails": {full document}, "base_revision": N, "by": "…", "request_id"?: "…"}`; `request_id` (≤ 64 characters) comes back in `last_rails_result`, so the editor that saved can tell its own answer |
+
+The web panel relays these only while it is connected to the broker (else
+HTTP 503, and the card says "not sent"), and sends arm and rails at qos 0: an
+arm clicked during a broker outage is never delivered minutes later.
 
 Status goes out retained on `xsphere/status/ai_control`, every 2 s and on
 change; the retained last will says offline and disarmed. The audit goes out
@@ -329,6 +364,9 @@ Once the code is on the Pi's checkout (`~/xsphere-slow-control`):
    `bash telegraf/deploy-iotstack.sh` (preview) and then `--apply`. That should
    report 15/15 MQTT inputs connected; see OPERATIONS.md, "Changing what
    Telegraf records".
+7. **The first deploy only:** run the history and MCP checks in OPERATIONS.md,
+   "Checks after deploying it". The Flux templates and a real Claude Code
+   `tools/call` were only tested offline before.
 
 To take it out: `sudo systemctl disable --now xsphere-aicontrol`. It publishes
 "offline, disarmed" as it stops. Nothing else depends on it.
@@ -368,7 +406,13 @@ over a whitelist of ids, but a read-only token limits what a bug could do.
   instance:
   - its client id and topics live under `xsphere/test/…`;
   - it refuses any broker other than localhost;
+  - its state (rails, audit, LN2 timers) is in `aicontrol/test-state/`, and
+    it refuses production's `aicontrol/` state directory;
   - it falls back to Flask's server when waitress is missing.
+
+  Run it on the DAQ PC, not on the Pi: there localhost **is** the live broker,
+  so a test instance would see real data, and anything it is armed and railed
+  for (on its own `xsphere/test/…` topics) would publish real commands.
 
   Never set `XSPHERE_AICONTROL_INSTANCE=production` off the Pi. The broker
   would keep kicking the real service off its client id, and the copy would
@@ -392,3 +436,4 @@ over a whitelist of ids, but a read-only token limits what a bug could do.
 | `xsphere-aicontrol.service` | systemd unit |
 | `operator/` | the Claude Code operator profile template |
 | `rails.json`, `audit.jsonl`, `runtime.json` | runtime state on the Pi (gitignored) |
+| `test-state/` | a test instance's own runtime state (gitignored) |

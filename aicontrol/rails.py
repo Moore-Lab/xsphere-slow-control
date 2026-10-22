@@ -26,7 +26,7 @@ rejected, numbers finite int/float and never bool)::
        "supply": {"1"|"2"|"3": {
           "voltage_min_v": num|null, "voltage_max_v": num|null,     # both or neither; 0≤min≤max≤32
           "current_min_a": num|null, "current_max_a": num|null,     # both or neither; 0≤min≤max≤3
-          "may_switch_on": bool, "may_switch_off": bool}}},
+          "may_switch_on": bool, "may_switch_off": bool}}},         # a min of 0 needs may_switch_off
      "ln2": {"vessels": {"cryostat"|"primary_xe"|"ballast": {
           "may_operate": bool, "max_open_minutes": num|null,        # >0 ≤120; needed to open
           "may_set_auto_open": bool, "may_disarm_auto_close": bool}}},
@@ -266,6 +266,15 @@ def validate_rails(doc: Any, stored: bool = False) -> List[str]:
                 _check_pair(ilo, ihi, sr, "current_min_a", "current_max_a", p, errs, strict=False)
                 _check_bool(sr, "may_switch_on", p, errs)
                 _check_bool(sr, "may_switch_off", p, errs)
+                # 0 V or a 0 A limit unpowers the heater just as "output off"
+                # does, so a minimum of 0 needs may_switch_off as well.
+                if sr.get("may_switch_off") is not True:
+                    for key, val, unit in (("voltage_min_v", vlo, "V"),
+                                           ("current_min_a", ilo, "A")):
+                        if val == 0:
+                            errs.append(f"{p}.{key}: a minimum of 0 {unit} lets the AI unpower "
+                                        f"the heater although may_switch_off is false — set it "
+                                        f"above 0 or allow may_switch_off")
 
     # ln2
     if "ln2" in top:
@@ -586,14 +595,21 @@ class RailsStore:
     def replace_from_command(self, payload: Any, default_by: str = "unknown"
                              ) -> Tuple[bool, Optional[str], str]:
         """The MQTT ``<cmd_prefix>/rails`` message:
-        ``{"rails": <full doc>, "base_revision": int, "by"?: str}``."""
+        ``{"rails": <full doc>, "base_revision": int, "by"?: str, "request_id"?: str}``.
+
+        ``request_id`` (≤ 64 characters) is not part of the rails: the service
+        echoes it in ``last_rails_result`` so the editor that sent the save
+        can tell its own answer from another tab's."""
         if not isinstance(payload, dict):
             return False, "rails command must be a JSON object", ""
-        unknown = [k for k in payload if k not in ("rails", "base_revision", "by")]
+        unknown = [k for k in payload if k not in ("rails", "base_revision", "by", "request_id")]
         if unknown:
             return False, f"rails command: unknown key {_show(unknown[0])}", ""
         if "rails" not in payload or "base_revision" not in payload:
             return False, "rails command needs \"rails\" and \"base_revision\"", ""
+        rid = payload.get("request_id")
+        if "request_id" in payload and not (isinstance(rid, str) and len(rid) <= 64):
+            return False, "rails command: request_id must be a string of at most 64 characters", ""
         return self.replace(payload["rails"], payload["base_revision"],
                             payload.get("by", default_by))
 

@@ -6,7 +6,9 @@ Every write goes through the same pipeline, in this order (DESIGN §8):
 1. **Strict arguments.**  Exact JSON types against the tool's schema: a
    number is an int or float, never a bool, finite and not huge; a bool is a
    bool; enums are checked type-first (``True in (1, 2, 3)`` is true in
-   Python); unknown keys are refused; every write carries a ``reason``.  The
+   Python); unknown keys are refused; strings are plain text (no control
+   characters, unpaired surrogates or text-direction marks; only a note may
+   span lines); every write carries a ``reason``.  The
    drivers coerce with ``int()`` / ``bool()`` / ``float()`` — ``"false"`` arms
    an LN2 auto flag, NaN drives a PID output to 100 % — so nothing loose may
    reach them.
@@ -21,7 +23,9 @@ Every write goes through the same pipeline, in this order (DESIGN §8):
    overwrite an AI write a second later while the AI is told "confirmed"),
    then the tool's own checks.
 6. **Rate**: ≤ 20 write calls a minute overall, per-valve minimum intervals,
-   ≤ 6 NGE commands a minute paced on the supply's own status.
+   ≤ 6 NGE commands a minute paced on the supply's own status; ≤ 6 notes a
+   minute.  Calls that send nothing (refusals, no-ops) beyond 30 a minute are
+   counted, and summed up in one audit entry, instead of each being audited.
 7. **Publish** through :meth:`Bus.publish_command` (allowlisted topics only),
    re-checking the arm immediately before every single publish.
 8. **Confirm** from the status topics (two consecutive messages where it
@@ -48,7 +52,7 @@ import time
 from datetime import datetime, timezone
 from typing import Any, Callable, Deque, Dict, List, Optional, Tuple
 
-from .arms import CONTROL_PAGE, PV_INTERLOCK_TOPIC, utc_iso
+from .arms import CONTROL_PAGE, LOG_TEXT_MAX, PV_INTERLOCK_TOPIC, log_text, utc_iso
 from .zones import PNEUMATIC_GATE_TOPIC, VALVES, VESSELS, ZONES
 
 log = logging.getLogger(__name__)
@@ -73,6 +77,23 @@ SUPPLY_WARN_OUTPUT_PCT = 95.0
 MAX_ABS_NUMBER = 1e6
 MAX_REASON = 200
 MAX_NOTE = 1000
+#: add_note has its own small budget, so notes cannot push the real actions
+#: out of the card's and the status page's short lists (or rotate them off disk).
+MAX_NOTES_PER_MIN = 6
+#: Calls that sent nothing (refused, invalid, or a no-op such as "already
+#: closed") audited one by one per minute; beyond this they are counted and
+#: summed up in one audit entry (they move no hardware).
+MAX_AUDITED_REFUSALS_PER_MIN = 30
+#: How long an AI open of a gas valve that was never confirmed still counts as
+#: "maybe on its way" for forbid_open_together (commands queue behind slow
+#: NGE work on slowcontrol's single MQTT thread).
+PN_PENDING_OPEN_S = 120.0
+#: String arguments that may span lines (everything else must be one line).
+MULTILINE_ARGS: Dict[str, Tuple[str, ...]] = {"add_note": ("text",)}
+
+# Text-direction controls (bidi overrides / isolates): they make a log or
+# audit line read differently from what it contains.
+_BIDI_CONTROLS = frozenset(range(0x202A, 0x202F)) | frozenset(range(0x2066, 0x206A))
 
 # ──────────────────────────────────────────────────────────────────────────
 # Argument schemas (also the MCP inputSchema — tools.py publishes these)
@@ -233,13 +254,38 @@ def _is_num(x: Any) -> bool:
         return False
 
 
-def validate_args(schema: dict, value: Any, path: str = "") -> Any:
+def _text_problem(text: str, multiline: bool) -> Optional[str]:
+    """What makes ``text`` unfit for the audit and the service log, or None.
+
+    Refused: unpaired surrogates (``"\\ud800"`` is valid JSON, but cannot be
+    written as UTF-8 — the audit file write would fail after the command had
+    gone out), control characters (a newline in a reason forges a journal
+    line), the Unicode line / paragraph separators and text-direction
+    controls.  ``multiline`` text may contain newlines and tabs.
+    """
+    for i, ch in enumerate(text):
+        o = ord(ch)
+        if 0xD800 <= o <= 0xDFFF:
+            return f"an unpaired surrogate (U+{o:04X}) at position {i}"
+        if multiline and ch in "\n\t":
+            continue
+        if o < 0x20 or 0x7F <= o <= 0x9F:
+            return (f"a control character (U+{o:04X}) at position {i}"
+                    + ("" if multiline else " — keep it on one line"))
+        if o in (0x2028, 0x2029) or o in _BIDI_CONTROLS:
+            return f"a line-separator or text-direction character (U+{o:04X}) at position {i}"
+    return None
+
+
+def validate_args(schema: dict, value: Any, path: str = "", *,
+                  multiline: Tuple[str, ...] = ()) -> Any:
     """Check ``value`` against the JSON-schema subset used by the tools.
 
     Returns a deep copy; raises :class:`ArgError` naming the first problem.
     Stricter than JSON schema where the drivers need it: numbers must be
-    finite and within ±1e6, and a string with ``minLength`` must have that
-    many non-blank characters.
+    finite and within ±1e6, a string with ``minLength`` must have that many
+    non-blank characters, and strings are plain text (:func:`_text_problem`;
+    only the paths in ``multiline`` may hold newlines).
     """
     where = path or "arguments"
     t = schema.get("type")
@@ -256,7 +302,7 @@ def validate_args(schema: dict, value: Any, path: str = "") -> Any:
                 raise ArgError(f"{where}: missing required key {_show(k)}")
         if len(value) < schema.get("minProperties", 0):
             raise ArgError(f"{where}: needs at least {schema['minProperties']} keys")
-        return {k: validate_args(props[k], v, f"{path}.{k}" if path else k)
+        return {k: validate_args(props[k], v, f"{path}.{k}" if path else k, multiline=multiline)
                 for k, v in value.items()}
     if t in ("number", "integer"):
         if t == "integer":
@@ -299,6 +345,9 @@ def validate_args(schema: dict, value: Any, path: str = "") -> Any:
         if "maxLength" in schema and len(value) > schema["maxLength"]:
             raise ArgError(f"{where}: at most {schema['maxLength']} characters "
                            f"(got {len(value)})")
+        problem = _text_problem(value, path in multiline)
+        if problem:
+            raise ArgError(f"{where}: contains {problem}; send plain text")
         return value
     if t == "array":
         if not isinstance(value, list):
@@ -308,7 +357,8 @@ def validate_args(schema: dict, value: Any, path: str = "") -> Any:
         if "maxItems" in schema and len(value) > schema["maxItems"]:
             raise ArgError(f"{where}: at most {schema['maxItems']} items (got {len(value)})")
         items = schema.get("items", {})
-        out = [validate_args(items, v, f"{where}[{i}]") for i, v in enumerate(value)]
+        out = [validate_args(items, v, f"{where}[{i}]", multiline=multiline)
+               for i, v in enumerate(value)]
         if schema.get("uniqueItems"):
             seen = []
             for v in out:
@@ -404,6 +454,7 @@ class _Call:
         self.note: Optional[str] = None
         self.detail = ""
         self.ramp_id: Optional[int] = None    # set for a ramp step
+        self.noop = False                     # nothing to do: nothing sent, nothing changed
 
     def args_for_audit(self) -> dict:
         return {k: v for k, v in self.args.items() if k != "reason"}
@@ -435,15 +486,21 @@ class Actions:
         self.started_ts = clock()
 
         self._stats_lock = threading.Lock()
-        self.counters = {"actions": 0, "refused": 0}
+        self.counters = {"actions": 0, "refused": 0, "notes": 0}
         self.last_action: Optional[dict] = None
         self.last_refused: Optional[dict] = None
+        self.last_note: Optional[dict] = None
         self._write_times: Deque[float] = collections.deque()
+        self._note_times: Deque[float] = collections.deque()
+        self._quiet_times: Deque[float] = collections.deque()      # calls that sent nothing
+        self._unaudited: Dict[str, Any] = {"n": 0, "since": None, "tools": collections.Counter()}
         self._nge_times: Deque[float] = collections.deque()
         self._nge_last: Optional[dict] = None
         self._zone_ai: Dict[str, dict] = {}         # zone → {"value", "ts"} of the last AI setpoint
         self._ln2_last: Dict[str, float] = {}
         self._pn_last: Dict[str, float] = {}
+        # valve → the AI's last gas-valve command {"want", "ts", "seq", "pending"}
+        self._pn_cmd: Dict[str, dict] = {}
         if ramps is not None:
             ramps.set_stepper(self.ramp_step)
 
@@ -459,17 +516,22 @@ class Actions:
             return copy.deepcopy(self._zone_ai)
 
     def stats(self) -> dict:
+        """Counters for the status: ``actions`` counts tool calls that did
+        something (notes are counted apart, so a note never becomes the
+        "last action" a person sees)."""
         with self._stats_lock:
             return {"actions": self.counters["actions"], "refused": self.counters["refused"],
+                    "notes": self.counters["notes"],
                     "last_action": copy.deepcopy(self.last_action),
-                    "last_refused": copy.deepcopy(self.last_refused)}
+                    "last_refused": copy.deepcopy(self.last_refused),
+                    "last_note": copy.deepcopy(self.last_note)}
 
     # ── pipeline plumbing ─────────────────────────────────────────────────
 
     def _run(self, tool: str, args: Any, body: Callable[[_Call], None], *,
              lock: bool = True) -> Tuple[bool, dict]:
         try:
-            a = validate_args(WRITE_SCHEMAS[tool], args)
+            a = validate_args(WRITE_SCHEMAS[tool], args, multiline=MULTILINE_ARGS.get(tool, ()))
         except ArgError as e:
             return self._invalid(tool, args, str(e))
         call = _Call(tool, a)
@@ -494,7 +556,7 @@ class Actions:
         text = f"invalid arguments: {msg}"
         try:
             shown = args if len(json.dumps(args, default=str)) <= 2000 else "(too large)"
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, RecursionError):
             shown = "(not JSON)"
         self._record_refused(tool, text, args=shown, reason=None, published=[])
         return True, {"ok": False, "tool": tool, "error": text, "invalid_arguments": True}
@@ -516,16 +578,67 @@ class Actions:
                              published=call.published)
         return True, res
 
+    def _quiet_slot_locked(self, now: float, tool: str) -> bool:
+        """For a call that sent nothing (refused, invalid, or a no-op): True
+        while it may still be audited one by one this minute; else it is only
+        counted (a looping caller would otherwise flood the audit, the card
+        and the journal with calls that moved nothing).  Hold _stats_lock."""
+        while self._quiet_times and now - self._quiet_times[0] >= 60.0:
+            self._quiet_times.popleft()
+        ok = len(self._quiet_times) < MAX_AUDITED_REFUSALS_PER_MIN
+        self._quiet_times.append(now)
+        if not ok:
+            u = self._unaudited
+            u["n"] += 1
+            u["tools"][tool] += 1
+            if u["since"] is None:
+                u["since"] = now
+        return ok
+
     def _record_refused(self, tool: str, detail: str, *, args: Any, reason: Optional[str],
                         published: list) -> None:
-        log.warning("AI %s refused: %s", tool, detail)
-        utc = utc_iso(self._clock())
+        now = self._clock()
+        utc = utc_iso(now)
         with self._stats_lock:
             self.counters["refused"] += 1
             self.last_refused = {"utc": utc, "tool": tool, "detail": detail}
-        self.audit.record("refused", detail, tool=tool, args=args, reason=reason,
-                          published=published or None)
-        self._changed()
+            # One that published something is always audited.
+            audit_it = bool(published) or self._quiet_slot_locked(now, tool)
+        if audit_it:
+            log.warning("AI %s refused: %s", tool, log_text(detail, 500))
+            self.flush_unaudited(force=True)
+            self._audit("refused", detail, tool=tool, args=args, reason=reason,
+                        published=published or None)
+            self._changed()
+        else:
+            # Not even a status publish: the 2 s status loop shows the count.
+            log.debug("AI %s refused (not audited, over %d a minute): %s", tool,
+                      MAX_AUDITED_REFUSALS_PER_MIN, log_text(detail))
+
+    def flush_unaudited(self, force: bool = False) -> None:
+        """Write one audit entry summing up the calls that were only counted
+        (call it periodically; ``force`` writes it whatever its age)."""
+        now = self._clock()
+        with self._stats_lock:
+            u = self._unaudited
+            if not u["n"] or (not force and now - u["since"] < 60.0):
+                return
+            n, since, tools = u["n"], u["since"], dict(u["tools"])
+            self._unaudited = {"n": 0, "since": None, "tools": collections.Counter()}
+        which = ", ".join(f"{t} ×{c}" for t, c in sorted(tools.items()))
+        detail = (f"{n} more call(s) that sent nothing (refused, invalid or no-op) between "
+                  f"{utc_iso(since)} and {utc_iso(now)} were counted but not audited one by "
+                  f"one (over {MAX_AUDITED_REFUSALS_PER_MIN} a minute): {which}")
+        log.warning("AI: %s", detail)
+        self._audit("refused", detail, unaudited=n)
+
+    def _audit(self, kind: str, detail: str, **fields: Any) -> None:
+        """Audit without ever raising: by now a command may already be out,
+        and the caller must still get its true result."""
+        try:
+            self.audit.record(kind, detail, **fields)
+        except Exception:                            # noqa: BLE001
+            log.exception("Could not audit %s: %s", kind, log_text(detail))
 
     def _succeeded(self, call: _Call) -> Tuple[bool, dict]:
         res: Dict[str, Any] = {"ok": True, "tool": call.tool, "published": call.published,
@@ -536,18 +649,34 @@ class Actions:
         detail = call.detail or call.tool
         if call.published and call.confirmed is False:
             detail += " — NOT confirmed"
-        log.info("AI %s: %s", call.tool, detail)
-        utc = utc_iso(self._clock())
-        with self._stats_lock:
-            self.counters["actions"] += 1
-            self.last_action = {"utc": utc, "tool": call.tool, "detail": detail,
-                                "reason": call.reason}
         kind = "note" if call.tool == "add_note" else "action"
-        self.audit.record(kind, detail, tool=call.tool,
-                          args=call.args_for_audit() if kind == "action" else None,
-                          reason=call.reason, published=call.published or None,
-                          confirmed=call.confirmed if call.published else None,
-                          warnings=call.warnings or None)
+        now = self._clock()
+        utc = utc_iso(now)
+        with self._stats_lock:
+            # A no-op ("already closed — nothing sent") shares the budget of
+            # the other calls that sent nothing; past it, it is only counted.
+            audit_it = (kind == "note" or not call.noop
+                        or self._quiet_slot_locked(now, call.tool))
+            if kind == "note":
+                self.counters["notes"] += 1
+                self.last_note = {"utc": utc, "detail": detail}
+            else:
+                self.counters["actions"] += 1
+                if not call.noop:       # the card's "last action" is one that did something
+                    self.last_action = {"utc": utc, "tool": call.tool, "detail": detail,
+                                        "reason": call.reason}
+        if not audit_it:
+            log.debug("AI %s (not audited, over %d calls that sent nothing a minute): %s",
+                      call.tool, MAX_AUDITED_REFUSALS_PER_MIN, log_text(detail))
+            return False, res
+        log.info("AI %s: %s", call.tool, log_text(detail, LOG_TEXT_MAX if kind == "note" else 500))
+        if call.noop:
+            self.flush_unaudited(force=True)
+        self._audit(kind, detail, tool=call.tool,
+                    args=call.args_for_audit() if kind == "action" else None,
+                    reason=call.reason, published=call.published or None,
+                    confirmed=call.confirmed if call.published else None,
+                    warnings=call.warnings or None)
         self._changed()
         return False, res
 
@@ -646,6 +775,17 @@ class Actions:
                               f"minute — wait {wait:.0f} s")
             self._write_times.append(now)
 
+    def _take_note_slot(self) -> None:
+        now = self._clock()
+        with self._stats_lock:
+            while self._note_times and now - self._note_times[0] >= 60.0:
+                self._note_times.popleft()
+            if len(self._note_times) >= MAX_NOTES_PER_MIN:
+                wait = 60.0 - (now - self._note_times[0])
+                raise Refusal(f"rate limit: at most {MAX_NOTES_PER_MIN} notes a minute — wait "
+                              f"{wait:.0f} s, or put more into one note")
+            self._note_times.append(now)
+
     def _interlock(self, *, require_untripped: bool = True) -> dict:
         r = self.bus.raw(PV_INTERLOCK_TOPIC)
         p = r["payload"] if r else None
@@ -728,7 +868,10 @@ class Actions:
             return float(sp_k), {"source": "replaced", "expr": expr}
         raise Refusal(f"zone {zone}: the expression {expr!r} has no current value")
 
-    def _require_pv_fed(self, zone: str, status: dict) -> None:
+    @staticmethod
+    def _pv_fed_problem(status: dict) -> Optional[str]:
+        """Why nothing live feeds the PID's process value — None when it is fed:
+        pv_expr set, evaluating, and the PV register agreeing with it ≤ 5 K."""
         pv_expr = status.get("pv_expr")
         pv_val = status.get("pv_expr_value_k")
         pv_k = status.get("pv_k")
@@ -736,16 +879,21 @@ class Actions:
             why = "its pv_expr is empty, so nothing feeds the PID's process value"
             if _is_num(pv_k) and abs(float(pv_k) - 500.0) < 0.5:
                 why += " (500 K is the PV interlock's surrogate)"
-        elif not _is_num(pv_val):
-            why = f"its pv_expr {pv_expr!r} does not evaluate"
-        elif not _is_num(pv_k) or abs(float(pv_k) - float(pv_val)) > PV_AGREE_K:
-            why = (f"its PV register reads {_fmt(pv_k, 'K')} but pv_expr {pv_expr!r} is "
-                   f"{_fmt(pv_val, 'K')}")
-        else:
+            return why
+        if not _is_num(pv_val):
+            return f"its pv_expr {pv_expr!r} does not evaluate"
+        if not _is_num(pv_k) or abs(float(pv_k) - float(pv_val)) > PV_AGREE_K:
+            return (f"its PV register reads {_fmt(pv_k, 'K')} but pv_expr {pv_expr!r} is "
+                    f"{_fmt(pv_val, 'K')}")
+        return None
+
+    def _require_pv_fed(self, zone: str, status: dict) -> None:
+        why = self._pv_fed_problem(status)
+        if why is None:
             return
-        raise Refusal(f"PID {zone} sees {_fmt(pv_k, 'K')} — no live PV source ({why}); choose "
-                      f"one with set_pv_source first. A setpoint increase on a frozen PV would "
-                      f"heat open-loop")
+        raise Refusal(f"PID {zone} sees {_fmt(status.get('pv_k'), 'K')} — no live PV source "
+                      f"({why}); choose one with set_pv_source first. A setpoint increase on a "
+                      f"frozen PV would heat open-loop")
 
     def _check_band(self, zone: str, v: float, il: dict) -> None:
         lo_b = float(il["min_k"]) + INTERLOCK_MARGIN_K
@@ -755,9 +903,30 @@ class Actions:
                           f"its {INTERLOCK_MARGIN_K:g} K margin ({_fmt(lo_b)}–{_fmt(hi_b)} K); "
                           f"a setpoint there would trip the interlock for all three zones")
 
+    def _anchor(self, e: float, lo: float, hi: float, status: dict) -> Tuple[float, str]:
+        """Where a setpoint change is measured from, and what that point is.
+
+        The current setpoint E when it is inside the rails.  When it is not —
+        3 K after every slowcontrol restart, or one a person left outside —
+        E says nothing about what a new setpoint would do; the temperature
+        the PID regulates on does, so the zone's PV is used when it is fed
+        (:meth:`_pv_fed_problem`).  Otherwise E itself.
+        """
+        if lo <= e <= hi:
+            return e, "setpoint"
+        if self._pv_fed_problem(status) is None:
+            return float(status["pv_k"]), "pv"
+        return e, "setpoint"
+
     def _check_setpoint(self, zone: str, v: float, replace: bool, status: dict, il: dict,
                         now: float) -> dict:
-        """Every value check for one zone's new setpoint; raises Refusal."""
+        """Every value check for one zone's new setpoint; raises Refusal.
+
+        max_step_k and the max_rate_k_per_min allowance apply to |v − A|, A
+        being :meth:`_anchor`.  When A itself is outside the rails, a move
+        into them is measured from the nearest rail edge instead: it may land
+        at most max_step_k inside it (anywhere inside without a max_step_k).
+        """
         lo, hi = self._require_zone_rails(zone)
         zr = self.rails.zone(zone)
         if not lo <= v <= hi:
@@ -765,30 +934,48 @@ class Actions:
                           f"{_fmt(lo)}–{_fmt(hi)} K")
         self._check_band(zone, v, il)
         e, info = self._effective(zone, status, replace)
-        delta = abs(v - e)
-        toward = (e < lo and v > e) or (e > hi and v < e)
-        if not toward:
-            step = zr.get("max_step_k")
+        anchor, source = self._anchor(e, lo, hi, status)
+        if source == "pv":
+            frm = (f"the measured PV {_fmt(anchor)} K (the setpoint {_fmt(e)} K is outside the "
+                   f"rails, so changes are measured from the temperature the PID regulates on)")
+        else:
+            frm = f"{_fmt(e)} K"
+        step = zr.get("max_step_k")
+        if lo <= anchor <= hi:
+            ref = anchor
+            delta = abs(v - anchor)
             # 1 mK of slack for the ramp's 0.001 K rounding; physically nothing.
             if step is not None and delta > float(step) + 1e-3:
-                raise Refusal(f"zone {zone}: {_fmt(e)} → {_fmt(v)} K is a change of "
-                              f"{_fmt(delta)} K; Lucas's max_step_k is {_fmt(step)} K. Use "
-                              f"smaller steps or start_heater_ramp")
+                raise Refusal(f"zone {zone}: {frm} → {_fmt(v)} K is a change of {_fmt(delta)} K; "
+                              f"Lucas's max_step_k is {_fmt(step)} K. Use smaller steps or "
+                              f"start_heater_ramp")
             rate = zr.get("max_rate_k_per_min")
             if rate is not None:
                 with self._stats_lock:
                     last = self._zone_ai.get(zone)
-                anchor = last["ts"] if last else self.started_ts
-                minutes = min(max((now - anchor) / 60.0, 0.0), RATE_CAP_MIN)
+                since_ts = last["ts"] if last else self.started_ts
+                minutes = min(max((now - since_ts) / 60.0, 0.0), RATE_CAP_MIN)
                 allowance = float(rate) * minutes
                 if step is not None:
                     allowance = min(allowance, float(step))
                 if delta > allowance + 1e-3:
                     since = ("since the last AI change" if last else "since the service started")
-                    raise Refusal(f"zone {zone}: a change of {_fmt(delta)} K exceeds the rate "
-                                  f"allowance of {allowance:.2f} K (max_rate_k_per_min "
+                    raise Refusal(f"zone {zone}: a change of {_fmt(delta)} K from {frm} exceeds "
+                                  f"the rate allowance of {allowance:.2f} K (max_rate_k_per_min "
                                   f"{_fmt(rate)} K/min, {minutes:.1f} min {since}). Wait, or "
                                   f"use start_heater_ramp")
+        else:
+            # From outside the rails: into them, at most one step past the near edge.
+            ref = lo if anchor < lo else hi
+            delta = abs(v - ref)
+            if step is not None and delta > float(step) + 1e-3:
+                near = (f"{_fmt(ref)}–{_fmt(min(hi, ref + float(step)))}" if ref == lo
+                        else f"{_fmt(max(lo, ref - float(step)))}–{_fmt(ref)}")
+                what = "the measured PV" if source == "pv" else "the setpoint"
+                raise Refusal(f"zone {zone}: {what} {_fmt(anchor)} K is outside Lucas's rails "
+                              f"{_fmt(lo)}–{_fmt(hi)} K, so a move into them may land at most "
+                              f"max_step_k {_fmt(step)} K inside the nearest edge "
+                              f"({_fmt(ref)} K): {near} K. {_fmt(v)} K is {_fmt(delta)} K from it")
         if v > e + 1e-9:
             self._require_pv_fed(zone, status)
         warnings = []
@@ -798,7 +985,8 @@ class Actions:
                             f"the zone is in auto (set_heater_auto)")
         if info["source"] == "replaced":
             warnings.append(f"zone {zone}: replaced the setpoint expression {info['expr']!r}")
-        return {"E": e, "expr": info["expr"], "source": info["source"], "warnings": warnings}
+        return {"E": e, "expr": info["expr"], "source": info["source"], "anchor": anchor,
+                "anchor_source": source, "ref": ref, "warnings": warnings}
 
     # ── heaters: tools ───────────────────────────────────────────────────
 
@@ -839,8 +1027,11 @@ class Actions:
             self._publish(call, f"xsphere/commands/pid/{z}/setpoint", {"value_k": float(v)})
             with self._stats_lock:
                 self._zone_ai[z] = {"value": float(v), "ts": self._clock()}
-        call.detail = ", ".join(f"{z} {_fmt(plans[z]['E'])} → {_fmt(v)} K"
-                                for z, v in targets.items())
+        call.detail = ", ".join(
+            f"{z} {_fmt(plans[z]['E'])} → {_fmt(v)} K"
+            + (f" (measured from PV {_fmt(plans[z]['anchor'])} K)"
+               if plans[z]["anchor_source"] == "pv" else "")
+            for z, v in targets.items())
 
         checks = [(self._status_topic(z), seqs[z],
                    (lambda p, want=repr(float(v)): p.get("setpoint_expr") == want))
@@ -852,6 +1043,11 @@ class Actions:
             call.readback[z] = {k: st.get(k) for k in keys}
             call.readback[z]["previous_setpoint_k"] = plans[z]["E"]
             call.readback[z]["previous_expr"] = plans[z]["expr"]
+            # What max_step_k / the rate allowance were measured from.
+            call.readback[z]["anchor_k"] = plans[z]["anchor"]
+            call.readback[z]["anchor_source"] = plans[z]["anchor_source"]
+            if plans[z]["ref"] != plans[z]["anchor"]:
+                call.readback[z]["measured_from_rail_edge_k"] = plans[z]["ref"]
             sp = st.get("setpoint_k")
             if call.confirmed and _is_num(sp) and abs(float(sp) - float(v)) > 0.01:
                 call.warnings.append(f"zone {z}: setpoint_k reads {_fmt(sp, 'K')} although the "
@@ -898,8 +1094,11 @@ class Actions:
                 if not lo <= e <= hi:
                     raise Refusal(f"zone {z}: its current setpoint {_fmt(e, 'K')} is outside "
                                   f"the rails {_fmt(lo)}–{_fmt(hi)} K; a ramp steps inside the "
-                                  f"rails only — set a setpoint inside the range first "
-                                  f"(set_heater_setpoints allows a move into the range)")
+                                  f"rails only — set a setpoint inside them first with "
+                                  f"set_heater_setpoints (with the setpoint outside the rails, "
+                                  f"a change is measured from the zone's live PV; from outside "
+                                  f"the rails it may land at most max_step_k past the nearest "
+                                  f"edge)")
                 if target > e + 1e-9:
                     self._require_pv_fed(z, status)
                 if status.get("mode") != "auto":
@@ -915,6 +1114,7 @@ class Actions:
                 self.ramps.start_ramp(z, target, rate, call.reason or "", plans[z]["expr"],
                                       plans[z]["E"])
                 started.append(f"{z} {_fmt(plans[z]['E'])} → {_fmt(target)} K")
+            call.noop = not started
             call.detail = (f"ramp at {_fmt(rate)} K/min: " + (", ".join(started) or "nothing")
                            + (f"; already at target: {', '.join(at_target)}" if at_target else ""))
             call.readback["ramps"] = self.ramps.status()
@@ -938,6 +1138,7 @@ class Actions:
             call.detail = ("stopped ramp(s): " + ", ".join(stopped)) if stopped \
                 else "no ramp was running"
             if not stopped:
+                call.noop = True
                 call.note = "no ramp was running" + (f" for {', '.join(zones)}" if zones else "")
         return self._run("stop_heater_ramp", args, body, lock=False)
 
@@ -1021,6 +1222,7 @@ class Actions:
             status = self._pid_status(z)
             mode = status.get("mode")
             if mode == "auto":
+                call.noop = True
                 call.detail = f"zone {z} already in auto — nothing sent"
                 call.note = f"zone {z} is already in auto; nothing was sent"
                 return
@@ -1080,6 +1282,7 @@ class Actions:
             prev = status.get("pv_expr") if isinstance(status.get("pv_expr"), str) else ""
             prev = prev.strip()
             if prev == alias and _is_num(status.get("pv_expr_value_k")):
+                call.noop = True
                 call.detail = f"zone {z} PV already {alias} — nothing sent"
                 call.note = f"zone {z} already uses {alias} ({source}) as its PV; nothing sent"
                 return
@@ -1105,8 +1308,14 @@ class Actions:
             if not call.confirmed:
                 msg = (f"not confirmed: zone {z} did not report pv_expr {alias!r} with a value "
                        f"within {self.confirm_timeout_s:g} s")
-                if prev:
-                    # The service's own repair: put back what was there.
+                cur = st.get("pv_expr")
+                cur = cur.strip() if isinstance(cur, str) else None
+                if not prev:
+                    msg += "; the previous pv_expr was empty, so nothing was reverted"
+                elif cur is None or cur in (alias, prev):
+                    # The service's own repair: put back what was there.  Also
+                    # when the status still shows prev — the AI's command may
+                    # yet be applied late, and this one is applied after it.
                     try:
                         self._publish(call, f"xsphere/commands/pid/{z}/pv_expr", {"expr": prev},
                                       check_arm=False)
@@ -1114,7 +1323,9 @@ class Actions:
                     except Refusal as r:
                         msg += f"; the revert to {prev!r} failed too: {r.text}"
                 else:
-                    msg += "; the previous pv_expr was empty, so nothing was reverted"
+                    # A third expression: someone else chose a PV meanwhile.
+                    msg += (f"; pv_expr now reads {cur!r} (changed by someone else meanwhile) — "
+                            f"not reverted")
                 raise Failure(msg)
         return self._run("set_pv_source", args, body)
 
@@ -1129,6 +1340,45 @@ class Actions:
         remaining = self.nge_timeout_s - (time.monotonic() - last["mono"])
         if remaining > 0:
             self.bus.wait_for(lambda: self._seq(last["topic"]) > last["seq"], remaining)
+
+    @staticmethod
+    def _unpowered_text(ch: int, what: str) -> str:
+        return (f"supply ch{ch}: {what} would leave the heater without power, and Lucas's rails "
+                f"do not let the AI switch it off (may_switch_off is false) — a heater without "
+                f"power lets LN2 cool the cell")
+
+    def _require_zone_ready_for_power(self, ch: int, il: dict) -> None:
+        """Before more power reaches the heater a supply channel feeds: its PID
+        zone must be in auto, at a numeric setpoint inside the rails and the
+        interlock band, regulating on a live PV — what set_heater_auto checks
+        before it enables a loop.  Raises Refusal."""
+        zone = self.zones.channel_zone(ch)
+        if zone not in ZONES:
+            raise Refusal(f"supply ch{ch}: the registry label does not say which PID zone it "
+                          f"feeds, so the service cannot check that zone before powering it")
+        head = f"supply ch{ch} feeds software zone {zone}"
+        status = self._pid_status(zone)
+        mode = status.get("mode")
+        if mode != "auto":
+            raise Refusal(f"{head}, whose PID is in mode {mode!r}: its output is whatever a "
+                          f"person set, so the AI may not power it up — return it to auto "
+                          f"first (set_heater_auto)")
+        try:
+            e, _info = self._effective(zone, status, False)
+        except Refusal:
+            raise Refusal(f"{head}, whose setpoint is the expression "
+                          f"{status.get('setpoint_expr')!r}, not a plain number — the service "
+                          f"cannot check where its PID would drive the heater") from None
+        lo, hi = self._require_zone_rails(zone)
+        if not lo <= e <= hi:
+            raise Refusal(f"{head}, whose setpoint {_fmt(e, 'K')} is outside Lucas's rails "
+                          f"{_fmt(lo)}–{_fmt(hi)} K — set one inside them first")
+        self._check_band(zone, e, il)
+        why = self._pv_fed_problem(status)
+        if why is not None:
+            raise Refusal(f"{head}, whose PID sees {_fmt(status.get('pv_k'), 'K')} — no live PV "
+                          f"source ({why}); choose one with set_pv_source first. Power into a "
+                          f"PID regulating on a frozen PV heats open-loop")
 
     def set_heater_supply(self, args: Any) -> Tuple[bool, dict]:
         def body(call: _Call) -> None:
@@ -1150,6 +1400,8 @@ class Actions:
                 if not float(sr["voltage_min_v"]) <= vq <= float(sr["voltage_max_v"]):
                     raise Refusal(f"supply ch{ch}: {vq:g} V is outside Lucas's rails "
                                   f"{_fmt(sr['voltage_min_v'])}–{_fmt(sr['voltage_max_v'])} V")
+                if vq == 0 and not sr["may_switch_off"]:
+                    raise Refusal(self._unpowered_text(ch, "0 V"))
             if "current_a" in a:
                 if sr["current_min_a"] is None or sr["current_max_a"] is None:
                     raise Refusal(f"supply ch{ch}: Lucas has not set current rails "
@@ -1159,6 +1411,8 @@ class Actions:
                 if not float(sr["current_min_a"]) <= aq <= float(sr["current_max_a"]):
                     raise Refusal(f"supply ch{ch}: {aq:g} A is outside Lucas's rails "
                                   f"{_fmt(sr['current_min_a'])}–{_fmt(sr['current_max_a'])} A")
+                if aq == 0 and not sr["may_switch_off"]:
+                    raise Refusal(self._unpowered_text(ch, "a 0 A current limit"))
             out = a.get("output")
             if out is True:
                 if not sr["may_switch_on"]:
@@ -1173,7 +1427,7 @@ class Actions:
                               f"(may_switch_off is false) — a heater without power lets LN2 "
                               f"cool the cell")
             self._require_global()
-            self._interlock()
+            il = self._interlock()
             if self.bus.state_value("nge_connected") is not True:
                 raise Refusal("the NGE103 supply is not connected (nge_connected is not fresh "
                               "and true)")
@@ -1203,11 +1457,22 @@ class Actions:
                 else:
                     steps.append(("output", out))
             if not steps:
+                call.noop = True
                 call.detail = f"supply ch{ch}: nothing to change"
                 call.note = "everything asked for is already set; nothing was sent"
                 call.confirmed = None
                 self._nge_readback(call, ch, topic)
                 return
+            # Power into a heater goes where its PID drives it: switching on,
+            # or raising V / I while the output is (or is about to be) on,
+            # is held to what set_heater_auto checks before enabling a loop.
+            on_now = st.get("output") == 1 or st.get("desired") == 1
+            held = {"voltage": st.get("voltage_request_v"), "current": st.get("current_request_a")}
+            raises = any(what in held and not (_is_num(held[what])
+                                               and value <= float(held[what]) + 1e-6)
+                         for what, value in steps)
+            if ("output", True) in steps or (raises and (on_now or out is True)):
+                self._require_zone_ready_for_power(ch, il)
             now = self._clock()
             with self._stats_lock:
                 while self._nge_times and now - self._nge_times[0] >= 60.0:
@@ -1408,6 +1673,9 @@ class Actions:
                 ok = self.bus.wait_for(lambda: self._wait_consecutive(checks, timeout=0)
                                        or closed_by_ladder(), self.confirm_timeout_s)
                 call.confirmed = bool(ok) and not closed_by_ladder()
+                if seen["open"] and self.timers is not None:
+                    # From now on a "closed" status may clear the timer.
+                    self.timers.mark_seen_open(vessel)
                 if timer:
                     call.readback["auto_close_deadline_utc"] = timer["deadline_utc"]
                 if not call.confirmed:
@@ -1420,9 +1688,20 @@ class Actions:
                                              f"two consecutive messages within "
                                              f"{self.confirm_timeout_s:g} s")
             else:
-                if st.get("state") == 0 and st.get("desired") == 0 and st.get("auto_open") == 0:
-                    if self.timers is not None:
-                        self.timers.clear(vessel)
+                # An AI open that was never seen open may still be queued in
+                # slowcontrol (behind slow NGE work): "reads closed" proves
+                # nothing then, so the close is sent anyway — on the same
+                # topic, it is applied after that open — and the timer stays.
+                timer = self.timers.get(vessel) if self.timers is not None else None
+                if timer is not None and (st.get("state") == 1 or st.get("desired") == 1):
+                    self.timers.mark_seen_open(vessel)   # the open has landed
+                    timer["seen_open"] = True
+                unseen = timer is not None and not timer.get("seen_open")
+                if (st.get("state") == 0 and st.get("desired") == 0 and st.get("auto_open") == 0
+                        and not unseen):
+                    if timer is not None:
+                        self.timers.clear(vessel)        # it was seen open, and is closed now
+                    call.noop = True
                     call.detail = f"LN2 {vessel} already closed — nothing sent"
                     call.note = f"LN2 {vessel} is already closed with auto-open off; nothing sent"
                     self._valve_readback(call, vessel, topic)
@@ -1437,10 +1716,20 @@ class Actions:
                 self._publish(call, f"{prefix}/state", {"state": 0})
                 call.detail = f"LN2 {vessel} closed" + (" (auto-open switched off first)"
                                                         if len(call.published) > 1 else "")
+                if unseen:
+                    call.detail += (f" — sent although it reads closed: the AI's open of "
+                                    f"{timer['opened_utc']} was never seen")
                 call.confirmed = self._wait_consecutive(
                     [(topic, seq0, lambda p: p.get("state") == 0 and p.get("desired") == 0)])
-                if call.confirmed and self.timers is not None:
-                    self.timers.clear(vessel)
+                t_now = self.timers.get(vessel) if self.timers is not None else None
+                if call.confirmed and t_now is not None:
+                    if t_now.get("seen_open"):
+                        self.timers.clear(vessel)
+                    else:
+                        call.warnings.append(
+                            f"the AI's open of LN2 {vessel} ({t_now['opened_utc']}) was never "
+                            f"seen; its auto-close timer stays until the valve has been seen "
+                            f"open and closed again, or until {t_now['deadline_utc']}")
                 if not call.confirmed:
                     call.warnings.append(f"not confirmed: LN2 {vessel} did not read closed on two "
                                          f"consecutive messages within "
@@ -1486,6 +1775,11 @@ class Actions:
             if want.get("auto_close") is False and not is_closed:
                 raise Refusal(f"LN2 {vessel}: auto-close may only be turned off while the valve "
                               f"is closed — the PLC's fill timeout only runs with it")
+            if (want.get("auto_close") is False and st.get("auto_open") != 0
+                    and want.get("auto_open") is not False):
+                raise Refusal(f"LN2 {vessel}: auto-open is on — turn it off first (or in the "
+                              f"same call: auto_open false); auto-open only works with "
+                              f"auto-close armed")
             # Safe order: arm auto-close, drop auto-open, then raise auto-open,
             # and only then drop auto-close.
             order = []
@@ -1502,6 +1796,7 @@ class Actions:
                 if (k, v) not in steps:
                     call.warnings.append(f"{k} already {'on' if v else 'off'} — not re-sent")
             if not steps:
+                call.noop = True
                 call.detail = f"LN2 {vessel}: flags already as asked — nothing sent"
                 call.note = "the flags are already as asked; nothing was sent"
                 self._valve_readback(call, vessel, topic)
@@ -1533,6 +1828,33 @@ class Actions:
         return self._run("set_ln2_auto", args, body)
 
     # ── pneumatic ─────────────────────────────────────────────────────────
+
+    def _note_pn_command(self, valve: str, want: int, ts: float, seq: int, *,
+                         pending: bool) -> None:
+        with self._stats_lock:
+            self._pn_cmd[valve] = {"want": int(want), "ts": ts, "seq": seq, "pending": pending}
+
+    def _pending_open_age(self, valve: str) -> Optional[float]:
+        """Seconds since the AI's last command to ``valve`` when that was an
+        open never confirmed (it may still be queued in slowcontrol and land
+        later), else None.  Such an open stops counting once a status after it
+        shows the valve open — the live check sees that — or after
+        :data:`PN_PENDING_OPEN_S`."""
+        with self._stats_lock:
+            c = dict(self._pn_cmd[valve]) if valve in self._pn_cmd else None
+        if not c or c["want"] != 1 or not c["pending"]:
+            return None
+        age = self._clock() - c["ts"]
+        if age > PN_PENDING_OPEN_S:
+            return None
+        r = self.bus.raw(self.zones.valves[valve]["status_topic"])
+        if r is not None and r["seq"] > c["seq"]:
+            # The last one or two statuses after the command (not one from before).
+            after = [r["payload"]] + ([r["prev_payload"]] if r["seq"] >= c["seq"] + 2 else [])
+            if any(isinstance(p, dict) and (p.get("state") == 1 or p.get("desired") == 1)
+                   for p in after):
+                return None
+        return max(age, 0.0)
 
     def set_pneumatic_valve(self, args: Any) -> Tuple[bool, dict]:
         def body(call: _Call) -> None:
@@ -1572,6 +1894,13 @@ class Actions:
                     if pst.get("state") == 1 or pst.get("desired") == 1:
                         raise Refusal(f"pneumatic {valve}: {partner} is open, and Lucas's rails "
                                       f"forbid {valve} and {partner} open at the same time")
+                    age = self._pending_open_age(partner)
+                    if age is not None:
+                        raise Refusal(f"pneumatic {valve}: an AI open of {partner} was sent "
+                                      f"{age:.0f} s ago and is not confirmed — it may still be on "
+                                      f"its way, and Lucas's rails forbid {valve} and {partner} "
+                                      f"open together. Close {partner} first, or wait until "
+                                      f"{PN_PENDING_OPEN_S:.0f} s have passed")
             interval = float(self.rails.pneumatic()["min_interval_s"])
             now = self._clock()
             last = self._pn_last.get(valve)
@@ -1579,7 +1908,12 @@ class Actions:
                 raise Refusal(f"pneumatic {valve}: commanded {now - last:.0f} s ago; wait "
                               f"{interval - (now - last):.0f} s more (min_interval_s "
                               f"{interval:g})")
-            if st.get("state") == want and st.get("desired") == want:
+            # A close after the AI's own unconfirmed open is sent even though the
+            # valve reads closed: that open may still be queued, and this close
+            # is applied after it.
+            unseen_open = not want_open and self._pending_open_age(valve) is not None
+            if st.get("state") == want and st.get("desired") == want and not unseen_open:
+                call.noop = True
                 call.detail = f"pneumatic {valve} already {'open' if want else 'closed'}"
                 call.note = f"{valve} is already {'open' if want else 'closed'}; nothing sent"
                 call.readback[valve] = {k: st.get(k) for k in ("state", "desired", "relay")}
@@ -1590,8 +1924,12 @@ class Actions:
             t_pub = self._clock()
             self._pn_last[valve] = t_pub
             self._publish(call, f"xsphere/commands/pneumatic/{valve}/state", {"state": want})
+            # Out now: pending until the status confirms it (or the PLC refuses it).
+            self._note_pn_command(valve, want, t_pub, seq0, pending=True)
             word = "open" if want else "closed"
-            call.detail = f"pneumatic {valve} → {word}"
+            call.detail = f"pneumatic {valve} → {word}" + (
+                " (sent although it reads closed: the AI's open of it was never confirmed)"
+                if unseen_open else "")
 
             def plc_refused() -> bool:
                 g = self._payload(PNEUMATIC_GATE_TOPIC) or {}
@@ -1608,9 +1946,12 @@ class Actions:
                               self.confirm_timeout_s)
             if plc_refused():
                 call.confirmed = False
+                self._note_pn_command(valve, want, t_pub, seq0, pending=False)
                 raise Failure(f"pneumatic {valve}: the PLC refused the command — its pneumatic "
                               f"valve gate was disabled when it arrived")
             call.confirmed = self._wait_consecutive(checks, timeout=0)
+            if call.confirmed:
+                self._note_pn_command(valve, want, t_pub, seq0, pending=False)
             st2 = self._payload(topic) or {}
             call.readback[valve] = {k: st2.get(k) for k in ("state", "desired", "relay")}
             if not call.confirmed:
@@ -1624,6 +1965,7 @@ class Actions:
 
     def add_note(self, args: Any) -> Tuple[bool, dict]:
         def body(call: _Call) -> None:
+            self._take_note_slot()
             call.detail = call.args["text"].strip()
             call.note = "noted in the AI logbook (audit), shown on the Control page card"
         return self._run("add_note", args, body, lock=False)

@@ -39,6 +39,7 @@ import json
 import logging
 import math
 import os
+import re
 import signal
 import sys
 import threading
@@ -52,7 +53,8 @@ from werkzeug.exceptions import RequestEntityTooLarge
 
 from . import __version__
 from .actions import Actions
-from .arms import PV_INTERLOCK_TOPIC, ArmState, Ln2Timers, Ramps, Supervisor, utc_iso
+from .arms import (PV_INTERLOCK_TOPIC, ArmState, Ln2Timers, Ramps, Supervisor, default_mono,
+                   utc_iso)
 from .audit import Audit
 from .bus import OFFLINE_STATUS, Bus, loads_strict
 from .config import ConfigError, Settings
@@ -87,18 +89,27 @@ class Service:
     """
 
     def __init__(self, settings: Settings, transport=None, *,
-                 clock: Callable[[], float] = time.time, zone_map: Optional[ZoneMap] = None,
+                 clock: Callable[[], float] = time.time,
+                 mono: Optional[Callable[[], float]] = None,
+                 zone_map: Optional[ZoneMap] = None,
                  history: Any = _AUTO, confirm_timeout_s: float = 5.0,
                  nge_timeout_s: float = 5.0, ramp_interval_s: float = 10.0,
                  status_interval_s: float = STATUS_INTERVAL_S):
         self.settings = settings
         self._clock = clock
+        # Arm expiry and LN2 deadlines (default: time.monotonic, or the fake
+        # clock a test injects).
+        mono = mono if mono is not None else default_mono(clock)
         self.started_ts = clock()
         self.status_interval_s = status_interval_s
         self._stop = threading.Event()
         self._threads = []
         self._shut = False
         self._shut_lock = threading.Lock()
+        # Computing and publishing the status as one step, so an older payload
+        # (paho, request, ramp and supervisor threads all publish) can never
+        # overwrite a newer one.
+        self._status_lock = threading.RLock()
         self.last_rails_result: Optional[dict] = None
 
         self.zones = zone_map if zone_map is not None else ZoneMap.from_state_yaml(
@@ -107,8 +118,8 @@ class Service:
         self.rails.load()
         self.bus = Bus(settings, transport, clock=clock)
         self.audit = Audit(settings.audit_path, publish=self.bus.publish_audit, clock=clock)
-        self.arms = ArmState(self.rails, self.audit, clock=clock)
-        self.timers = Ln2Timers(settings.runtime_path, clock=clock)
+        self.arms = ArmState(self.rails, self.audit, clock=clock, mono=mono)
+        self.timers = Ln2Timers(settings.runtime_path, clock=clock, mono=mono)
         self.timers.load()
         self.ramps = Ramps(self.arms, self.audit, clock=clock, interval_s=ramp_interval_s)
         self.actions = Actions(self.bus, self.zones, self.rails, self.arms, self.audit,
@@ -127,7 +138,7 @@ class Service:
         self.bus.on_command("rails", self._on_rails_command)
         # Status: on connect (bus), on every change, and every 2 s.
         self.bus.set_status_provider(self.status_payload)
-        self.bus.on_connect_hook(lambda _reconnect: self.audit.flush_publish(force=True))
+        self.bus.on_connect_hook(self._on_connect_audit)
         self.arms.add_listener(lambda _g, _a, _r: self.publish_status())
         self.ramps.set_on_change(self.publish_status)
         self.timers.set_on_change(self.publish_status)
@@ -154,14 +165,25 @@ class Service:
             log.exception("history could not be set up — query_history disabled")
             return None
 
+    def _on_connect_audit(self, _reconnect: bool) -> None:
+        self.audit.flush_publish(force=True)
+        # And once more from the status loop, after anything the client may
+        # still send from before the reconnect.
+        self.audit.pending = True
+
     # human rails command -----------------------------------------------------
 
     def _on_rails_command(self, payload: Any) -> None:
         by = payload.get("by") if isinstance(payload, dict) else None
         by = by.strip()[:80] if isinstance(by, str) and by.strip() else "unknown"
+        rid = payload.get("request_id") if isinstance(payload, dict) else None
         ok, err, diff = self.rails.replace_from_command(payload, default_by="unknown")
+        # request_id (the editor's nonce) lets the page that sent this save tell
+        # its own answer from another tab's.
         self.last_rails_result = {"utc": _utc_ms(self._clock()), "ok": ok, "error": err,
-                                  "revision": self.rails.revision}
+                                  "revision": self.rails.revision,
+                                  "request_id": rid if isinstance(rid, str) and len(rid) <= 64
+                                  else None}
         if ok:
             self.audit.record("rails", f"rails revision {self.rails.revision} saved by {by}: "
                                        f"{diff}", by=by)
@@ -196,9 +218,11 @@ class Service:
             "ln2_timers": self.timers.status(),
             "actions": stats["actions"],
             "refused": stats["refused"],
+            "notes": stats["notes"],
             "auto_disarms": self.arms.auto_disarms,
             "last_action": stats["last_action"],
             "last_refused": stats["last_refused"],
+            "last_note": stats["last_note"],
             "last_rails_result": self.last_rails_result,
             "zones": self.zones.describe_all(),
             "interlock": ({"min_k": il.get("min_k"), "max_k": il.get("max_k"),
@@ -210,7 +234,8 @@ class Service:
         if not self.bus.connected():
             return False
         try:
-            return self.bus.publish_status(self.status_payload())
+            with self._status_lock:
+                return self.bus.publish_status(self.status_payload())
         except Exception:
             log.exception("Could not publish the status")
             return False
@@ -218,6 +243,10 @@ class Service:
     def _status_loop(self) -> None:
         while not self._stop.wait(self.status_interval_s):
             self.publish_status()
+            try:
+                self.actions.flush_unaudited()
+            except Exception:
+                log.exception("Could not audit the refusals that were only counted")
             if self.audit.pending:
                 self.audit.flush_publish()
 
@@ -270,7 +299,14 @@ def _json(obj: Any, status: int = 200, headers: Optional[Dict[str, str]] = None)
     try:
         text = json.dumps(obj, ensure_ascii=False, allow_nan=False, default=str)
     except ValueError:
-        text = json.dumps(_json_safe(obj), ensure_ascii=False, allow_nan=False, default=str)
+        obj = _json_safe(obj)
+        text = json.dumps(obj, ensure_ascii=False, allow_nan=False, default=str)
+    try:
+        text.encode("utf-8")
+    except UnicodeEncodeError:
+        # A lone surrogate (e.g. in an audit entry's "by") has no UTF-8 form;
+        # \u-escaping everything is still the same JSON.
+        text = json.dumps(obj, ensure_ascii=True, allow_nan=False, default=str)
     resp = Response(text, status=status, mimetype="application/json")
     for k, v in (headers or {}).items():
         resp.headers[k] = v
@@ -415,14 +451,17 @@ def create_app(service: Service) -> Flask:
             vals = request.args.getlist(k)
             if len(vals) > 1:
                 raise _BadQuery(f"query parameter {k!r} given twice")
-            if vals:
+            # An empty value (``stop=`` in a filled-in template) means "not given".
+            if vals and vals[0].strip():
                 out[k] = vals[0]
         return out
 
     def int_param(q: Dict[str, str], key: str) -> None:
         if key in q:
             text = q[key].strip()
-            if not text.isdigit() or len(text) > 6:
+            # ASCII digits only: str.isdigit() also accepts "²" (which int()
+            # then refuses) and "٣".
+            if not re.fullmatch(r"[0-9]{1,6}", text):
                 raise _BadQuery(f"{key} must be a positive integer")
             q[key] = int(text)
 
@@ -480,7 +519,7 @@ def create_app(service: Service) -> Flask:
         if raw.strip():
             try:
                 args = loads_strict(raw.decode("utf-8"))
-            except (ValueError, UnicodeDecodeError) as e:
+            except (ValueError, UnicodeDecodeError, RecursionError) as e:
                 return _json({"ok": False, "tool": tool, "error": f"invalid JSON body: {e}",
                               "invalid_arguments": True}, 400)
         else:

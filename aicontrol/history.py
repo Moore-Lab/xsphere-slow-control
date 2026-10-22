@@ -123,8 +123,10 @@ _NICE_STEPS_S = (1, 2, 5, 10, 15, 20, 30, 60, 120, 300, 600, 900, 1200, 1800,
 _ARG_KEYS = ("ids", "start", "stop", "every", "fn", "max_points")
 
 TIMES_NOTE = ("Times are UTC (Lucas works in US Eastern, America/New_York).  "
-              "Point i is the window starting at t0 + dt_s[i], "
-              "every_s long.  Windows with no data are left out: a gap in dt_s means "
+              "Point i is the window starting at t0 + dt_s[i].  Windows are every_s long "
+              "and aligned to the UTC epoch, except that the first and the last are cut at "
+              "start and stop, so they can be shorter (a lower count, a mean over less "
+              "time).  Windows with no data are left out: a gap in dt_s means "
               "nothing was recorded (device unreachable or service down), not zero.")
 
 #: JSON schema for the tool registry (tools.py may use it as is).
@@ -502,9 +504,14 @@ def urllib_post(url: str, headers: dict, body: bytes, timeout: float,
                 opener: Any = None) -> tuple[int, bytes]:
     """POST with stdlib urllib; no proxies, no redirects.  Reads at most
     MAX_RESPONSE_BYTES + 1 (the caller refuses anything longer) and gives up
-    when the whole exchange takes longer than ``timeout`` — urllib's own
-    timeout is per socket operation, so a slow drip would never trip it."""
+    when reading the response takes longer than ``timeout`` in all.
+
+    urllib's own timeout is per socket operation, and ``read(n)`` on a
+    chunked body keeps reading chunks until it has n bytes, so a slow drip
+    would never trip either.  Each read here is ``read1`` (one chunk at most)
+    with the socket timeout cut to the time left."""
     deadline = time.monotonic() + timeout
+    too_slow = f"InfluxDB took longer than {timeout:.0f} s"
     req = urllib.request.Request(url, data=body, headers=headers, method="POST")
     try:
         resp = (opener or _OPENER).open(req, timeout=timeout)
@@ -515,11 +522,23 @@ def urllib_post(url: str, headers: dict, body: bytes, timeout: float,
             data = b""
         return exc.code, data
     with resp:
+        # The socket under the response (resp.fp goes None at EOF: take it now).
+        sock = getattr(getattr(getattr(resp, "fp", None), "raw", None), "_sock", None)
+        read1 = getattr(resp, "read1", None) or resp.read
         chunks, size = [], 0
         while size <= MAX_RESPONSE_BYTES:
-            if time.monotonic() > deadline:
-                raise TimeoutError(f"InfluxDB took longer than {timeout:.0f} s")
-            chunk = resp.read(min(65536, MAX_RESPONSE_BYTES + 1 - size))
+            left = deadline - time.monotonic()
+            if left <= 0:
+                raise TimeoutError(too_slow)
+            if sock is not None:
+                try:
+                    sock.settimeout(max(0.1, left))
+                except OSError:
+                    pass
+            try:
+                chunk = read1(min(65536, MAX_RESPONSE_BYTES + 1 - size))
+            except TimeoutError:                # socket.timeout is TimeoutError
+                raise TimeoutError(too_slow) from None
             if not chunk:
                 break
             chunks.append(chunk)
@@ -886,6 +905,10 @@ class History:
         elif fn == "mean" and e["kind"] == "binary":
             out["unit"] = "fraction"
             notes.append("mean of a 0/1 state = fraction of the window it was 1")
+        elif fn == "changes" and truncated:
+            notes.append("only windows whose last value differs from the previous window's; "
+                         "the earliest changes were dropped, so v[0] is NOT the state at the "
+                         "start")
         elif fn == "changes":
             notes.append("only windows whose last value differs from the previous window's; "
                          "the first point is the state at the start")

@@ -91,10 +91,10 @@ _client.on_connect = _on_connect
 _client.on_message = _on_message
 
 
-def _publish(topic: str, payload) -> None:
+def _publish(topic: str, payload, qos: int = 1):
     if not isinstance(payload, (str, bytes)):
         payload = json.dumps(payload)
-    _client.publish(topic, payload, qos=1)
+    return _client.publish(topic, payload, qos=qos)
 
 
 # ---------------------------------------------------------------------------
@@ -177,7 +177,28 @@ def api_cmd():
         refusal = _ai_control_refusal()
         if refusal:
             return jsonify({"error": refusal}), 403
+        return _relay_ai_control(topic, d.get("payload", {}))
     _publish(topic, d.get("payload", {}))
+    return jsonify({"ok": True})
+
+
+def _relay_ai_control(topic: str, payload):
+    """Send an AI arm / rails command now, or say it was not sent.
+
+    paho keeps a qos-1 message published while disconnected and delivers it
+    after the next connect — an "arm" clicked during a broker outage would arm
+    the AI minutes later, after the AI service's own reconnect disarm, with
+    nobody watching.  So: refused while disconnected, and arm / rails go out
+    at qos 0 (never held for later).  A disarm stays qos 1: arriving late is
+    harmless, arriving at all is what matters."""
+    if not _client.is_connected():
+        return jsonify({"error": "the web panel is not connected to the MQTT broker — "
+                                 "not sent"}), 503
+    disarm = isinstance(payload, dict) and payload.get("armed") is False
+    info = _publish(topic, payload, qos=1 if disarm else 0)
+    if info is not None and info.rc != mqtt.MQTT_ERR_SUCCESS:
+        return jsonify({"error": f"the MQTT publish failed ({mqtt.error_string(info.rc)}) — "
+                                 f"not sent"}), 503
     return jsonify({"ok": True})
 
 

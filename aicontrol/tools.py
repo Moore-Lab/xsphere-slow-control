@@ -117,8 +117,11 @@ TOOL_TEXT: Dict[str, Tuple[str, str]] = {
         "and each is sent as xsphere/commands/pid/<zone>/setpoint. Arm group: heaters. Rails: "
         "the zone's setpoint_min_k and setpoint_max_k must both be set and the value inside "
         "them; max_step_k limits one change and max_rate_k_per_min the average rate (allowance "
-        "= rate × minutes since that zone's last AI change, at most 10 min worth) — a move from "
-        "outside the rails back into them is exempt from both. Preconditions: PV interlock not "
+        "= rate × minutes since that zone's last AI change, at most 10 min worth), both measured "
+        "from the current setpoint — or, while that is outside the rails (e.g. 3 K after a "
+        "slowcontrol restart), from the zone's measured PV when it has a live source; from a "
+        "point outside the rails the value may land at most max_step_k inside the nearest rail "
+        "edge. The result's readback names the anchor_k used. Preconditions: PV interlock not "
         "tripped and the value ≥ 5 K inside its band; live PID status; an INCREASE needs a live "
         "PV source (pv_expr set and evaluating, PV agreeing within 5 K — else set_pv_source "
         "first); a zone whose setpoint is a non-numeric expression is refused unless "
@@ -177,9 +180,12 @@ TOOL_TEXT: Dict[str, Tuple[str, str]] = {
         "Steps run voltage → current → output, each waiting for the supply's status to confirm "
         "it (5 s) before the next; a later step is not sent if an earlier one fails. Rails per "
         "channel: voltage_min_v/voltage_max_v and current_min_a/current_max_a (both of a pair "
-        "needed to change that value), may_switch_on, may_switch_off; switching on also needs "
-        "the channel's held targets inside the rails. Requires the supply connected, live "
-        "channel status, the PV interlock not tripped; at most 6 supply commands a minute. The "
+        "needed to change that value), may_switch_on, may_switch_off (also needed for 0 V or "
+        "0 A); switching on also needs the channel's held targets inside the rails. Switching "
+        "on, or raising V or I while on, needs the PID zone it feeds in auto at a numeric "
+        "setpoint inside its rails and band, with a live PV source. Requires the supply "
+        "connected, live channel status, the PV interlock not tripped; at most 6 supply "
+        "commands a minute. The "
         "supply caps the current limit at 33.6 W / V, so current_limit_a may read below the "
         "request — normal. Switching off lets LN2 cool the cell. get_overview shows which heater "
         "each channel feeds."),
@@ -200,7 +206,8 @@ TOOL_TEXT: Dict[str, Tuple[str, str]] = {
         "group: ln2. Rails: may_operate; auto_open true needs may_set_auto_open, auto_close "
         "false needs may_disarm_auto_close. auto_open true needs auto-close armed (already, or "
         "in this call) and a fresh level reading; auto_close false only while the valve is "
-        "closed. Sent in the safe order — auto-close on, auto-open off, auto-open on, auto-close "
+        "closed and auto-open is off (already, or in this call). Sent in the safe order — "
+        "auto-close on, auto-open off, auto-open on, auto-close "
         "off — each confirmed on two consecutive messages before the next. The XV3 (cryostat) "
         "ladder can clear auto-open by itself after a timed-out fill."),
     "set_pneumatic_valve": (
@@ -209,15 +216,17 @@ TOOL_TEXT: Dict[str, Tuple[str, str]] = {
         "bottle are normally open, pump normally closed). Arm group: pneumatic — and the PLC's "
         "own pneumatic valve gate on the Control page must be enabled too. Rails: may_open / "
         "may_close per valve; opening is refused while a forbid_open_together partner is open "
-        "(or its state is unknown); min_interval_s between commands to one valve. Confirmed when "
+        "(or its state is unknown, or an AI open of it was not confirmed in the last 2 min); "
+        "min_interval_s between commands to one valve. Confirmed when "
         "the valve state reads as asked on two consecutive messages; a refusal by the PLC's gate "
         "is detected and reported. Ballast + bottle open is the xenon's walk-away-safe buffer — "
         "do not close them unless Lucas asked for exactly that."),
     "add_note": (
         "Add logbook note",
         "Write a note into the AI logbook (the audit log shown on the Control page card). No "
-        "arm needed, no hardware effect. Use it to tell Lucas what you were asked to do, what "
-        "you did and where you stopped."),
+        "arm needed, no hardware effect; at most 6 notes a minute, so put one task's account "
+        "into one note. Use it to tell Lucas what you were asked to do, what you did and where "
+        "you stopped."),
 }
 
 _READ_ANN = {"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True,

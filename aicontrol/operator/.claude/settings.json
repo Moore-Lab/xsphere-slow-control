@@ -35,6 +35,8 @@
       "EnterWorktree",
       "TaskStop",
       "Artifact",
+      "ArtifactComments",
+      "ArtifactData",
       "DesignSync",
       "Cd",
       "mcp__Claude_Browser__*",

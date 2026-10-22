@@ -651,14 +651,19 @@ class Bus:
             log.warning("Publish of %s %s was not accepted", topic, data)
         return ok
 
+    # The retained status and audit go out at qos 0.  paho re-sends un-acked
+    # qos 1 messages after a reconnect *after* on_connect has published the
+    # fresh ones, so a stale "armed" status would end up retained.  Both are
+    # re-published anyway (status every 2 s, audit on every (re)connect); only
+    # the last will and the goodbye on shutdown stay qos 1.
     def publish_status(self, payload: dict) -> bool:
         """The service's own retained status (only while connected)."""
-        return self._publish_json(self.settings.status_topic, payload, qos=1, retain=True)
+        return self._publish_json(self.settings.status_topic, payload, qos=0, retain=True)
 
     def publish_audit(self, entries: list) -> bool:
         """``{"entries": [...]}`` retained on ``<status_topic>/audit``."""
         return self._publish_json(f"{self.settings.status_topic}/audit",
-                                  {"entries": entries}, qos=1, retain=True)
+                                  {"entries": entries}, qos=0, retain=True)
 
     def _publish_json(self, topic: str, obj: Any, qos: int, retain: bool) -> bool:
         try:

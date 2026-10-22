@@ -835,8 +835,8 @@ class Reads:
   what was refused, quote the reason, say what he would have to change.
 - `confirmed: false` means the status never showed the change: read get_overview and report
   before anything else.
-- Give every write a short honest `reason`; it is in the audit Lucas reads. add_note leaves
-  him a logbook entry.
+- Give every write a short honest `reason` (plain text, one line); it is in the audit Lucas
+  reads. add_note leaves him a logbook entry (≤ 6 a minute).
 - Times: history and audit are UTC; Lucas works in US Eastern (America/New_York)."""
 
     def _guide_heaters(self) -> str:
@@ -862,8 +862,11 @@ class Reads:
   band. Heater writes are refused while tripped.
 - Rails per zone: setpoint_min_k / setpoint_max_k (both needed), max_step_k (largest single
   change), max_rate_k_per_min (allowance = rate × minutes since that zone's last AI change,
-  at most 10 minutes' worth). A move from outside the rails back into them is exempt from
-  step and rate.
+  at most 10 minutes' worth). Both are measured from the current setpoint — or, while that
+  is outside the rails (3 K after every slowcontrol restart), from the zone's measured PV
+  when it has a live PV source. When even that point is outside the rails, the new value
+  may land at most max_step_k inside the nearest rail edge (e.g. PV 295 K, rails
+  150–200 K, step 10 K → 190–200 K). The readback's anchor_k / anchor_source say which.
 - start_heater_ramp moves setpoints at a rate (≤ max_rate_k_per_min) every 10 s through
   the same checks; it stops on any refusal, a disarm, an outside change of the setpoint, a
   direct setpoint for that zone, or stop_heater_ramp.
@@ -875,7 +878,10 @@ class Reads:
 - NGE103 supply (set_heater_supply): voltage (0.01 V steps), current limit (0.001 A),
   output, sent in that order, each confirmed from the supply's status, ≤ 6 commands a
   minute. The supply caps the current limit at 33.6 W / V, so current_limit_a can read
-  below the request — normal. Switching a channel off lets LN2 cool the cell."""
+  below the request — normal. Switching on, or raising V / I while on, needs the PID zone
+  the channel feeds in auto at a numeric setpoint inside its rails and band, with a live
+  PV source — the supply turns that PID's output into heat. Switching a channel off — or
+  0 V / a 0 A limit — lets LN2 cool the cell, and needs may_switch_off."""
 
     def _guide_ln2(self) -> str:
         lines = "\n".join(f"  - {v}: {self.zones.vessels[v]['label']}; level "
@@ -894,11 +900,15 @@ class Reads:
   (live status), a fresh level (cryostat: the USB probe level_cryostat_probe;
   ballast / primary_xe: the level plus the GHS ESP32 heartbeat — the PLC keeps the last
   value when that feed stops), the valve closed, and ≥ 10 s since the last command to it.
-  The service closes a valve the AI opened after max_open_minutes (and disarms ln2).
+  The service closes a valve the AI opened after max_open_minutes (and disarms ln2) if a
+  live status shows it still open.
 - Closing turns auto-open off first — otherwise the ladder reopens a low vessel at once.
+  If your open was never seen (not confirmed), a close is sent even though the valve
+  reads closed — the open may still be queued — and the auto-close timer stays until the
+  valve has been seen open and closed again, or until its deadline.
 - set_ln2_auto runs in the safe order (auto-close on → auto-open off → auto-open on →
   auto-close off). auto-open on needs may_set_auto_open; auto-close off needs
-  may_disarm_auto_close and a closed valve.
+  may_disarm_auto_close, a closed valve and auto-open off (already, or in the same call).
 - Levels are 0–10 (probe in V). If the ladder closes a valve right after an open, the
   level was above its close threshold or the fill timer ran out."""
 
@@ -912,7 +922,8 @@ class Reads:
 - Two locks: the AI arm AND the PLC's own pneumatic valve gate on the Control page. Both
   must be on; the PLC refuses a command while its gate is off and the tool reports that.
 - Rails: may_open / may_close per valve, forbid_open_together pairs (checked against live
-  status), min_interval_s between commands to one valve.
+  status, and against an AI open of the partner that was not confirmed in the last 2 min —
+  it may still be on its way), min_interval_s between commands to one valve.
 - Ballast + bottle open is the walk-away-safe buffer for the xenon if cooling is lost;
   do not change them unless Lucas asked for exactly that."""
 

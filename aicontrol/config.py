@@ -11,7 +11,11 @@ deliberately fenced off from the live experiment:
   run on the DAQ PC can never overwrite what the Control page shows or obey the
   real arm buttons;
 * it refuses to start unless the broker is on localhost (tests normally inject
-  an in-process transport and use no broker at all).
+  an in-process transport and use no broker at all) — on the Pi, localhost IS
+  the live broker, so run test instances on the DAQ PC;
+* its state (rails, audit, LN2 timers) defaults to ``aicontrol/test-state/``
+  and it refuses production's ``aicontrol/`` directory, so a test copy can
+  never run production's LN2 timers or write its rails or audit.
 
 The InfluxDB token is read from the repo's ``.env`` (``INFLUX_TOKEN``) unless
 ``XSPHERE_AICONTROL_INFLUX_TOKEN`` overrides it.  Only *where* the token came
@@ -123,6 +127,17 @@ def _port(env: Mapping[str, str], name: str, default: int) -> int:
     return port
 
 
+def _same_path(a: Path, b: Path) -> bool:
+    """Whether two paths name the same directory (case-insensitive on Windows)."""
+    def norm(p: Path) -> str:
+        try:
+            p = p.resolve()
+        except OSError:
+            p = p.absolute()
+        return os.path.normcase(str(p))
+    return norm(a) == norm(b)
+
+
 def _client_id_token(text: str) -> str:
     return re.sub(r"[^A-Za-z0-9_.-]", "_", text) or "host"
 
@@ -156,8 +171,22 @@ class Settings:
         self.http_host = http_host
         self.http_port = int(http_port)
         self.repo_root = Path(repo_root) if repo_root is not None else REPO_ROOT
-        self.state_dir = (Path(state_dir) if state_dir is not None
-                          else self.repo_root / "aicontrol")
+        # The production state (rails.json, audit.jsonl, runtime.json with the
+        # LN2 timers) lives in <repo>/aicontrol; any other instance keeps its
+        # own, so a test copy started on the Pi can neither run production's
+        # LN2 timers nor write production's rails or audit.
+        production_dir = self.repo_root / "aicontrol"
+        if state_dir is not None:
+            self.state_dir = Path(state_dir)
+        elif self.production:
+            self.state_dir = production_dir
+        else:
+            self.state_dir = production_dir / "test-state"
+        if not self.production and _same_path(self.state_dir, production_dir):
+            raise ConfigError(
+                f"test instance refuses state dir {str(self.state_dir)!r}: that is the "
+                f"production service's (rails, audit, LN2 timers) — leave "
+                f"XSPHERE_AICONTROL_STATE_DIR unset or point it elsewhere")
         self.env_file = env_file
         self.allowed_hosts: FrozenSet[str] = frozenset(
             host_without_port(h) for h in allowed_hosts if host_without_port(h))
@@ -218,7 +247,7 @@ class Settings:
     def from_env(cls, env: Mapping[str, str] = os.environ) -> "Settings":
         instance = (env.get("XSPHERE_AICONTROL_INSTANCE") or "test").strip() or "test"
         repo_root = REPO_ROOT
-        state_dir = env.get("XSPHERE_AICONTROL_STATE_DIR") or str(repo_root / "aicontrol")
+        state_dir = env.get("XSPHERE_AICONTROL_STATE_DIR") or None   # default: see __init__
         env_file = Path(env.get("XSPHERE_AICONTROL_ENV_FILE") or str(repo_root / ".env"))
         dotenv = load_env_file(env_file)
 
@@ -239,7 +268,7 @@ class Settings:
             mqtt_port=_port(env, "XSPHERE_MQTT_PORT", 1883),
             http_host=(env.get("XSPHERE_AICONTROL_HOST") or "0.0.0.0").strip(),
             http_port=_port(env, "XSPHERE_AICONTROL_PORT", 8089),
-            state_dir=Path(state_dir),
+            state_dir=Path(state_dir) if state_dir else None,
             repo_root=repo_root,
             allowed_hosts=parse_allowed_hosts(
                 env.get("XSPHERE_AICONTROL_ALLOWED_HOSTS") or DEFAULT_ALLOWED_HOSTS),

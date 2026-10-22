@@ -98,8 +98,28 @@ def test_test_instance_defaults(tmp_path):
 
 
 def test_default_state_dir_is_in_the_repo(tmp_path):
-    s = Settings.from_env({"XSPHERE_AICONTROL_ENV_FILE": str(tmp_path / "x")})
+    # Production keeps its state in <repo>/aicontrol; a test instance its own.
+    s = Settings.from_env({"XSPHERE_AICONTROL_ENV_FILE": str(tmp_path / "x"),
+                           "XSPHERE_AICONTROL_INSTANCE": "production"})
     assert s.state_dir == REPO / "aicontrol"
+    s = Settings.from_env({"XSPHERE_AICONTROL_ENV_FILE": str(tmp_path / "x")})
+    assert s.state_dir == REPO / "aicontrol" / "test-state"
+    assert Settings().state_dir == REPO / "aicontrol" / "test-state"
+    assert Settings(instance="production").state_dir == REPO / "aicontrol"
+
+
+def test_test_instance_refuses_the_production_state_dir(tmp_path):
+    """On the Pi a test copy would otherwise run production's LN2 timers and
+    write its rails and audit (localhost is the live broker there)."""
+    for d in (REPO / "aicontrol", REPO / "aicontrol" / "." , REPO / "x" / ".." / "aicontrol"):
+        with pytest.raises(ConfigError, match="production service"):
+            make_settings(tmp_path, XSPHERE_AICONTROL_STATE_DIR=str(d))
+        with pytest.raises(ConfigError):
+            Settings(state_dir=d)
+    s = make_settings(tmp_path, XSPHERE_AICONTROL_INSTANCE="production",
+                      XSPHERE_AICONTROL_STATE_DIR=str(REPO / "aicontrol"))
+    assert s.state_dir == REPO / "aicontrol"
+    assert make_settings(tmp_path).state_dir == tmp_path
 
 
 def test_production_instance(tmp_path):
@@ -223,7 +243,9 @@ def test_connect_hooks_reconnect_and_retained_replay(tmp_path):
     bus.set_status_provider(lambda: {"online": 1, "n": len(hooks)})
     bus.start()
     assert hooks == [False]
-    assert t.published[-1] == ("xsphere/test/ai_control", {"online": 1, "n": 1}, 1, True)
+    # Status and audit go out at qos 0: paho never re-sends a stale one after a
+    # reconnect (on top of the fresh one on_connect publishes).
+    assert t.published[-1] == ("xsphere/test/ai_control", {"online": 1, "n": 1}, 0, True)
 
     t.inject("xsphere/status/pid/top", {"setpoint_k": 160.0})            # live
     clock.advance(30)
@@ -608,8 +630,8 @@ def test_publish_status_and_audit_retained(rig):
     assert bus.publish_status({"online": 1, "armed_heaters": 0}) is True
     assert bus.publish_audit([{"kind": "note"}]) is True
     assert t.published == [
-        ("xsphere/test/ai_control", {"online": 1, "armed_heaters": 0}, 1, True),
-        ("xsphere/test/ai_control/audit", {"entries": [{"kind": "note"}]}, 1, True),
+        ("xsphere/test/ai_control", {"online": 1, "armed_heaters": 0}, 0, True),
+        ("xsphere/test/ai_control/audit", {"entries": [{"kind": "note"}]}, 0, True),
     ]
     assert bus.publish_status({"x": float("nan")}) is False          # never non-strict JSON
     assert bus.publish_status({"x": object()}) is False
@@ -742,6 +764,47 @@ def test_audit_rotation(tmp_path):
     assert [e["detail"][:7] for e in a.recent(2)] == ["entry 9", "entry 8"]
 
 
+def test_audit_rotation_keeps_several_generations(tmp_path):
+    """A burst of entries must not push the history off disk at once:
+    audit.jsonl.1 … .5 are kept, the oldest dropped."""
+    from aicontrol.audit import KEEP_ROTATED
+    path = tmp_path / "audit.jsonl"
+    a = Audit(path, rotate_bytes=300)
+    a.record("action", "THE-ACTION " + "x" * 200)
+    for i in range(2 * KEEP_ROTATED):
+        a.record("note", f"note {i} " + "x" * 200)
+    names = sorted(p.name for p in tmp_path.iterdir())
+    assert names == ["audit.jsonl"] + [f"audit.jsonl.{i}" for i in range(1, KEEP_ROTATED + 1)]
+    # Oldest first: .5 … .1, then the live file — in order, nothing duplicated.
+    lines = []
+    for i in range(KEEP_ROTATED, 0, -1):
+        lines += read_lines(tmp_path / f"audit.jsonl.{i}")
+    lines += read_lines(path)
+    details = [e["detail"].split(" x")[0] for e in lines]
+    assert details == [f"note {i}" for i in range(2 * KEEP_ROTATED - len(details),
+                                                    2 * KEEP_ROTATED)]
+    # Fewer entries: the action is still on disk (two generations back).
+    b_dir = tmp_path / "b"
+    b = Audit(b_dir / "audit.jsonl", rotate_bytes=300)
+    b.record("action", "THE-ACTION " + "x" * 200)
+    for i in range(3):
+        b.record("note", f"note {i} " + "x" * 200)
+    on_disk = "".join(p.read_text(encoding="utf-8") for p in b_dir.iterdir())
+    assert "THE-ACTION" in on_disk
+
+
+def test_audit_record_with_a_lone_surrogate_never_raises(tmp_path):
+    """Valid JSON ("\\ud800") can carry a lone surrogate, which UTF-8 cannot
+    encode: the entry is written escaped, not lost, and nothing raises."""
+    path = tmp_path / "audit.jsonl"
+    a = Audit(path)
+    e = a.record("arm", "heaters armed", by="control page \ud800")
+    assert a.recent(1) == [e]
+    text = path.read_text(encoding="utf-8")
+    assert "heaters armed" in text and "\\ud800" in text
+    assert Audit(path).recent(1)[0]["detail"] == "heaters armed"     # reloads
+
+
 def test_audit_never_writes_secrets_or_nan(tmp_path):
     a = Audit(tmp_path / "audit.jsonl")
     e = a.record("action", "x", args={"token": "tok-SECRET", "nested": {"Authorization": "S"},
@@ -829,7 +892,127 @@ def test_audit_through_the_bus(rig, tmp_path):
     a = Audit(tmp_path / "audit.jsonl", publish=bus.publish_audit)
     a.record("arm", "heaters armed", by="control page")
     topic, payload, qos, retain = t.published[-1]
-    assert (topic, qos, retain) == ("xsphere/test/ai_control/audit", 1, True)
+    assert (topic, qos, retain) == ("xsphere/test/ai_control/audit", 0, True)
     assert payload["entries"][0]["detail"] == "heaters armed"
     assert payload["entries"][0]["by"] == "control page"
     a.close()
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# webcontrol's /api/cmd relay for xsphere/commands/ai_control/*
+# ──────────────────────────────────────────────────────────────────────────
+#
+# The Control page arms the AI and saves rails through the web panel's
+# /api/cmd.  webcontrol/app.py is loaded here without connecting: its paho
+# client is replaced by a recorder, so nothing reaches a broker.
+
+@pytest.fixture(scope="module")
+def webcontrol_module():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("webcontrol_app_under_test",
+                                                  REPO / "webcontrol" / "app.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+class _RecordingClient:
+    """Stands in for webcontrol's paho client: records publishes."""
+
+    def __init__(self):
+        self.connected = True
+        self.rc = 0
+        self.sent = []
+
+    def is_connected(self):
+        return self.connected
+
+    def publish(self, topic, payload, qos=0, retain=False):
+        self.sent.append((topic, json.loads(payload), qos))
+
+        class Info:
+            pass
+        info = Info()
+        info.rc = self.rc
+        return info
+
+
+@pytest.fixture
+def wc(webcontrol_module, monkeypatch):
+    client = _RecordingClient()
+    monkeypatch.setattr(webcontrol_module, "_client", client)
+    return webcontrol_module.app.test_client(), client
+
+
+ARM = {"topic": "xsphere/commands/ai_control/arm",
+       "payload": {"group": "ln2", "armed": True, "by": "control page"}}
+DISARM = {"topic": "xsphere/commands/ai_control/arm",
+          "payload": {"group": "all", "armed": False, "by": "control page"}}
+RAILS = {"topic": "xsphere/commands/ai_control/rails",
+         "payload": {"rails": {}, "base_revision": 0, "by": "control page", "request_id": "x1"}}
+
+
+def test_webcontrol_ai_control_needs_json(wc):
+    client, rec = wc
+    r = client.post("/api/cmd", data=json.dumps(ARM), content_type="text/plain")
+    assert r.status_code == 403 and rec.sent == []
+    r = client.post("/api/cmd", data=json.dumps(ARM))                    # no content type
+    assert r.status_code == 403 and rec.sent == []
+
+
+@pytest.mark.parametrize("origin", ["null", "http://evil.example", "http://xbox-pi.evil",
+                                    "http://xbox-pi@evil.example", "http://evil.example#@xbox-pi"])
+def test_webcontrol_ai_control_refuses_foreign_origins(wc, origin):
+    client, rec = wc
+    r = client.post("/api/cmd", json=ARM, headers={"Origin": origin})
+    assert r.status_code == 403 and rec.sent == []
+
+
+@pytest.mark.parametrize("origin", [None, "http://xbox-pi:8088", "http://192.168.8.116:8088"])
+def test_webcontrol_ai_control_relays_from_the_panel(wc, origin):
+    client, rec = wc
+    r = client.post("/api/cmd", json=ARM, headers={"Origin": origin} if origin else {})
+    assert r.status_code == 200 and r.get_json() == {"ok": True}
+    assert rec.sent == [("xsphere/commands/ai_control/arm", ARM["payload"], 0)]
+
+
+def test_webcontrol_other_topics_unchanged(wc):
+    client, rec = wc
+    body = {"topic": "xsphere/commands/pneumatic/pump/state", "payload": {"state": 0}}
+    r = client.post("/api/cmd", data=json.dumps(body), content_type="text/plain",
+                    headers={"Origin": "http://evil.example"})
+    assert r.status_code == 200
+    assert rec.sent == [("xsphere/commands/pneumatic/pump/state", {"state": 0}, 1)]
+
+
+def test_webcontrol_ai_control_not_sent_while_disconnected(wc):
+    """paho would hold a qos-1 publish made while disconnected and deliver it
+    after the next connect — an arm clicked during an outage would land minutes
+    later, after the AI service's own reconnect disarm.  Refused instead."""
+    client, rec = wc
+    rec.connected = False
+    for body in (ARM, DISARM, RAILS):
+        r = client.post("/api/cmd", json=body)
+        assert r.status_code == 503 and "not connected" in r.get_json()["error"]
+    assert rec.sent == []
+    # Other topics are relayed as before (paho queues them; unchanged behaviour).
+    r = client.post("/api/cmd", json={"topic": "xsphere/commands/x/y", "payload": {}})
+    assert r.status_code == 200
+
+
+def test_webcontrol_ai_control_qos(wc):
+    """Arm and rails go out at qos 0 (never held for a later connection); a
+    disarm keeps qos 1 — late is harmless, delivered is what matters."""
+    client, rec = wc
+    for body in (ARM, RAILS, DISARM):
+        assert client.post("/api/cmd", json=body).status_code == 200
+    assert [(t, q) for t, _p, q in rec.sent] == [("xsphere/commands/ai_control/arm", 0),
+                                                ("xsphere/commands/ai_control/rails", 0),
+                                                ("xsphere/commands/ai_control/arm", 1)]
+
+
+def test_webcontrol_ai_control_publish_failure_is_reported(wc):
+    client, rec = wc
+    rec.rc = 4                                     # MQTT_ERR_NO_CONN
+    r = client.post("/api/cmd", json=ARM)
+    assert r.status_code == 503 and "not sent" in r.get_json()["error"]

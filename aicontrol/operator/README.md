@@ -56,7 +56,7 @@ When the template changes, run the same robocopy again. It overwrites
 |---|---|
 | `permissions.defaultMode: "dontAsk"` | anything not pre-approved is refused without a prompt; reads inside this folder still run |
 | `permissions.allow: ["mcp__xsphere__*"]` | the AI control tools are the only pre-approved tools |
-| `permissions.deny` | removes shells (`Bash`, `PowerShell`, `Monitor`), file writes, web access, subagents and workflows, messaging or stopping other agents (`SendMessage`, `TaskStop`), scheduling, artifacts and design sync, worktrees and `/cd`, and the desktop app's browser, terminal, computer-use, widget, session, window and connector tools (each listed by its `mcp__<server>__*` prefix). `mcp__claude_ai_*` covers connectors the CLI fetches. `mcp__*-*` covers every MCP server whose name contains a hyphen, which includes the desktop app's UUID-named claude.ai connectors (Notion, Calendar, Docs); the `xsphere` tool names never contain one |
+| `permissions.deny` | removes shells (`Bash`, `PowerShell`, `Monitor`), file writes, web access, subagents and workflows, messaging or stopping other agents (`SendMessage`, `TaskStop`), scheduling, artifacts (and their comments and databases: `ArtifactComments`, `ArtifactData`) and design sync, worktrees and `/cd`, and the desktop app's browser, terminal, computer-use, widget, session, window and connector tools (each listed by its `mcp__<server>__*` prefix). `mcp__claude_ai_*` covers connectors the CLI fetches. `mcp__*-*` covers every MCP server whose name contains a hyphen, which includes the desktop app's UUID-named claude.ai connectors (Notion, Calendar, Docs); the `xsphere` tool names never contain one |
 | `permissions.disableBypassPermissionsMode`, `disableAutoMode` | bypass and auto mode cannot be selected in this session |
 | `permissions.blockReadsOutsideWorkingDirectories: true` | Read / Glob / Grep refuse paths outside this folder, so the repo, its `.env` and anything else on the PC stay out of reach |
 | `allowedMcpServers` | only an MCP server at `http://xbox-pi:8089/…` (or `xbox-pi.local` / `192.168.8.116`) may load; user, plugin and claude.ai servers are blocked. It does not reach the desktop app's built-in servers or its connectors, which is why the deny list names them |
@@ -80,16 +80,23 @@ surface you use (terminal, desktop app).
 5. Ask: *list the exact names of every tool you can call*. Expected:
    `mcp__xsphere__*` plus harmless built-ins such as `Read`, `Glob`, `Grep`,
    `ToolSearch`, `Skill`, `ListAgents`, `CronList`, `PushNotification`,
-   `ScheduleWakeup`, `ExitWorktree` (and, in some hosts, `ReportFindings`). If any other `mcp__<server>__…` tool appears,
-   add `"mcp__<server>__*"` to `deny` in the copy, or disconnect that connector.
-6. With nothing armed, ask for a heater setpoint. The tool must refuse it and
-   name the Control page.
+   `ScheduleWakeup`, `ExitWorktree` (and, in some hosts, `ReportFindings`). If
+   any tool not in this list appears, MCP or built-in, add it to `deny` in the
+   copy (for a server, `"mcp__<server>__*"`), or disconnect that connector,
+   before relying on the profile.
+6. Ask for `get_overview`: it must return the overview (a real MCP tool call).
+   Then, with nothing armed, ask for a heater setpoint. The tool must refuse it
+   and name the Control page.
 
 Verified on 2026-10-22 with Claude Code 2.1.299 in the terminal: the session
 started in `dontAsk`; the built-in tool list matched step 5; a server not in
 `allowedMcpServers` was never contacted; and the tools of a hyphen-named server
-and of a server named `visualize` were removed. The desktop app was not checked;
-run steps 1–6 there before relying on it.
+and of a server named `visualize` were removed. Step 6 (a real `tools/call`
+against the service) was not reached then: the test session's login had
+expired — run it at the first deploy and note the date here. The desktop app
+was not checked; run steps 1–6 there before relying on it. The deny list
+already names its cross-session tools (`SendMessage`, `Artifact`,
+`ArtifactComments`, `ArtifactData`, the `ccd_session*` servers).
 
 ## What this does not do
 

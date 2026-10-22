@@ -4,8 +4,8 @@ The AI audit trail: every action, refusal, arm change, rails change and note.
 Each entry goes three places:
 
 * ``state_dir/audit.jsonl`` — one JSON object per line, appended and flushed
-  per entry; at 5 MB the file is renamed to ``audit.jsonl.1`` (replacing the
-  previous one) and a new file started;
+  per entry; at 5 MB the file is renamed to ``audit.jsonl.1`` (the older ones
+  move up to ``.2`` … ``.5``, the oldest is dropped) and a new file started;
 * a ring of the last 500 in memory — :meth:`Audit.recent` for the read tools
   (re-filled from the file's tail at start, so a restart keeps the history);
 * the last 50, newest first, published retained on ``<status_topic>/audit``
@@ -41,6 +41,8 @@ KINDS = ("action", "refused", "arm", "disarm", "auto_disarm", "rails", "rails_re
 
 PUBLISH_LAST = 50
 PUBLISH_MIN_INTERVAL_S = 1.0
+#: Rotated files kept beside audit.jsonl (audit.jsonl.1 … .5, 5 MB each).
+KEEP_ROTATED = 5
 _MAX_STR = 4000
 _SECRET_KEY_RE = re.compile(r"token|password|passwd|secret|authorization|api[_-]?key", re.I)
 
@@ -110,6 +112,9 @@ class Audit:
         return copy.deepcopy(entry)
 
     def _append(self, line: str) -> None:
+        # Never raises: an entry is written after its command went out, and
+        # the caller must still get the call's true result.  Text that is not
+        # valid UTF-8 (a lone surrogate) is written escaped, not dropped.
         data = line + "\n"
         try:
             self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -117,13 +122,22 @@ class Audit:
                 size = self.path.stat().st_size
             except FileNotFoundError:
                 size = 0
-            if size and size + len(data.encode("utf-8")) > self._rotate_bytes:
-                os.replace(self.path, self.path.with_name(self.path.name + ".1"))
-            with open(self.path, "a", encoding="utf-8") as f:
+            if size and size + len(data.encode("utf-8", "backslashreplace")) > self._rotate_bytes:
+                self._rotate()
+            with open(self.path, "a", encoding="utf-8", errors="backslashreplace") as f:
                 f.write(data)
                 f.flush()
-        except OSError as e:
+        except Exception as e:                       # noqa: BLE001
             log.warning("Could not append to the audit file %s: %s", self.path, e)
+
+    def _rotate(self) -> None:
+        """audit.jsonl → .1 → .2 … → .KEEP_ROTATED (the oldest dropped), so a
+        burst of entries cannot push the history off disk at once."""
+        for i in range(KEEP_ROTATED - 1, 0, -1):
+            older = self.path.with_name(f"{self.path.name}.{i}")
+            if older.exists():
+                os.replace(older, self.path.with_name(f"{self.path.name}.{i + 1}"))
+        os.replace(self.path, self.path.with_name(self.path.name + ".1"))
 
     def _load_tail(self) -> None:
         try:

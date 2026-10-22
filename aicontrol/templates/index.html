@@ -246,6 +246,7 @@ function render(){
       <span class="kv"><span class="k">service up since</span>${esc(when(S.started_utc))}</span>
       <span class="kv"><span class="k">actions</span><span class="num">${esc(S.actions ?? 0)}</span></span>
       <span class="kv"><span class="k">refused</span><span class="num">${esc(S.refused ?? 0)}</span></span>
+      <span class="kv"><span class="k">notes</span><span class="num">${esc(S.notes ?? 0)}</span></span>
       <span class="kv"><span class="k">automatic disarms</span><span class="num">${esc(S.auto_disarms ?? 0)}</span></span></div>
       <div class="row"><span class="cur">${il ? "PV interlock band " + esc(fmtNum(il.min_k)) + "–" + esc(fmtNum(il.max_k)) + " K" + (il.tripped ? ` — <span style="color:var(--bad)">TRIPPED</span>` : " — not tripped") : "PV interlock: not seen yet"}</span></div></div>
     <div class="blk">

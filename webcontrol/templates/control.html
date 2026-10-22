@@ -307,8 +307,10 @@ function pneumaticControl(on){ cmd("xsphere/commands/pneumatic_control/enable", 
 // plain commands on xsphere/commands/ai_control/{arm,rails}; the service
 // answers on xsphere/status/ai_control (retained, every 2 s) and
 // …/ai_control/audit, read here from the raw cache.  That cache never
-// expires, so a status older than 10 s — or the service's retained
-// "online 0" last will — reads as "not running".  No confirm dialogs, as for
+// expires: the service's retained "online 0" last will reads as "not
+// running", and a status older than 10 s as "no status — arms unknown" with
+// the last known arms still shown (it may be this panel that lost the
+// broker, not the service).  No confirm dialogs, as for
 // the valve and turbo gates: arming moves nothing by itself.  Disarm stays
 // clickable even when the service looks down — it is always the safe way.
 const AI_STATUS = "xsphere/status/ai_control";
@@ -394,14 +396,14 @@ const AI_RAIL_INFO = {                        // key: [label, hint]
   arm_hours:             ["arm lasts (h)", "how long an arm stays on; empty = until disarmed (at most 168 h)"],
   setpoint_min_k:        ["SP min (K)", "lowest setpoint the AI may command; min and max are both needed or the AI cannot change this zone"],
   setpoint_max_k:        ["SP max (K)", "highest setpoint the AI may command; min and max are both needed or the AI cannot change this zone"],
-  max_step_k:            ["max step (K)", "largest single setpoint change; empty = no limit"],
+  max_step_k:            ["max step (K)", "largest single setpoint change, from the current setpoint (from the measured PV while the setpoint is outside these rails); empty = no limit"],
   max_rate_k_per_min:    ["max rate (K/min)", "average rate of change, and the fastest ramp; empty = no limit"],
   pv_sources:            ["PV sources", "the sensors the AI may make this PID regulate on"],
-  voltage_min_v:         ["V min", "volts; min and max are both needed to change the voltage (0–32 V)"],
+  voltage_min_v:         ["V min", "volts; min and max are both needed to change the voltage (0–32 V). 0 lets the AI unpower the heater, so it needs \"may switch off\" too"],
   voltage_max_v:         ["V max", "volts; min and max are both needed to change the voltage (0–32 V)"],
-  current_min_a:         ["I min", "amps; min and max are both needed to change the current limit (0–3 A)"],
+  current_min_a:         ["I min", "amps; min and max are both needed to change the current limit (0–3 A). 0 lets the AI unpower the heater, so it needs \"may switch off\" too"],
   current_max_a:         ["I max", "amps; min and max are both needed to change the current limit (0–3 A)"],
-  may_switch_on:         ["may switch on", "may switch the channel's output on (only with its V and I inside the rails)"],
+  may_switch_on:         ["may switch on", "may switch the channel's output on (only with its V and I inside the rails, and the PID zone it feeds in auto at a setpoint inside its rails with a live PV)"],
   may_switch_off:        ["may switch off", "may switch the channel's output off"],
   may_operate:           ["may operate", "nothing else for this vessel counts without it"],
   max_open_minutes:      ["max open (min)", "needed to open: the service closes a valve the AI opened when this runs out, armed or not (at most 120)"],
@@ -529,9 +531,12 @@ async function aiSaveRails(){
   if (!AI_ED.doc || AI_ED.pending || !AI_P) return;
   const bad = Object.values(AI_ED.bad);
   if (bad.length){ AI_ED.msg = "⚠ fix first — " + bad[0]; AI_ED.msgBad = true; aiRailsButtons(); return; }
-  AI_ED.pending = {before: JSON.stringify(AI_P.last_rails_result || null), t0: Date.now()};
+  // A nonce the service echoes in last_rails_result, so this tab takes only
+  // the answer to its own save (not another tab's that lands meanwhile).
+  const id = Date.now().toString(36) + Math.random().toString(36).slice(2);
+  AI_ED.pending = {id, before: JSON.stringify(AI_P.last_rails_result || null), t0: Date.now()};
   AI_ED.msg = ""; AI_ED.msgBad = false; aiRailsButtons();
-  const ok = await aiSent(await cmd(AI_CMD+"rails", {rails: AI_ED.doc, base_revision: AI_ED.rev, by: "control page"}), "rails");
+  const ok = await aiSent(await cmd(AI_CMD+"rails", {rails: AI_ED.doc, base_revision: AI_ED.rev, by: "control page", request_id: id}), "rails");
   if (!ok){ AI_ED.pending = null; AI_ED.msg = AI_MSG.text; AI_ED.msgBad = true; aiRailsButtons(); }
 }
 function aiDiscardRails(){                    // back to the rails the service holds now
@@ -554,10 +559,13 @@ function aiRailsButtons(){
 }
 function aiRailsUpdate(pAny, st){
   const rails = pAny && aiIsObj(pAny.rails) ? pAny.rails : null;
-  // A save in flight: its answer is a new last_rails_result.
+  // A save in flight: its answer is the last_rails_result carrying its nonce
+  // (a service without request_id: the first new result, as before).
   if (AI_ED.pending){
     const res = AI_P && AI_P.last_rails_result;
-    if (aiIsObj(res) && JSON.stringify(res) !== AI_ED.pending.before){
+    const mine = aiIsObj(res) && ("request_id" in res ? res.request_id === AI_ED.pending.id
+                                                      : JSON.stringify(res) !== AI_ED.pending.before);
+    if (mine){
       AI_ED.pending = null;
       if (res.ok){ AI_ED.dirty = false; AI_ED.bad = {}; AI_ED.json = null; AI_ED.msgBad = false;
                    AI_ED.msg = "saved" + (rails && rails.revision!=null ? " — now revision " + rails.revision : ""); AI_ED.msgT = Date.now(); }
@@ -614,7 +622,7 @@ function aiRailsLive(st, p){
       + " · out " + fmtNum(out) + " %" + (mode ? " · " + mode : "");
     if (!(num(lo) && num(hi))) info += " · min or max empty: the AI cannot change this setpoint";
     else if (lo >= hi) w.push("min must be below max");
-    else if (num(sp) && (sp < lo || sp > hi)) w.push("the setpoint now is outside these rails — the AI may only move it toward them");
+    else if (num(sp) && (sp < lo || sp > hi)) w.push("the setpoint now is outside these rails — an AI change is then measured from the PV (if it has a live source), and from outside the rails it may land at most one max step inside the nearest edge");
     if (num(hi) && num(ilMax) && hi > ilMax - 5) w.push("max is above interlock max − 5 K: the AI stays at or below " + fmtNum(ilMax - 5) + " K anyway");
     if (num(lo) && num(ilMin) && lo < ilMin + 5) w.push("min is below interlock min + 5 K: the AI stays at or above " + fmtNum(ilMin + 5) + " K anyway");
     if (stale.includes(z)) w.push("zone names changed since these were saved — unset until saved again");
@@ -668,20 +676,36 @@ function aiAuditUpdate(){
 function aiUpdate(d, st){
   const r = RAW[AI_STATUS], pAny = r && aiIsObj(r.payload) ? r.payload : null;
   const age = r ? d.now - r.ts : null;
-  const up = !!pAny && !!pAny.online && age !== null && age <= 10;
+  // Three states.  Signed off: no status at all, or the service's own
+  // "online 0" (its goodbye or last will) — nothing the AI asks for happens.
+  // Stale: it said it was running, then nothing for > 10 s — it may still be
+  // running and armed (this panel may have lost the broker, not it), so the
+  // last known arms stay shown.  Up: a fresh status.
+  const signedOff = !pAny || !pAny.online;
+  const stale = !signedOff && (age === null || age > 10);
+  const up = !signedOff && !stale;
+  const blind = !d.mqtt_connected;            // this web panel has lost the broker
   const p = AI_P = up ? pAny : null;
   AI_PANY = pAny;
-  const armed = AI_GROUPS.filter(([g]) => aiArmed(p, g));
+  const known = up ? p : stale ? pAny : null; // the arms shown: live, or last known
+  const armed = AI_GROUPS.filter(([g]) => aiArmed(known, g));
   const pill = $("p-ai");
-  if (!up){ pill.textContent = "AI: service down"; pill.className = "pill mut"; }
+  if (signedOff){ pill.textContent = "AI: service down"; pill.className = "pill mut"; }
+  else if (stale){ pill.textContent = armed.length ? "AI: " + armed.map(a => a[3]).join("·") + " ARMED? (no status)" : "AI: no status";
+                   pill.className = "pill warn"; }
   else if (armed.length){ pill.textContent = "AI: " + armed.map(a => a[3]).join("·") + " ARMED"; pill.className = "pill warn"; }
   else { pill.textContent = "AI: off"; pill.className = "pill mut"; }
-  document.querySelectorAll(".aitag").forEach(e => { e.hidden = !aiArmed(p, e.dataset.g); });
+  document.querySelectorAll(".aitag").forEach(e => { e.hidden = !aiArmed(known, e.dataset.g); });
   const se = $("ai-state");
-  if (!up){
-    se.textContent = "AI control service not running" + (!pAny ? "" : !pAny.online ? " — it signed off" : " — no word from it for " + Math.round(age) + " s")
+  if (signedOff){
+    se.textContent = "AI control service not running" + (pAny ? " — it signed off" : "")
       + " · nothing the AI asks for is carried out";
     se.style.color = "var(--mut)";
+  } else if (stale){
+    se.textContent = "⚠ no status from the AI control service for " + (age === null ? "?" : Math.round(age)) + " s — its arms are unknown"
+      + (armed.length ? " (last known: armed for " + armed.map(a => a[3]).join(", ") + ")" : "")
+      + (blind ? " · this web panel has lost the MQTT broker" : "");
+    se.style.color = "var(--warn)";
   } else if (armed.length){
     se.textContent = "⚠ AI armed for " + armed.map(a => a[3]).join(", ") + " — it may act there, within the rails";
     se.style.color = "var(--warn)";
@@ -689,17 +713,24 @@ function aiUpdate(d, st){
   const bits = [];
   if (pAny && pAny.instance && pAny.instance !== "production") bits.push("instance: " + pAny.instance);
   if (up && p.started_utc) bits.push("service up since " + when(p.started_utc));
-  if (up) bits.push((p.actions || 0) + " actions · " + (p.refused || 0) + " refused · " + (p.auto_disarms || 0) + " automatic disarms");
+  if (up) bits.push((p.actions || 0) + " actions · " + (p.refused || 0) + " refused · " + (p.notes || 0) + " notes · " + (p.auto_disarms || 0) + " automatic disarms");
   const ne = $("ai-note");
   if (AI_MSG && Date.now() - AI_MSG.t < 20000){ ne.textContent = AI_MSG.text; ne.style.color = "var(--bad)"; }
   else { ne.textContent = bits.join(" · "); ne.style.color = ""; }
   AI_GROUPS.forEach(([g]) => {
-    const on = aiArmed(p, g), a = (p && aiIsObj(p.arms) && aiIsObj(p.arms[g])) ? p.arms[g] : {};
-    $("ai-arm-"+g).disabled = !up;
+    const on = aiArmed(known, g), a = (known && aiIsObj(known.arms) && aiIsObj(known.arms[g])) ? known.arms[g] : {};
+    // Arming needs a running service AND this panel on the broker (the web
+    // server refuses to relay it otherwise).  Disarm stays clickable.
+    $("ai-arm-"+g).disabled = !up || blind;
     $("ai-arm-"+g).className = on ? "held" : "";
     $("ai-dis-"+g).className = up && !on ? "on" : "";
     const s = $("ai-st-"+g);
-    if (!up){ s.textContent = ""; s.style.color = ""; }
+    if (!known){ s.textContent = ""; s.style.color = ""; }
+    else if (stale){
+      s.textContent = on ? "⚠ last known: ARMED since " + when(a.since_utc) + (a.expires_utc ? " — lapses " + when(a.expires_utc) : "")
+        : "last known: disarmed";
+      s.style.color = on ? "var(--warn)" : "var(--mut)";
+    }
     else if (on){
       s.textContent = "⚠ ARMED since " + when(a.since_utc) + (a.by ? " (" + a.by + ")" : "")
         + (a.expires_utc ? " — lapses " + when(a.expires_utc) : " — no time limit");
