@@ -952,7 +952,7 @@
         "type": "influxdb",
         "uid": "${DS_INFLUX}"
       },
-      "description": "PT curve using Chamber Pressure and Top Cube temperature",
+      "description": "PT curve using Chamber Pressure and Bottom Cube temperature",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -1039,11 +1039,11 @@
             "type": "influxdb",
             "uid": "${DS_INFLUX}"
           },
-          "query": "// P(T) parametric plot: join pressure (Setra) with RTD2 (top cube) by timestamp\r\n\r\npressure =\r\n  from(bucket: \"xsphere\")\r\n    |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\r\n    |> filter(fn: (r) => r._measurement == \"pressure\")\r\n    |> filter(fn: (r) => r._field == \"value\")\r\n    |> filter(fn: (r) => r.channel == \"1\")\r\n    |> filter(fn: (r) => r.gauge == \"setra\")\r\n    |> filter(fn: (r) => r.source == \"ghs\")\r\n    |> filter(fn: (r) => r.system == \"xsphere\")\r\n    |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false)\r\n    |> keep(columns: [\"_time\", \"_value\"])\r\n    |> rename(columns: {_value: \"P\"})\r\n\r\ntemp =\r\n  from(bucket: \"xsphere\")\r\n    |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\r\n    |> filter(fn: (r) => r._measurement == \"temperature\")\r\n    |> filter(fn: (r) => r._field == \"value_k\")\r\n    |> filter(fn: (r) => r.channel == \"2\")\r\n    |> filter(fn: (r) => r.sensor_type == \"rtd\")\r\n    |> filter(fn: (r) => r.source == \"labjack_cal\")\r\n    |> filter(fn: (r) => r.system == \"xsphere\")\r\n    |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false)\r\n    |> keep(columns: [\"_time\", \"_value\"])\r\n    |> rename(columns: {_value: \"T\"})\r\n\r\njoin(tables: {p: pressure, t: temp}, on: [\"_time\"], method: \"inner\")\r\n  |> keep(columns: [\"_time\", \"T\", \"P\"])\r\n  |> yield(name: \"P_vs_T\")",
+          "query": "// P(T) parametric plot: join pressure (Setra) with RTD2 (bottom cube) by timestamp\r\n\r\npressure =\r\n  from(bucket: \"xsphere\")\r\n    |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\r\n    |> filter(fn: (r) => r._measurement == \"pressure\")\r\n    |> filter(fn: (r) => r._field == \"value\")\r\n    |> filter(fn: (r) => r.channel == \"1\")\r\n    |> filter(fn: (r) => r.gauge == \"setra\")\r\n    |> filter(fn: (r) => r.source == \"ghs\")\r\n    |> filter(fn: (r) => r.system == \"xsphere\")\r\n    |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false)\r\n    |> keep(columns: [\"_time\", \"_value\"])\r\n    |> rename(columns: {_value: \"P\"})\r\n\r\ntemp =\r\n  from(bucket: \"xsphere\")\r\n    |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\r\n    |> filter(fn: (r) => r._measurement == \"temperature\")\r\n    |> filter(fn: (r) => r._field == \"value_k\")\r\n    |> filter(fn: (r) => r.channel == \"2\")\r\n    |> filter(fn: (r) => r.sensor_type == \"rtd\")\r\n    |> filter(fn: (r) => r.source == \"labjack_cal\")\r\n    |> filter(fn: (r) => r.system == \"xsphere\")\r\n    |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false)\r\n    |> keep(columns: [\"_time\", \"_value\"])\r\n    |> rename(columns: {_value: \"T\"})\r\n\r\njoin(tables: {p: pressure, t: temp}, on: [\"_time\"], method: \"inner\")\r\n  |> keep(columns: [\"_time\", \"T\", \"P\"])\r\n  |> yield(name: \"P_vs_T\")",
           "refId": "A"
         }
       ],
-      "title": "PT Top",
+      "title": "PT Bottom",
       "type": "xychart"
     },
     {
@@ -1138,11 +1138,11 @@
             "type": "influxdb",
             "uid": "${DS_INFLUX}"
           },
-          "query": "// P(T) parametric plot: join pressure (Setra) with RTD2 (top cube) by timestamp\r\n\r\npressure =\r\n  from(bucket: \"xsphere\")\r\n    |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\r\n    |> filter(fn: (r) => r._measurement == \"pressure\")\r\n    |> filter(fn: (r) => r._field == \"value\")\r\n    |> filter(fn: (r) => r.channel == \"1\")\r\n    |> filter(fn: (r) => r.gauge == \"setra\")\r\n    |> filter(fn: (r) => r.source == \"ghs\")\r\n    |> filter(fn: (r) => r.system == \"xsphere\")\r\n    |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false)\r\n    |> keep(columns: [\"_time\", \"_value\"])\r\n    |> rename(columns: {_value: \"P\"})\r\n\r\ntemp =\r\n  from(bucket: \"xsphere\")\r\n    |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\r\n    |> filter(fn: (r) => r._measurement == \"temperature\")\r\n    |> filter(fn: (r) => r._field == \"value_k\")\r\n    |> filter(fn: (r) => r.channel == \"3\")\r\n    |> filter(fn: (r) => r.sensor_type == \"rtd\")\r\n    |> filter(fn: (r) => r.source == \"labjack_cal\")\r\n    |> filter(fn: (r) => r.system == \"xsphere\")\r\n    |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false)\r\n    |> keep(columns: [\"_time\", \"_value\"])\r\n    |> rename(columns: {_value: \"T\"})\r\n\r\njoin(tables: {p: pressure, t: temp}, on: [\"_time\"], method: \"inner\")\r\n  |> keep(columns: [\"_time\", \"T\", \"P\"])\r\n  |> yield(name: \"P_vs_T\")",
+          "query": "// P(T) parametric plot: join pressure (Setra) with RTD3 (top cube) by timestamp\r\n\r\npressure =\r\n  from(bucket: \"xsphere\")\r\n    |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\r\n    |> filter(fn: (r) => r._measurement == \"pressure\")\r\n    |> filter(fn: (r) => r._field == \"value\")\r\n    |> filter(fn: (r) => r.channel == \"1\")\r\n    |> filter(fn: (r) => r.gauge == \"setra\")\r\n    |> filter(fn: (r) => r.source == \"ghs\")\r\n    |> filter(fn: (r) => r.system == \"xsphere\")\r\n    |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false)\r\n    |> keep(columns: [\"_time\", \"_value\"])\r\n    |> rename(columns: {_value: \"P\"})\r\n\r\ntemp =\r\n  from(bucket: \"xsphere\")\r\n    |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\r\n    |> filter(fn: (r) => r._measurement == \"temperature\")\r\n    |> filter(fn: (r) => r._field == \"value_k\")\r\n    |> filter(fn: (r) => r.channel == \"3\")\r\n    |> filter(fn: (r) => r.sensor_type == \"rtd\")\r\n    |> filter(fn: (r) => r.source == \"labjack_cal\")\r\n    |> filter(fn: (r) => r.system == \"xsphere\")\r\n    |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false)\r\n    |> keep(columns: [\"_time\", \"_value\"])\r\n    |> rename(columns: {_value: \"T\"})\r\n\r\njoin(tables: {p: pressure, t: temp}, on: [\"_time\"], method: \"inner\")\r\n  |> keep(columns: [\"_time\", \"T\", \"P\"])\r\n  |> yield(name: \"P_vs_T\")",
           "refId": "A"
         }
       ],
-      "title": "PT Bottom",
+      "title": "PT Top",
       "type": "xychart"
     },
     {
@@ -1254,7 +1254,7 @@
           "refId": "A"
         }
       ],
-      "title": "All temperatures (\u00b0C)",
+      "title": "All temperatures (°C)",
       "type": "timeseries"
     },
     {
