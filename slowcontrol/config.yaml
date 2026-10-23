@@ -194,14 +194,14 @@ labjack:
   thermometry_channels:
     # RTDs — PT100, AINx_EF_INDEX=40, 4-wire, 200 µA current source
     - {name: rtd1, kind: rtd, ain: 0,  channel: 1, label: "nozzle"}
-    - {name: rtd2, kind: rtd, ain: 2,  channel: 2, label: "top cube"}
-    - {name: rtd3, kind: rtd, ain: 4,  channel: 3, label: "bottom cube"}
+    - {name: rtd2, kind: rtd, ain: 2,  channel: 2, label: "bottom cube"}
+    - {name: rtd3, kind: rtd, ain: 4,  channel: 3, label: "top cube"}
     # Type-K thermocouple gradiometers — AINx_EF_INDEX=22, re-referenced to an RTD.
     # delta_c (this end − reference) is the gradient; value_c is the absolute temp.
-    - {name: tc1, kind: tc, ain: 6,  channel: 1, label: "cube left<->right",  reference: "rtd3"}       # bottom cube RTD
+    - {name: tc1, kind: tc, ain: 6,  channel: 1, label: "cube left<->right",  reference: "rtd3"}       # top cube RTD
     - {name: tc2, kind: tc, ain: 8,  channel: 2, label: "LN vessel <-> base", reference: "plc/rtd/4"}  # base RTD
     - {name: tc3, kind: tc, ain: 10, channel: 3, label: "along nipple",       reference: "rtd1"}       # nozzle RTD
-    - {name: tc4, kind: tc, ain: 12, channel: 4, label: "cube front<->back",  reference: "rtd3"}       # bottom cube RTD
+    - {name: tc4, kind: tc, ain: 12, channel: 4, label: "cube front<->back",  reference: "rtd3"}       # top cube RTD
 
 heartbeat_interval: 10.0    # seconds between heartbeat MQTT publishes
 # Layer 1 — MQTT self-watchdog: if the MQTT client hasn't successfully

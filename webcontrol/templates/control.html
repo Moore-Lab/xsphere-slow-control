@@ -277,12 +277,12 @@ function ngeAllOff(){ NGE.forEach(([ch])=>ctl("nge_ch"+ch+"_output", false)); }
 
 // ---- static structure: valves & PID (built once) ---------------------------
 const VESSELS = [["cryostat","XV3 — cryostat LN₂ vessel"],["primary_xe","XV2 — primary Xe bottle"],["ballast","XV1 — ballast bottle"]];
-const ZONES   = [["top","Zone 1 — top clamp (rtd2)"],["bottom","Zone 2 — bottom clamp (rtd3)"],["nozzle","Zone 3 — nozzle / disk (rtd1)"]];
+const ZONES   = [["top","Zone 2 — top clamp (rtd3)"],["bottom","Zone 1 — bottom clamp (rtd2)"],["nozzle","Zone 3 — nozzle / disk (rtd1)"]];
 // Pneumatic valves: [state id, label].  Open / close only — no autofill enables.
 // Values are in valve terms; the PLC driver applies each valve's relay sense.
 const PNEUMATIC = [["pneumatic_ballast","Ballast valve — normally open (Y105)"],["pneumatic_pump","Pump valve — normally closed (Y106)"],["pneumatic_bottle","Bottle valve — normally open (Y107)"]];
 // Heater supply channels: [NGE channel, label].  Channel n feeds heater n.
-const NGE = [[1,"Ch 1 → heater 1 (zone 1, top)"],[2,"Ch 2 → heater 2 (zone 2, bottom)"],[3,"Ch 3 → heater 3 (zone 3, nozzle)"]];
+const NGE = [[1,"Ch 1 → heater 1 (zone 1, bottom)"],[2,"Ch 2 → heater 2 (zone 2, top)"],[3,"Ch 3 → heater 3 (zone 3, nozzle)"]];
 // Turbo pumps: [name under turbovac.pumps in config.yaml, title].
 const TURBOS = [["ghs","GHS turbo — gas handling system + science chamber"],["outer","Outer vacuum turbo"]];
 function turboRaw(n){ const r = RAW["xsphere/status/turbo/"+n]; return (r && r.payload) || {}; }

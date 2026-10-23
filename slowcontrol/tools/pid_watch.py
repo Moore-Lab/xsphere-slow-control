@@ -16,7 +16,7 @@ it open is fine — the two coexist.
 
 Usage:
     sudo systemctl stop xsphere-slowcontrol
-    python -m slowcontrol.tools.pid_watch              # default: PID1 (top)
+    python -m slowcontrol.tools.pid_watch              # default: PID2 (top)
     python -m slowcontrol.tools.pid_watch --zone bottom
     python -m slowcontrol.tools.pid_watch --zone nozzle
     sudo systemctl start xsphere-slowcontrol
@@ -44,8 +44,8 @@ C_BASE = 0
 # Block bases for each PID instruction's auto-allocated address ranges.
 # CLICK Plus PID auto-assigns 40 coils (C), 15 integers (DS) and 25 floats (DF).
 PID_BLOCKS = {
-    "top":    {"df": 100, "ds": 100, "c": 100},   # PID1
-    "bottom": {"df": 125, "ds": 115, "c": 140},   # PID2
+    "bottom": {"df": 100, "ds": 100, "c": 100},   # PID1
+    "top":    {"df": 125, "ds": 115, "c": 140},   # PID2
     "nozzle": {"df": 150, "ds": 130, "c": 180},   # PID3
 }
 
@@ -114,7 +114,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("-c", "--config", default=str(default_cfg),
                     help=f"slow-control config (default: {default_cfg})")
     ap.add_argument("--zone", choices=list(PID_BLOCKS.keys()), default="top",
-                    help="which PID block to watch (default: top / PID1)")
+                    help="which PID block to watch (default: top / PID2)")
     ap.add_argument("--interval", type=float, default=0.5,
                     help="polling interval seconds (default: 0.5)")
     ap.add_argument("--host", default=None,
