@@ -92,8 +92,8 @@ class FakeSlowcontrol:
         self.sensors = {"rtd1": 160.0, "rtd2": 165.0, "rtd3": 166.0,
                         "rtd4": 80.0, "rtd5": 165.5, "rtd6": 166.5}
         self.pid = {
-            "top": self._pid("165.0", "rtd5"),
-            "bottom": self._pid("166.0", "rtd6"),
+            "top": self._pid("165.0", "rtd6"),
+            "bottom": self._pid("166.0", "rtd5"),
             "nozzle": self._pid("160.0", "rtd1"),
         }
         self.valves = {v: {"state": 0, "desired": 0, "auto_close": 1, "auto_open": 0}
@@ -1252,11 +1252,11 @@ def test_heater_auto_unknown_mode_refused(rig):
 def test_pv_source_happy_path(rig):
     rig.arm("heaters")
     out = assert_ok(rig.call("set_pv_source", {"zone": "top", "source": "cube", "reason": "r"}))
-    # On main, software top's cube sensor is LabJack RTD2.
-    assert rig.cmds() == [("xsphere/commands/pid/top/pv_expr", {"expr": "rtd2"})]
+    # Since the top/bottom swap, software top's cube sensor is LabJack RTD3.
+    assert rig.cmds() == [("xsphere/commands/pid/top/pv_expr", {"expr": "rtd3"})]
     assert out["confirmed"] is True
-    assert out["readback"]["top"]["pv_expr"] == "rtd2"
-    assert out["readback"]["top"]["previous_pv_expr"] == "rtd5"
+    assert out["readback"]["top"]["pv_expr"] == "rtd3"
+    assert out["readback"]["top"]["previous_pv_expr"] == "rtd6"
 
 
 def test_pv_source_from_none(rig):
@@ -1264,7 +1264,7 @@ def test_pv_source_from_none(rig):
     rig.fake.pid["top"].update(pv_expr="", pv_k=500.0)
     rig.fake.poll()
     assert_ok(rig.call("set_pv_source", {"zone": "top", "source": "clamp", "reason": "r"}))
-    assert rig.cmds() == [("xsphere/commands/pid/top/pv_expr", {"expr": "rtd5"})]
+    assert rig.cmds() == [("xsphere/commands/pid/top/pv_expr", {"expr": "rtd6"})]
 
 
 def test_pv_source_must_be_in_rails(rig):
@@ -1288,7 +1288,7 @@ def test_pv_source_sensor_must_be_fresh(rig):
 
 def test_pv_source_jump_limit(rig):
     rig.arm("heaters")
-    rig.fake.sensors["rtd2"] = 180.0          # 14.5 K above the current PV (rtd5)
+    rig.fake.sensors["rtd3"] = 180.0          # 13.5 K above the current PV (rtd6)
     rig.fake.poll()
     assert_refused(rig.call("set_pv_source", {"zone": "top", "source": "cube", "reason": "r"}),
                    "more than 10 K")
@@ -1300,9 +1300,9 @@ def test_pv_source_reverted_when_not_confirmed(rig):
     rig.fake.pid["top"]["pv_expr_value_k"] = 165.5
     out = assert_refused(rig.call("set_pv_source", {"zone": "top", "source": "cube",
                                                     "reason": "r"}),
-                         "not confirmed", "reverted to the previous pv_expr 'rtd5'")
-    assert rig.cmds() == [("xsphere/commands/pid/top/pv_expr", {"expr": "rtd2"}),
-                          ("xsphere/commands/pid/top/pv_expr", {"expr": "rtd5"})]
+                         "not confirmed", "reverted to the previous pv_expr 'rtd6'")
+    assert rig.cmds() == [("xsphere/commands/pid/top/pv_expr", {"expr": "rtd3"}),
+                          ("xsphere/commands/pid/top/pv_expr", {"expr": "rtd6"})]
     assert out["confirmed"] is False
 
 
@@ -1312,8 +1312,8 @@ def test_pv_source_reverted_when_the_command_never_showed(rig):
     rig.arm("heaters")
     rig.fake.respond = False
     assert_refused(rig.call("set_pv_source", {"zone": "top", "source": "cube", "reason": "r"}),
-                   "reverted to the previous pv_expr 'rtd5'")
-    assert rig.cmds()[-1] == ("xsphere/commands/pid/top/pv_expr", {"expr": "rtd5"})
+                   "reverted to the previous pv_expr 'rtd6'")
+    assert rig.cmds()[-1] == ("xsphere/commands/pid/top/pv_expr", {"expr": "rtd6"})
 
 
 def test_pv_source_not_reverted_over_someone_elses_change(rig):
@@ -1323,7 +1323,7 @@ def test_pv_source_not_reverted_over_someone_elses_change(rig):
     p = rig.fake.pid["top"]
 
     def hook(topic, payload):
-        if topic.endswith("/top/pv_expr") and payload.get("expr") == "rtd2":
+        if topic.endswith("/top/pv_expr") and payload.get("expr") == "rtd3":
             rig.fake.respond = False                  # the AI's command is not applied …
             p["pv_expr"] = "rtd4"                     # … Lucas picks rtd4 on the Control page
             rig.fake.publish_pid("top")
@@ -1333,9 +1333,9 @@ def test_pv_source_not_reverted_over_someone_elses_change(rig):
     out = assert_refused(rig.call("set_pv_source", {"zone": "top", "source": "cube",
                                                     "reason": "r"}),
                          "pv_expr now reads 'rtd4'", "not reverted")
-    assert rig.cmds() == [("xsphere/commands/pid/top/pv_expr", {"expr": "rtd2"})]
+    assert rig.cmds() == [("xsphere/commands/pid/top/pv_expr", {"expr": "rtd3"})]
     assert out["published"] == [{"topic": "xsphere/commands/pid/top/pv_expr",
-                                 "payload": {"expr": "rtd2"}}]
+                                 "payload": {"expr": "rtd3"}}]
 
 
 # ──────────────────────────────────────────────────────────────────────────
@@ -1439,13 +1439,13 @@ def test_supply_not_connected(rig):
 def test_supply_current_cap_and_saturation_warnings(rig):
     rig.arm("heaters")
     rig.fake.nge_ch[1].update(output=0, desired=0)
-    rig.fake.pid["top"]["output_pct"] = 100.0
+    rig.fake.pid["bottom"]["output_pct"] = 100.0
     rig.fake.poll()
     out = assert_ok(rig.call("set_heater_supply",
                              {"channel": 1, "voltage_v": 24, "current_a": 2.0, "output": True,
                               "reason": "r"}))
     w = " | ".join(out["warnings"])
-    assert "33.6 W / V" in w and "PID top output is 100 %" in w
+    assert "33.6 W / V" in w and "PID bottom output is 100 %" in w
 
 
 def test_supply_nothing_to_change(rig):

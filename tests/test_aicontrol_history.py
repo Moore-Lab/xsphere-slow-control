@@ -92,7 +92,7 @@ def test_map_real_files_known_entries(hmap):
     assert e["kind"] == "binary"
     e = entries["t_cube_top"]
     assert (e["measurement"], e["field"], e["topic"]) == (
-        "temperature", "value_k", "xsphere/sensors/temperature/labjack/rtd/2")
+        "temperature", "value_k", "xsphere/sensors/temperature/labjack/rtd/3")
     e = entries["level_cryostat"]
     assert (e["measurement"], e["field"], e["fields"]) == ("level", "filtered", ["filtered", "raw"])
     e = entries["turbo_ghs_state"]
@@ -100,7 +100,7 @@ def test_map_real_files_known_entries(hmap):
     assert entries["nge_ch1_output"]["measurement"] == "nge_state"
     assert entries["pneumatic_control_enabled"]["measurement"] == "pneumatic_control"
     assert entries["level_cryostat_probe"]["field"] == "voltage_v"
-    assert entries["t_top_clamp"]["topic"] == "xsphere/sensors/temperature/plc/rtd/5"
+    assert entries["t_top_clamp"]["topic"] == "xsphere/sensors/temperature/plc/rtd/6"
 
 
 def test_map_real_files_unavailable(hmap):
@@ -587,7 +587,7 @@ def test_compact_output_shape():
     assert res["ok"] is True and res["truncated"] is False and res["max_points_per_series"] == 200
     s0, s1 = res["series"]
     assert s0 == {
-        "id": "pid_top_setpoint", "label": "Zone 1 (top) setpoint", "unit": "K",
+        "id": "pid_top_setpoint", "label": "Zone 2 (top) setpoint", "unit": "K",
         "measurement": "pid_state", "topic": "xsphere/status/pid/top", "field": "setpoint_k",
         "type": "double", "fn": "mean", "every_s": 120,
         "t0": "2026-10-22T06:00:00Z", "dt_s": [0, 120, 240], "v": [77.12346, 77.2, 77.3],
@@ -731,7 +731,7 @@ def test_available_shape():
     av = make().available()
     assert av["pid_top_setpoint"] == {"measurement": "pid_state", "field": "setpoint_k",
                                       "type": "double", "topic": "xsphere/status/pid/top",
-                                      "label": "Zone 1 (top) setpoint", "unit": "K"}
+                                      "label": "Zone 2 (top) setpoint", "unit": "K"}
     assert av["level_cryostat"]["fields"] == ["filtered", "raw"]
     assert "gradient_mode" in av["unavailable"] and "gradient_mode" not in av
     assert "*" not in av["unavailable"]
