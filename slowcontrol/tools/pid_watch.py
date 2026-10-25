@@ -35,10 +35,12 @@ import yaml
 from pymodbus.client import ModbusTcpClient
 
 
-# CLICK PLC: DF1 -> Modbus 28672/28673, DS1 -> Modbus 0, C1 -> Modbus coil 0
+# CLICK PLC: DF1 -> Modbus 28672/28673, DS1 -> Modbus 0, C1 -> Modbus coil 16384
+# (Modbus 016385, help topic CL299 — it was 0 here until 2026-10-25, so the coil
+# column showed unrelated bits).
 DF_BASE = 28672
 DS_BASE = 0
-C_BASE = 0
+C_BASE = 16384
 
 
 # Block bases for each PID instruction's auto-allocated address ranges.

@@ -694,6 +694,8 @@ groups:
     pid_top_kp: {kind: analog, label: "Zone 2 (top) Kp", source: {topic: xsphere/status/pid/top, key: kp}, avg_windows_s: []}
     pid_top_ki: {kind: analog, label: "Zone 2 (top) Ki", source: {topic: xsphere/status/pid/top, key: ki}, avg_windows_s: []}
     pid_top_kd: {kind: analog, label: "Zone 2 (top) Kd", source: {topic: xsphere/status/pid/top, key: kd}, avg_windows_s: []}
+    pid_top_bias: {kind: analog, unit: "%", label: "Zone 2 (top) PID integrator (Bias)", source: {topic: xsphere/status/pid/top, key: bias_pct}, avg_windows_s: []}
+    pid_top_stuck_off: {kind: binary, label: "Zone 2 (top) heater stuck off by integrator windup", source: {topic: xsphere/status/pid/top, key: stuck_off}, period_s: 1.0}
     pid_bottom_pv:
       kind: analog
       unit: K
@@ -744,6 +746,8 @@ groups:
     pid_bottom_kp: {kind: analog, label: "Zone 1 (bottom) Kp", source: {topic: xsphere/status/pid/bottom, key: kp}, avg_windows_s: []}
     pid_bottom_ki: {kind: analog, label: "Zone 1 (bottom) Ki", source: {topic: xsphere/status/pid/bottom, key: ki}, avg_windows_s: []}
     pid_bottom_kd: {kind: analog, label: "Zone 1 (bottom) Kd", source: {topic: xsphere/status/pid/bottom, key: kd}, avg_windows_s: []}
+    pid_bottom_bias: {kind: analog, unit: "%", label: "Zone 1 (bottom) PID integrator (Bias)", source: {topic: xsphere/status/pid/bottom, key: bias_pct}, avg_windows_s: []}
+    pid_bottom_stuck_off: {kind: binary, label: "Zone 1 (bottom) heater stuck off by integrator windup", source: {topic: xsphere/status/pid/bottom, key: stuck_off}, period_s: 1.0}
     pid_nozzle_pv:
       kind: analog
       unit: K
@@ -794,6 +798,8 @@ groups:
     pid_nozzle_kp: {kind: analog, label: "Zone 3 (nozzle) Kp", source: {topic: xsphere/status/pid/nozzle, key: kp}, avg_windows_s: []}
     pid_nozzle_ki: {kind: analog, label: "Zone 3 (nozzle) Ki", source: {topic: xsphere/status/pid/nozzle, key: ki}, avg_windows_s: []}
     pid_nozzle_kd: {kind: analog, label: "Zone 3 (nozzle) Kd", source: {topic: xsphere/status/pid/nozzle, key: kd}, avg_windows_s: []}
+    pid_nozzle_bias: {kind: analog, unit: "%", label: "Zone 3 (nozzle) PID integrator (Bias)", source: {topic: xsphere/status/pid/nozzle, key: bias_pct}, avg_windows_s: []}
+    pid_nozzle_stuck_off: {kind: binary, label: "Zone 3 (nozzle) heater stuck off by integrator windup", source: {topic: xsphere/status/pid/nozzle, key: stuck_off}, period_s: 1.0}
 
   # ── Heater supply (R&S NGE103 on USB; NGE ch n → heater n) ──────────────
   # The DC supply the PLC's heater SSRs switch.  Read and driven by the

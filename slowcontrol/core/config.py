@@ -62,8 +62,28 @@ class PlcConfig:
     # Raise pv_max_k via the GUI when intentionally baking.
     pv_min_k:             float = 77.0
     pv_max_k:             float = 310.0
-    pv_safe_surrogate_k:  float = 500.0    # written to pv_raw when tripped (must exceed any plausible setpoint)
-    sp_safe_surrogate_k:  float = 3.0      # written to SP when tripped (must be below any plausible PV — error stays large negative ⇒ output → 0 regardless of where the PID actually sources its PV)
+    pv_safe_surrogate_k:  float = 500.0    # written to the LJ mirrors DF210-212 when tripped (and to pv_raw only if pv_interlock_writes_pv)
+    sp_safe_surrogate_k:  float = 3.0      # written to SP when tripped (must be below any plausible PV — error stays large negative ⇒ output → 0)
+    # Legacy third leg of the trip: also write pv_safe_surrogate_k into each
+    # PID's PV (DF111/136/161).  Off since 2026-10-25: that 500 K → real-PV
+    # step is what winds the PLC PIDs' integrators below 0 % and leaves a
+    # heater off with PV < SP (docs/pid-windup.md).
+    pv_interlock_writes_pv: bool = False
+    # Heater stuck off by integrator windup (see PlcDriver "PID integrator
+    # windup"): in Auto, PV more than pid_stuck_off_delta_k below SP, output
+    # ≤ pid_stuck_off_output_pct and the Bias below the output floor, for
+    # pid_stuck_off_s (and at least two PID samples + 5 s).
+    pid_stuck_off_delta_k:    float = 1.0
+    pid_stuck_off_output_pct: float = 0.5
+    pid_stuck_off_s:          float = 20.0
+    # What to do about it: "off" (nothing), "alert" (log + retained alert),
+    # "toggle" (alert + one Manual → Auto toggle, which sets Bias = output).
+    pid_stuck_off_remedy:     str = "toggle"
+    pid_rescue_holdoff_s:     float = 600.0   # at most one toggle per zone per this
+    # Clamp each PID's Bias (DFn+04) into its output limits every poll while
+    # the loop is in Auto.  Off until the acceptance test in
+    # docs/pid-windup.md shows the PLC takes a Bias write in Auto.
+    pid_integrator_guard:     bool = False
 
 
 @dataclass
@@ -312,6 +332,13 @@ def load(path: str = "config.yaml") -> ServiceConfig:
             pv_max_k=float(p.get("pv_max_k", cfg.plc.pv_max_k)),
             pv_safe_surrogate_k=float(p.get("pv_safe_surrogate_k", cfg.plc.pv_safe_surrogate_k)),
             sp_safe_surrogate_k=float(p.get("sp_safe_surrogate_k", cfg.plc.sp_safe_surrogate_k)),
+            pv_interlock_writes_pv=bool(p.get("pv_interlock_writes_pv", cfg.plc.pv_interlock_writes_pv)),
+            pid_stuck_off_delta_k=float(p.get("pid_stuck_off_delta_k", cfg.plc.pid_stuck_off_delta_k)),
+            pid_stuck_off_output_pct=float(p.get("pid_stuck_off_output_pct", cfg.plc.pid_stuck_off_output_pct)),
+            pid_stuck_off_s=float(p.get("pid_stuck_off_s", cfg.plc.pid_stuck_off_s)),
+            pid_stuck_off_remedy=str(p.get("pid_stuck_off_remedy", cfg.plc.pid_stuck_off_remedy)).strip().lower(),
+            pid_rescue_holdoff_s=float(p.get("pid_rescue_holdoff_s", cfg.plc.pid_rescue_holdoff_s)),
+            pid_integrator_guard=bool(p.get("pid_integrator_guard", cfg.plc.pid_integrator_guard)),
         )
 
     if "omega" in raw:

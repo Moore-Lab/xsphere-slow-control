@@ -6,7 +6,7 @@ and publishes them to MQTT under the xsphere/sensors/... and xsphere/status/...
 topic hierarchy.
 
 Also accepts write commands for:
-  - PID setpoints (DF100, DF125, DF151)
+  - PID setpoints (DF100, DF125, DF150)
   - PID gains (DF105-107, DF130-132, DF155-157)
   - Valve desired state (DS1002, DS1004, DS1006)
   - Valve automation enables (DS1101-1106)
@@ -14,6 +14,11 @@ Also accepts write commands for:
   - Level sensor raw values (DF251, DF252) — written from MQTT callbacks
   - Cryostat level probe voltage (DF333) and its age (DF254) — likewise
     so the PLC's autofill ladder logic stays current
+
+It also watches the three heater PIDs for integrator windup — a loop in Auto
+held at 0 % with PV below SP because its Bias sank below the output floor —
+and can undo it; see "PID integrator windup" in PlcDriver and
+docs/pid-windup.md.
 
 # ==========================================================================
 # CLICK PLC Modbus TCP Register Address Mapping
@@ -54,7 +59,7 @@ Also accepts write commands for:
 #   DF_BASE  = 28672    (DF1 = HR address 28672, 28673)
 #   Y_BASE   = 8192     (Y001 = coil address 8192)
 #   X_BASE   = 0        (X001 = discrete input address 0)
-#   C_BASE   = 0        (C001 = coil address 0)
+#   C_BASE   = 16384    (C001 = coil address 16384 — Modbus 016385, help CL299)
 #
 # Reference: C2-USERM (CLICK PLC User Manual), Appendix D – Modbus TCP
 # ==========================================================================
@@ -65,6 +70,7 @@ from __future__ import annotations
 import ast
 import json
 import logging
+import math
 import os
 import struct
 import threading
@@ -76,7 +82,7 @@ from pymodbus.client import ModbusTcpClient
 from pymodbus.exceptions import ModbusException
 
 from slowcontrol.drivers.base import SensorDriver
-from slowcontrol.core.mqtt import sensor_topic, status_topic
+from slowcontrol.core.mqtt import sensor_topic
 
 log = logging.getLogger(__name__)
 
@@ -87,7 +93,13 @@ DS_BASE: int = 0        # DS1 → holding register 0
 DF_BASE: int = 28672    # DF1 → holding registers 28672, 28673
 Y_BASE:  int = 8192     # Y001 → coil 8192
 X_BASE:  int = 0        # X001 → discrete input 0
-C_BASE:  int = 0        # C001 → coil 0
+# C001 → coil 16384 (Modbus 016385; CLICK help topic CL299).  This was 0 until
+# 2026-10-25, so every C-relay read and write went to the wrong coil: the
+# controller-type readback was always "pi" and the autotune / controller-type
+# writes never reached the PID.  A read-only probe that day confirmed 16384
+# (C105/C145/C185 Freeze Bias, C108/C148/C188 bumpless Mode 2 and
+# C126/C166/C206 Auto indication all ON, matching the PID setup).
+C_BASE:  int = 16384
 
 # ---------------------------------------------------------------------------
 # Register map — all addresses as pymodbus 0-based holding register offsets
@@ -216,7 +228,21 @@ def _c(n: int) -> int:
 REG_PID_MODE_MANUAL    = {"bottom": _c(115), "top": _c(155), "nozzle": _c(195)}
 REG_PID_MODE_AUTO      = {"bottom": _c(116), "top": _c(156), "nozzle": _c(196)}
 REG_PID_AUTOTUNE_START = {"bottom": _c(117), "top": _c(157), "nozzle": _c(197)}
+# C<block+7> only selects the algorithm Autotune uses (help CL254) — the loop
+# itself always runs the full P + I + D with whatever D_Rate holds.
 REG_PID_CONTROLLER_PID = {"bottom": _c(107), "top": _c(147), "nozzle": _c(187)}  # 1 = PID, 0 = PI
+
+# First C relay / DS register of each PID's memory (PID setup "CStart" /
+# "DSStart"; the DF block is _PID_BLOCKS below).  Offsets used here (CL254):
+#   C+05 Freeze Bias      C+07 autotune PI/PID     C+08 bumpless Mode 2
+#   C+25 Manual mode indication   C+26 Auto mode indication
+#   C+27 Autotune mode indication  (read only — what the PID is really doing;
+#        C+15 / C+16 are only the requests)
+#   DS+00 PID error code (0 = none; any error drops the loop to Manual)
+#   DS+05 sample rate (ms)
+_PID_C_BLOCKS  = {"bottom": 100, "top": 140, "nozzle": 180}
+_PID_DS_BLOCKS = {"bottom": 100, "top": 115, "nozzle": 130}
+_PID_C_READ = 28        # C+00 .. C+27 in one read
 
 # Direct writes to the mode coils above turned out NOT to actually flip the
 # PID's internal Auto/Manual state on this PLC — the ladder needs to
@@ -228,9 +254,12 @@ REG_PID_CONTROLLER_PID = {"bottom": _c(107), "top": _c(147), "nozzle": _c(187)} 
 #             DF's low word (rung compares against integer 0 / 1).
 #   DF176 — mode-*status* mirror the ladder writes with the same
 #             convention: 0 = Manual coil asserted, 1 = Auto coil.
-#             We read DF176 (float) for the authoritative mode readback
-#             because the C115/C116 coil reads over Modbus proved
-#             unreliable on this PLC.
+#             It copies the *request* coils C115/C116, not the PID's
+#             mode indication, so after a PID error (which drops the loop
+#             to Manual by itself) it still says Auto.  The coil reads that
+#             "proved unreliable" were at the wrong base (C_BASE was 0);
+#             the published mode now comes from the indication bits
+#             C+25/C+26/C+27, with DF176 only as the fallback.
 #
 # All three PIDs are wired the same way (added 2026-07-04):
 #   PID 1 (bottom) — cmd DF175, status DF176
@@ -246,17 +275,27 @@ REG_PID_MODE_STATUS = {zone: _df(n) for zone, n in _PID_MODE_STATUS_DF_NUM.items
 #  Each PID block occupies 25 float registers starting at its DF_Memory_Start.
 #  Offsets within the block (0-indexed from block start):
 #    0  : SP_Setpoint          (°C)   r/w
+#    4  : Bias                 (%)    r/w  ← the integrator (help CL254)
 #    5  : P_Gain               (Kp)   r/w
-#    6  : I_Reset              (Ki)   r/w
-#    7  : D_Rate               (Kd)   r/w
-#    8  : OUT_Control          (%)    r
-#    11 : PV_ProcessRaw        (°C)   r
-#    12 : PV_ProcessVar        (°C)   r   ← filtered PV used by PID
-#    4  : Bias                 (%)    r/w
+#    6  : I_Reset              (s)    r/w  ← reset TIME Ti, published as "ki"
+#    7  : D_Rate               (s)    r/w  ← derivative TIME Td, as "kd"
+#    8  : OUT_Control          (%)    r    (written by the loop each sample in Auto)
+#    9  : CO lower limit       (%)    r/w
+#    10 : CO upper limit       (%)    r/w
+#    11 : PV_ProcessRaw        (°C)   r/w  ← the PID's PV input (RawPVAddr)
+#    12 : PV_ProcessVar        (°C)   r    ← filtered PV used by PID
 #
 #  HTR1 (bottom, Y004): DF_Memory_Start = DF100
 #  HTR2 (top, Y003):    DF_Memory_Start = DF125
-#  HTR3 (nozzle, Y002): DF_Memory_Start = DF150  (SP confirmed at DF151)
+#  HTR3 (nozzle, Y002): DF_Memory_Start = DF150  (SP is DF150; the project
+#                       file's PID setup says DFStart=DF150, RawPVAddr=DF161)
+#
+#  The loop, as fitted to live data on 2026-10-25 (docs/pid-windup.md), with
+#  e = 100·(SP − PV)/220 % (220 = PV range −200…20 °C), every sample Ts:
+#      Bias += Kp·(Ts/Ti)·e          (frozen while it would push CO further
+#                                      past a limit — Freeze Bias is on)
+#      CO    = Bias + Kp·e + Kp·(Td/Ts)·Δe,  clamped to the CO limits
+#  Manual → Auto sets Bias = CO (bumpless Mode 2).
 
 _PID_BLOCKS = {
     "bottom": 100,   # HTR1 DF_Memory_Start
@@ -272,9 +311,18 @@ _PID_OFF = {
     "ki":     6,
     "kd":     7,
     "output": 8,
+    "co_lo":  9,
+    "co_hi":  10,
     "pv_raw": 11,
     "pv":     12,
 }
+_PID_DF_READ = 13       # DF+00 .. DF+12 in one read
+
+# PID integrator windup — see "PID integrator windup" in PlcDriver.
+PID_RESCUE_STEP_S  = 0.2    # how often the mode indication is re-read in a toggle
+PID_RESCUE_WAIT_S  = 3.0    # how long a toggle waits for Manual, then for Auto
+PID_RESCUE_RETRY_S = 10.0   # how often a loop left in Manual is re-requested to Auto
+PID_GUARD_TOL_PCT  = 0.01   # Bias this far outside the output limits gets clamped
 
 def _pid_reg(zone: str, field: str) -> int:
     """Return holding register address for a PID field in a given zone."""
@@ -358,7 +406,7 @@ CELSIUS_TO_KELVIN = 273.15
 class PlcDriver(SensorDriver):
     NAME = "plc"
 
-    def __init__(self, config, mqtt):
+    def __init__(self, config, mqtt, pid_rescue_path: Optional[str] = None):
         super().__init__(config, mqtt)
         self._client: Optional[ModbusTcpClient] = None
         # pymodbus 3.x sync TCP client is NOT thread-safe — concurrent calls
@@ -414,6 +462,9 @@ class PlcDriver(SensorDriver):
         # (e.g. an alias wasn't populated yet).
         self._pid_sp_expr_value_k: Dict[str, Optional[float]] = {"top": None, "bottom": None, "nozzle": None}
         self._pid_pv_expr_value_k: Dict[str, Optional[float]] = {"top": None, "bottom": None, "nozzle": None}
+        # "<zone>/<sp_expr|pv_expr>" whose value is currently refused (NaN, or
+        # a PV below the interlock band) — so the warning is logged once.
+        self._pid_expr_refused: set = set()
         # Most-recent value_c per sensor alias (rtd1..rtd6, tc1..tc4) for use
         # as identifiers in those expressions.
         self._sensor_c: Dict[str, float] = {}
@@ -429,6 +480,33 @@ class PlcDriver(SensorDriver):
         self._pneumatic_enabled_utc: Optional[str] = None     # when it last changed
         self._pneumatic_refused: int = 0                      # commands refused since start
         self._pneumatic_last_refused: Optional[dict] = None   # {"valve", "state", "utc"}
+        # PID integrator windup — see "PID integrator windup" below.  The
+        # poll thread owns all of it except `_pid_mode_cmds` and the pending
+        # set, which an operator mode command (MQTT thread) also touches.
+        zones = tuple(_PID_BLOCKS)
+        self._pid_stuck_since: Dict[str, Optional[float]] = {z: None for z in zones}  # monotonic
+        self._pid_stuck_alerted: Dict[str, bool] = {z: False for z in zones}
+        self._pid_mode_cmds: Dict[str, int] = {z: 0 for z in zones}   # operator mode commands seen
+        self._pid_mode_last: Dict[str, int] = {}      # zone → last operator value (0 / 1)
+        self._pid_rescue_lock = threading.Lock()
+        self._pid_rescue_path = pid_rescue_path or os.path.normpath(os.path.join(
+            os.path.dirname(os.path.abspath(__file__)), "..", "pid_rescue.json"))
+        # zone → {"since_utc", "attempts"}: loops this service put in Manual
+        # and has not yet seen back in Auto.  Kept on disk, so a crash or a
+        # restart between the two halves of a toggle still ends in Auto.
+        self._pid_rescue_pending: Dict[str, dict] = {}
+        self._pid_rescue_retry_at: Dict[str, float] = {z: float("-inf") for z in zones}
+        self._pid_rescue_last_at: Dict[str, float] = {z: float("-inf") for z in zones}
+        self._pid_rescue_count: Dict[str, int] = {z: 0 for z in zones}
+        self._pid_rescue_last: Dict[str, Optional[dict]] = {z: None for z in zones}
+        self._pid_guard_writes: Dict[str, int] = {z: 0 for z in zones}
+        self._pid_guard_since: Dict[str, Optional[float]] = {z: None for z in zones}  # monotonic
+        self._pid_guard_refused: Dict[str, bool] = {z: False for z in zones}
+        self._pid_rescue_unfed: set = set()   # stuck zones not toggled for want of a fed PV (logged)
+        if config.plc.pid_stuck_off_remedy not in ("off", "alert", "toggle"):
+            log.warning("[plc] plc.pid_stuck_off_remedy %r is not off / alert / toggle — "
+                        "treated as off", config.plc.pid_stuck_off_remedy)
+        self._load_pid_rescue()
 
     @property
     def poll_interval(self) -> float:
@@ -486,12 +564,29 @@ class PlcDriver(SensorDriver):
         # Likewise the pneumatic gate — retained, so the Control page shows
         # "disabled" and locks the valve buttons from the moment we are up.
         self._publish_pneumatic_control_status()
+        # Start with no stuck-off alerts on the broker: a retained one from a
+        # previous run would otherwise never be cleared.  A zone still stuck
+        # is re-alerted once it has been for pid_stuck_off_s.
+        for zone in _PID_BLOCKS:
+            self._mqtt.publish(f"xsphere/alerts/pid_stuck_off/{zone}", "",
+                               qos=1, retain=True)
         # (Sensor aliases for setpoint/pv expressions — rtd1..6, tc1..4 — are
         # populated directly when the PlcDriver reads the PLC RTDs and when
         # the LabJack callbacks fire, avoiding any MQTT round-trip race.)
 
     def disconnect(self) -> None:
         if self._client:
+            # A loop this service put in Manual and has not yet seen back in
+            # Auto gets one last Auto request on the way out (best effort —
+            # pid_rescue.json keeps it pending for the next start anyway).
+            for zone in list(self._pid_rescue_pending):
+                try:
+                    self._write_float(REG_PID_MODE_CMD[zone], 1.0)
+                    log.warning("[plc] PID %s: Auto requested on shutdown — an "
+                                "automatic rescue had left it in Manual", zone)
+                except Exception as exc:
+                    log.warning("[plc] PID %s: Auto request on shutdown failed: %s",
+                                zone, exc)
             self._client.close()
             self._client = None
 
@@ -525,16 +620,21 @@ class PlcDriver(SensorDriver):
         if not self._ensure_modbus():
             return
         try:
+            # The PV interlock is decided first, from the LabJack data already
+            # cached, so that nothing below writes a PID setpoint or PV while
+            # it is tripped: the trip is the only writer of SP then.
+            tripped = self._check_pv_interlock()
             self._publish_rtds()
             self._publish_level()
-            self._publish_pid_status()
+            pid = self._publish_pid_status(tripped)
             self._publish_valve_status()
             self._write_level_to_plc()
-            self._write_pid_expressions()
-            # MUST run after expressions: when the PV interlock trips, it
-            # writes the safe-surrogate to the PID's pv_raw register, which
-            # must override anything an active pv_expr would have written.
-            self._write_labjack_to_plc()
+            if not tripped:
+                self._write_pid_expressions()
+            self._write_labjack_to_plc(tripped)
+            # Windup guard / stuck-off remedy last: a toggle waits a second or
+            # two for the PLC, and everything above has been written by then.
+            self._pid_windup_actions(pid, tripped)
             # Last, and fenced off: a fault in this readback must not send the
             # PID-expression and PV-interlock writes above down the reconnect
             # path on every poll.
@@ -582,6 +682,32 @@ class PlcDriver(SensorDriver):
         if rr.isError():
             return None
         return rr.registers[0]
+
+    def _read_floats(self, address: int, n: int) -> Optional[List[float]]:
+        """Read n consecutive DF floats in one request (word order as _read_float)."""
+        with self._modbus_lock:
+            rr = self._client.read_holding_registers(address, count=2 * n)
+        if rr.isError() or len(rr.registers) < 2 * n:
+            return None
+        r = rr.registers
+        return [struct.unpack(">f", struct.pack(">I", (r[2 * i + 1] << 16) | r[2 * i]))[0]
+                for i in range(n)]
+
+    def _read_ints(self, address: int, n: int) -> Optional[List[int]]:
+        """Read n consecutive 16-bit holding registers (DS) in one request."""
+        with self._modbus_lock:
+            rr = self._client.read_holding_registers(address, count=n)
+        if rr.isError() or len(rr.registers) < n:
+            return None
+        return list(rr.registers[:n])
+
+    def _read_coils(self, address: int, n: int) -> Optional[List[bool]]:
+        """Read n consecutive coils (C relays) in one request."""
+        with self._modbus_lock:
+            rr = self._client.read_coils(address, count=n)
+        if rr.isError() or len(rr.bits) < n:
+            return None
+        return [bool(b) for b in rr.bits[:n]]
 
     def _write_float(self, address: int, value: float) -> bool:
         """Write a 32-bit float to two consecutive holding registers.
@@ -685,16 +811,11 @@ class PlcDriver(SensorDriver):
                 else:
                     log.info("[plc] %s level probe: readings are back", vessel)
 
-    def _write_labjack_to_plc(self) -> None:
-        """Mirror the latest LabJack temperatures into PLC DF registers (°C),
-        AND enforce the PV safety interlocks that neutralize the heater PIDs
-        when input data is bad.
-
-        Normal path:
-          RTD absolute → DF210-212 (the PLC's "LJ mirror" used by display
-                                    and possibly by a ladder rung that
-                                    forwards them to the PID block's pv_raw)
-          TC gradient → DF213-216
+    def _check_pv_interlock(self) -> bool:
+        """Decide the PV safety interlock from the cached LabJack RTD data and
+        return True while it is tripped.  Pure bookkeeping — no Modbus: it
+        runs first in poll(), so the expression writes can be skipped and
+        _write_labjack_to_plc told what to do.
 
         Trip rules (per-channel; system-wide response):
           • stale          : no MQTT update for this channel in `pv_stale_s`
@@ -708,52 +829,17 @@ class PlcDriver(SensorDriver):
                              to slowcontrol/pv_interlock.json so a bakeout
                              ceiling survives a service restart.
 
-        On trip, three redundant writes drive every PID output to 0%:
-          (1) pv_raw (DF111/136/161) ← pv_safe_surrogate_k (500 K → 226.85 °C).
-              If the PID's PV input is in-block pv_raw, the PID sees PV ≫ SP
-              and computes output → 0.
-          (2) sp     (DF100/125/151) ← sp_safe_surrogate_k (3 K → -270.15 °C).
-              Independent of where the PID actually sources its PV, the error
-              SP − PV stays large negative ⇒ output → 0.
-          (3) output (DF108/133/158) ← 0. The third leg: when the CLICK PID
-              instruction is in a frozen/non-computing state (e.g. autotune
-              hung when PV stopped changing), it stops updating OUT_Control
-              and our external write persists. This is the leg that catches
-              the failure mode where (1) and (2) wouldn't help because the
-              PID isn't recomputing at all.
-
-        TC mirrors (DF213-216) get the stale check only — they're not used
-        as a PID PV on this PLC. Write 0 on stale.
-
-        Ordering note: this runs AFTER `_write_pid_expressions` in poll(), so
-        the surrogate writes override any active pv_expr / sp_expr on trip.
+        Logs, alerts (retained, per channel) and the aggregate
+        xsphere/status/pv_interlock are published on the edges.
+        `_interlock_tripped_was` is updated here, so the MQTT-thread command
+        handlers see this poll's verdict.
         """
         plc_cfg = self._config.plc
-        stale_s    = plc_cfg.pv_stale_s
         safe_k     = plc_cfg.pv_safe_surrogate_k
-        sp_safe_k  = plc_cfg.sp_safe_surrogate_k
-        safe_c     = safe_k - CELSIUS_TO_KELVIN
-        sp_safe_c  = sp_safe_k - CELSIUS_TO_KELVIN
-        with self._interlock_lock:
-            pv_min_k = self._pv_min_k
-            pv_max_k = self._pv_max_k
-        pv_min_c   = pv_min_k - CELSIUS_TO_KELVIN
-        pv_max_c   = pv_max_k - CELSIUS_TO_KELVIN
-        now = time.monotonic()
+        sp_safe_c  = plc_cfg.sp_safe_surrogate_k - CELSIUS_TO_KELVIN
 
         # ── Detection: per-channel trip reasons ─────────────────────────
-        rtd_trip_reason: Dict[int, str] = {}
-        for ch in REG_LABJACK_RTD_WRITE:
-            val_c = self._labjack_rtd_c.get(ch)
-            ts    = self._labjack_rtd_ts.get(ch)
-            if ts is None or (now - ts) > stale_s:
-                rtd_trip_reason[ch] = "stale"
-            elif val_c is None:
-                rtd_trip_reason[ch] = "no-value"
-            elif val_c < pv_min_c:
-                rtd_trip_reason[ch] = f"below band ({val_c:.1f} °C < {pv_min_c:.1f} °C)"
-            elif val_c > pv_max_c:
-                rtd_trip_reason[ch] = f"above band ({val_c:.1f} °C > {pv_max_c:.1f} °C)"
+        rtd_trip_reason = self._pv_trip_reasons()
 
         # ── Edge-triggered per-channel logging + retained alerts ────────
         for ch in REG_LABJACK_RTD_WRITE:
@@ -761,9 +847,9 @@ class PlcDriver(SensorDriver):
             was_tripped  = self._labjack_rtd_tripped.get(ch, False)
             if reason and not was_tripped:
                 log.warning("[plc] LJ RTD%d interlock TRIPPED (%s): "
-                            "forcing safe surrogates (PV→%.1f °C, SP→%.1f °C, "
-                            "OUT→0%%) on all three zones",
-                            ch, reason, safe_c, sp_safe_c)
+                            "forcing SP→%.1f °C and OUT→0%% on all three zones%s",
+                            ch, reason, sp_safe_c,
+                            " (and PV→surrogate)" if plc_cfg.pv_interlock_writes_pv else "")
                 self._publish_pv_alert(ch, "rtd", reason,
                                        self._labjack_rtd_c.get(ch), safe_k)
                 self._labjack_rtd_tripped[ch] = True
@@ -774,13 +860,90 @@ class PlcDriver(SensorDriver):
                 self._clear_pv_alert(ch, "rtd")
                 self._labjack_rtd_tripped[ch] = False
 
-        # ── Action: write registers ─────────────────────────────────────
+        # Publish the consolidated interlock status whenever the aggregate
+        # trip state changes (the limits handler publishes on its own).
         tripped_now = bool(rtd_trip_reason)
-        if tripped_now:
+        if tripped_now != self._interlock_tripped_was:
+            self._interlock_tripped_was = tripped_now
+            self._publish_pv_interlock_status(tripped=tripped_now,
+                                              reasons=rtd_trip_reason)
+        return tripped_now
+
+    def _pv_trip_reasons(self) -> Dict[int, str]:
+        """The PV interlock's verdict on the cached LabJack RTDs right now:
+        {channel: reason} for every channel that trips it, {} if none.  No
+        side effects — _check_pv_interlock acts on it once per poll, and
+        _write_pid_expressions asks again just before it writes (a reading
+        that arrives between the two must not reach a PID)."""
+        plc_cfg = self._config.plc
+        stale_s = plc_cfg.pv_stale_s
+        with self._interlock_lock:
+            pv_min_c = self._pv_min_k - CELSIUS_TO_KELVIN
+            pv_max_c = self._pv_max_k - CELSIUS_TO_KELVIN
+        now = time.monotonic()
+        reasons: Dict[int, str] = {}
+        for ch in REG_LABJACK_RTD_WRITE:
+            val_c = self._labjack_rtd_c.get(ch)
+            ts    = self._labjack_rtd_ts.get(ch)
+            if ts is None or (now - ts) > stale_s:
+                reasons[ch] = "stale"
+            elif val_c is None:
+                reasons[ch] = "no-value"
+            elif not math.isfinite(val_c):
+                # NaN compares False both ways, so it would slip past the band.
+                reasons[ch] = f"not a number ({val_c})"
+            elif val_c < pv_min_c:
+                reasons[ch] = f"below band ({val_c:.1f} °C < {pv_min_c:.1f} °C)"
+            elif val_c > pv_max_c:
+                reasons[ch] = f"above band ({val_c:.1f} °C > {pv_max_c:.1f} °C)"
+        return reasons
+
+    def _write_labjack_to_plc(self, tripped: bool) -> None:
+        """Mirror the latest LabJack temperatures into PLC DF registers (°C),
+        AND, while the PV interlock is tripped (see _check_pv_interlock),
+        hold the heater PIDs off.
+
+        Normal path:
+          RTD absolute → DF210-212 (the PLC's "LJ mirror", for display — no
+                                    ladder rung reads them; the PIDs' PVs
+                                    are written by the pv expressions)
+          TC gradient → DF213-216
+
+        While tripped, every poll, on all three zones:
+          (1) sp     (DF100/125/150) ← sp_safe_surrogate_k (3 K → -270.15 °C).
+              With a real PV of 77 K or more the error is below −34 % of
+              the 220 K span, so any Kp above 3 (today's are 14–41) puts
+              the output at 0 % whatever the Bias, and the Freeze-Bias rule
+              stops the integrator moving while it sits there.
+          (2) output (DF108/133/158) ← 0. The leg for a PID that is not
+              recomputing at all (e.g. autotune hung when the PV stopped
+              changing): it stops updating OUT_Control and our write sticks.
+          The PID's own PV (pv_raw, DF111/136/161) is left alone — no
+          expression writes it while tripped (poll() skips them), so it holds
+          the last good reading.  Until 2026-10-25 a third leg wrote 500 K
+          there; dropping that surrogate back to a real PV of ~165 K is a
+          ~−430 K error step that the D term turns into one 100 % sample
+          during which the integrator jumps to about −190 %, and Freeze Bias
+          then holds it there: the heater stays off with PV below SP for
+          many minutes (docs/pid-windup.md).  `pv_interlock_writes_pv: true`
+          brings that leg back.
+          The mirrors DF210-212 get the 500 K surrogate, DF213-216 get 0.
+
+        TC mirrors (DF213-216) get the stale check only — they're not used
+        as a PID PV on this PLC. Write 0 on stale.
+        """
+        plc_cfg = self._config.plc
+        stale_s    = plc_cfg.pv_stale_s
+        safe_c     = plc_cfg.pv_safe_surrogate_k - CELSIUS_TO_KELVIN
+        sp_safe_c  = plc_cfg.sp_safe_surrogate_k - CELSIUS_TO_KELVIN
+        now = time.monotonic()
+
+        if tripped:
             for addr in REG_LABJACK_RTD_WRITE.values():
                 self._write_float(addr, safe_c)
             for zone in ("top", "bottom", "nozzle"):
-                self._write_float(_pid_reg(zone, "pv_raw"), safe_c)
+                if plc_cfg.pv_interlock_writes_pv:
+                    self._write_float(_pid_reg(zone, "pv_raw"), safe_c)
                 self._write_float(_pid_reg(zone, "sp"),     sp_safe_c)
                 self._write_float(_pid_reg(zone, "output"), 0.0)
             # TC gradients are meaningless when the source is suspect.
@@ -798,14 +961,6 @@ class PlcDriver(SensorDriver):
                     self._write_float(addr, 0.0)
                 elif val is not None:
                     self._write_float(addr, val)
-
-        # Publish the consolidated interlock status whenever the aggregate
-        # trip state changes or the band limits changed (handler does that
-        # explicitly; here we only publish on trip-edge to keep traffic low).
-        if tripped_now != self._interlock_tripped_was:
-            self._interlock_tripped_was = tripped_now
-            self._publish_pv_interlock_status(tripped=tripped_now,
-                                              reasons=rtd_trip_reason)
 
     # ------------------------------------------------------------------
     # PV interlock helpers — persistence, command handler, status publish
@@ -904,6 +1059,8 @@ class PlcDriver(SensorDriver):
 
     def _publish_pv_alert(self, ch: int, kind: str, reason: str,
                           last_val_c: Optional[float], safe_k: float) -> None:
+        if last_val_c is not None and not math.isfinite(last_val_c):
+            last_val_c = None                       # NaN is not JSON
         self._mqtt.publish(
             f"xsphere/alerts/pv_interlock/labjack/{kind}/{ch}",
             {"rule": "pv_interlock", "channel": f"labjack/{kind}/{ch}",
@@ -923,39 +1080,83 @@ class PlcDriver(SensorDriver):
     # Publish: PID status
     # ------------------------------------------------------------------
 
-    def _publish_pid_status(self) -> None:
-        # Authoritative mode read comes from DF<PID_MODE_STATUS>, a ladder-
-        # maintained mirror of the mode coils (0 = Manual, 1 = Auto).  For
-        # zones that don't yet have the mirror rung wired we report
-        # "unknown" (no way to know without direct coil reads, and the
-        # coils proved unreliable — see the comment near REG_PID_MODE_CMD).
+    def _read_pid_zone(self, zone: str) -> Optional[dict]:
+        """One PID's state in four Modbus reads: DF+00..+12 (the floats),
+        DS+00..+05 (error code, sample rate), C+00..+27 (options, mode
+        indication) and the ladder's mode command / mirror pair.  None if the
+        float block cannot be read; the other parts degrade to None."""
+        df = self._read_floats(_df(_PID_BLOCKS[zone]), _PID_DF_READ)
+        if df is None:
+            return None
+        ds = self._read_ints(_ds(_PID_DS_BLOCKS[zone]), 6)
+        c  = self._read_coils(_c(_PID_C_BLOCKS[zone]), _PID_C_READ)
+        # DF175/176, 177/178 and 179/180 are adjacent: command, then mirror.
+        mc = self._read_floats(REG_PID_MODE_CMD[zone], 2)
+        ind = None                  # what the PID itself says it is doing
+        if c is not None:
+            man, auto, tune = c[25], c[26], c[27]
+            if tune:
+                ind = "autotune"
+            elif auto and not man:
+                ind = "auto"
+            elif man and not auto:
+                ind = "manual"
+        return {
+            "sp_c": df[_PID_OFF["sp"]], "bias": df[_PID_OFF["bias"]],
+            "kp": df[_PID_OFF["kp"]], "ki": df[_PID_OFF["ki"]], "kd": df[_PID_OFF["kd"]],
+            "output": df[_PID_OFF["output"]],
+            "co_lo": df[_PID_OFF["co_lo"]], "co_hi": df[_PID_OFF["co_hi"]],
+            "pv_raw_c": df[_PID_OFF["pv_raw"]], "pv_c": df[_PID_OFF["pv"]],
+            "error_code": ds[0] if ds is not None else None,
+            "sample_s": ds[5] / 1000.0 if ds is not None and ds[5] > 0 else None,
+            "mode_ind": ind,
+            "controller_bit": c[7] if c is not None else None,
+            "bumpless2": c[8] if c is not None else None,   # Manual → Auto sets Bias = CO
+            "mode_cmd": mc[0] if mc is not None else None,
+            "mode_status": mc[1] if mc is not None else None,
+        }
+
+    def _publish_pid_status(self, tripped: bool = False) -> Dict[str, dict]:
+        """xsphere/status/pid/{zone}, and the stuck-off bookkeeping (see
+        "PID integrator windup").  Returns {zone: _read_pid_zone(...)} for
+        the zones that could be read, for _pid_windup_actions.
+
+        `mode` is the PID's own mode indication (C+25 / C+26 / C+27:
+        "manual" / "auto" / "autotune"); only if those bits cannot be read
+        does it fall back to the ladder's mirror DF176/178/180 (which copies
+        the mode *request*, so it can say "auto" for a loop a PID error has
+        dropped to Manual).  `mode_source` says which one it was.
+        """
+        out: Dict[str, dict] = {}
+        now = time.monotonic()
+        remedy = self._config.plc.pid_stuck_off_remedy
         for zone in ("top", "bottom", "nozzle"):
-            sp_c  = self._read_float(_pid_reg(zone, "sp"))
-            pv_c  = self._read_float(_pid_reg(zone, "pv"))
-            out   = self._read_float(_pid_reg(zone, "output"))
-            kp    = self._read_float(_pid_reg(zone, "kp"))
-            ki    = self._read_float(_pid_reg(zone, "ki"))
-            kd    = self._read_float(_pid_reg(zone, "kd"))
-            ctrl_bit = self._read_coil(REG_PID_CONTROLLER_PID[zone])
-            # Mode-command echo (what we last wrote to DF<PID_MODE_CMD>) and
-            # mode-status (what the ladder mirrored to DF<PID_MODE_STATUS>).
-            cmd_addr    = REG_PID_MODE_CMD.get(zone)
-            status_addr = REG_PID_MODE_STATUS.get(zone)
-            mode_cmd    = self._read_float(cmd_addr)    if cmd_addr    else None
-            mode_status = self._read_float(status_addr) if status_addr else None
-            if sp_c is None or pv_c is None:
+            r = self._read_pid_zone(zone)
+            if r is None:
+                self._pid_stuck_since[zone] = None      # a gap is not "still stuck"
                 continue
-            controller = "pid" if ctrl_bit else ("pi" if ctrl_bit is False else "unknown")
-            if mode_status is None:
-                mode = "unknown"                       # rung not wired yet
+            out[zone] = r
+            self._update_stuck_off(zone, r, tripped, now)
+            mode_status = r["mode_status"]
+            if r["mode_ind"] is not None:
+                mode, mode_source = r["mode_ind"], "indication"
+            elif mode_status is None:
+                mode, mode_source = "unknown", None     # nothing readable
             elif abs(mode_status - 0.0) < 0.5:
-                mode = "manual"
+                mode, mode_source = "manual", "ladder"
             elif abs(mode_status - 1.0) < 0.5:
-                mode = "auto"
+                mode, mode_source = "auto", "ladder"
             else:
-                mode = "unknown"                       # unexpected mirror value
+                mode, mode_source = "unknown", "ladder"  # unexpected mirror value
+            bit = r["controller_bit"]
+            # C+07 only picks the autotune algorithm; the loop runs P+I+D.
+            controller = "pid" if bit else ("pi" if bit is False else "unknown")
+            sp_c, pv_c, out_pct, mode_cmd = r["sp_c"], r["pv_c"], r["output"], r["mode_cmd"]
             sp_val = self._pid_sp_expr_value_k.get(zone)
             pv_val = self._pid_pv_expr_value_k.get(zone)
+            with self._pid_rescue_lock:
+                pending = zone in self._pid_rescue_pending
+            last = self._pid_rescue_last[zone]
             self._mqtt.publish_status(
                 "pid", zone,
                 payload={
@@ -963,18 +1164,38 @@ class PlcDriver(SensorDriver):
                     "setpoint_k":  round(sp_c + CELSIUS_TO_KELVIN, 3),
                     "pv_c":        round(pv_c, 3),
                     "pv_k":        round(pv_c + CELSIUS_TO_KELVIN, 3),
-                    "output_pct":  round(out, 2) if out is not None else None,
-                    "kp": kp, "ki": ki, "kd": kd,
+                    "pv_raw_k":    round(r["pv_raw_c"] + CELSIUS_TO_KELVIN, 3),
+                    "output_pct":  round(out_pct, 2),
+                    "kp": r["kp"], "ki": r["ki"], "kd": r["kd"],
+                    # The integrator and the limits it should stay inside.
+                    "bias_pct":    round(r["bias"], 3),
+                    "co_lo_pct":   round(r["co_lo"], 3),
+                    "co_hi_pct":   round(r["co_hi"], 3),
                     "mode":            mode,
+                    "mode_source":     mode_source,
                     "mode_cmd":        round(mode_cmd, 4)    if mode_cmd    is not None else None,
                     "mode_status_raw": round(mode_status, 4) if mode_status is not None else None,
+                    "error_code":      r["error_code"],
+                    "sample_s":        r["sample_s"],
                     "controller_type": controller,
                     "setpoint_expr":         self._pid_sp_expr.get(zone, ""),
                     "pv_expr":               self._pid_pv_expr.get(zone, ""),
                     "setpoint_expr_value_k": round(sp_val, 3) if sp_val is not None else None,
                     "pv_expr_value_k":       round(pv_val, 3) if pv_val is not None else None,
+                    # Windup watch: stuck_off = confirmed (alert raised);
+                    # stuck_off_s = how long the condition has held so far.
+                    "stuck_off":      int(self._pid_stuck_alerted[zone]),
+                    "stuck_off_s":    r["stuck_s"],
+                    "rescue_remedy":  remedy,
+                    "rescue_count":   self._pid_rescue_count[zone],
+                    "rescue_pending": int(pending),
+                    "rescue_last":    dict(last) if last else None,
+                    "guard":          ("refused" if self._pid_guard_refused[zone] else
+                                       "on" if self._config.plc.pid_integrator_guard else "off"),
+                    "guard_writes":   self._pid_guard_writes[zone],
                 },
             )
+        return out
 
     # ------------------------------------------------------------------
     # Publish: Valve status
@@ -1140,7 +1361,11 @@ class PlcDriver(SensorDriver):
         poll. The point is a single per-poll writer of the SP register — a
         one-shot write here would otherwise be overwritten next poll by any
         non-empty expression (and the GradientController publishes on this
-        same topic, so it benefits too)."""
+        same topic, so it benefits too).
+
+        While the PV interlock is tripped the trip is that single writer
+        (SP = 3 K): the new setpoint is stored and only reaches the PLC
+        with the first poll after the trip clears."""
         parts = topic.split("/")
         zone = parts[-2]
         if zone not in _PID_BLOCKS:
@@ -1150,8 +1375,15 @@ class PlcDriver(SensorDriver):
         if value_k is None:
             return
         value_k = float(value_k)
+        if not math.isfinite(value_k):
+            log.warning("[plc] PID %s setpoint %r refused: not a number", zone, value_k)
+            return
         value_c = value_k - CELSIUS_TO_KELVIN
         self._pid_sp_expr[zone] = repr(value_k)
+        if self._interlock_tripped_was:
+            log.info("[plc] PID %s setpoint → %.2f K held: the PV interlock is "
+                     "tripped — written when it clears", zone, value_k)
+            return
         ok = self._write_float(_pid_reg(zone, "sp"), value_c)
         log.info("[plc] PID %s setpoint → %.2f K (%.2f °C): %s",
                  zone, value_k, value_c, "OK" if ok else "FAIL")
@@ -1169,12 +1401,18 @@ class PlcDriver(SensorDriver):
         log.info("[plc] PID %s gains updated: %s", zone, payload)
 
     def _on_pid_autotune(self, topic: str, payload: dict) -> None:
-        """xsphere/commands/pid/{zone}/autotune  → trigger autotune (set coil 1)."""
+        """xsphere/commands/pid/{zone}/autotune — REFUSED.
+
+        Until 2026-10-25 this wrote C117/C157/C197 at the wrong coil base
+        (C_BASE 0), so the "trigger autotune" button never reached the PLC.
+        With the base fixed it would start a real closed-loop autotune — a
+        heater limit cycle — so it stays off until it has an arm gate like
+        the pneumatic valves'."""
         zone = topic.split("/")[-2]
         if zone not in _PID_BLOCKS:
             return
-        ok = self._write_coil(REG_PID_AUTOTUNE_START[zone], True)
-        log.info("[plc] PID %s autotune start: %s", zone, "OK" if ok else "FAIL")
+        log.warning("[plc] PID %s autotune REFUSED: disabled until it has an "
+                    "enable gate (it never reached the PLC before 2026-10-25)", zone)
 
     def _on_pid_mode(self, topic: str, payload: dict) -> None:
         """xsphere/commands/pid/{zone}/mode  → {"mode": "auto"|"manual"}.
@@ -1203,6 +1441,18 @@ class PlcDriver(SensorDriver):
         else:
             log.warning("[plc] PID %s mode: bad payload %r", zone, payload)
             return
+        # An operator (page, AI, sequencer) has spoken for this zone's mode:
+        # an automatic toggle under way stops at its next check, and a loop
+        # the service was trying to get back to Auto is left to them.
+        with self._pid_rescue_lock:
+            self._pid_mode_cmds[zone] += 1
+            self._pid_mode_last[zone] = cmd_value
+            dropped = self._pid_rescue_pending.pop(zone, None)
+            if dropped is not None:
+                self._save_pid_rescue_locked()
+        if dropped is not None:
+            log.info("[plc] PID %s: operator mode command %r — the service no "
+                     "longer re-requests Auto after its rescue", zone, mode)
 
         cmd_addr = REG_PID_MODE_CMD.get(zone)
         if cmd_addr is not None:
@@ -1252,16 +1502,17 @@ class PlcDriver(SensorDriver):
                  zone, value_pct, "OK" if ok else "FAIL")
 
     def _on_pid_controller_type(self, topic: str, payload: dict) -> None:
-        """xsphere/commands/pid/{zone}/controller_type  → {"mode": "pi"|"pid"}."""
+        """xsphere/commands/pid/{zone}/controller_type — REFUSED.
+
+        C107/C147/C187 only choose the algorithm Autotune uses (the loop
+        always runs P + I + D; D_Rate = 0 makes it PI).  The write never
+        reached the PLC before the coil base was fixed on 2026-10-25, and it
+        is meaningless while autotune is refused, so it stays off with it."""
         zone = topic.split("/")[-2]
         if zone not in _PID_BLOCKS:
             return
-        mode = str(payload.get("mode", "")).lower()
-        if mode not in ("pi", "pid"):
-            return
-        ok = self._write_coil(REG_PID_CONTROLLER_PID[zone], mode == "pid")
-        log.info("[plc] PID %s controller_type → %s: %s",
-                 zone, mode, "OK" if ok else "FAIL")
+        log.warning("[plc] PID %s controller_type %r REFUSED: it only selects the "
+                    "autotune algorithm, and autotune is disabled", zone, payload)
 
     def _on_pid_pv_write(self, topic: str, payload: dict) -> None:
         """xsphere/commands/pid/{zone}/pv  → {"value_c": X} or {"value_k": X}.
@@ -1276,6 +1527,12 @@ class PlcDriver(SensorDriver):
         elif "value_k" in payload:
             value_c = float(payload["value_k"]) - CELSIUS_TO_KELVIN
         else:
+            return
+        if self._interlock_tripped_was:
+            # Nothing writes a PID's PV while the interlock holds it off; a
+            # one-shot value would be stale by the time it clears, so drop it.
+            log.warning("[plc] PID %s PV ← %.3f °C dropped: the PV interlock is "
+                        "tripped", zone, value_c)
             return
         ok = self._write_float(_pid_reg(zone, "pv_raw"), value_c)
         log.info("[plc] PID %s PV ← %.3f °C: %s",
@@ -1368,7 +1625,23 @@ class PlcDriver(SensorDriver):
         we subtract 273.15 before writing the DF, which is stored in °C.
         The resolved value is cached on `self._pid_{sp,pv}_expr_value_k` so
         `_publish_pid_status` can surface it to the GUI as a diagnostic
-        ("your expression rtd1 currently evaluates to 313.5 K")."""
+        ("your expression rtd1 currently evaluates to 313.5 K").
+
+        poll() does not call this while the PV interlock is tripped, so the
+        trip is then the only writer of SP and nothing writes the PV.
+
+        Every expression is evaluated first and the interlock asked again
+        afterwards, before anything is written.  A LabJack reading that
+        arrived since poll() decided the interlock — a broken RTD's first
+        absurd value — is then caught here instead of being written: the
+        trip no longer overwrites the PV, so a value that got in would sit
+        in the PID for the whole trip (an absurdly low PV under SP = 3 K is
+        a full-on heater).  For the same reason a PV that is not a number or
+        is below the interlock band is never written, whatever its source:
+        the PID keeps its last good PV."""
+        writes: List[Tuple[int, float]] = []
+        with self._interlock_lock:
+            pv_min_k = self._pv_min_k
         for zone in ("top", "bottom", "nozzle"):
             for kind, slot, cache in (
                     ("sp_expr", "sp",     self._pid_sp_expr_value_k),
@@ -1383,8 +1656,400 @@ class PlcDriver(SensorDriver):
                     log.debug("[plc] PID %s %s eval(%r) → None (missing alias / read error)",
                               zone, kind, expr)
                     continue
-                cache[zone] = float(v_k)
-                self._write_float(_pid_reg(zone, slot), float(v_k) - CELSIUS_TO_KELVIN)
+                v_k = float(v_k)
+                cache[zone] = v_k if math.isfinite(v_k) else None
+                bad = not math.isfinite(v_k) or (kind == "pv_expr" and v_k < pv_min_k)
+                key = f"{zone}/{kind}"
+                if bad:
+                    if key not in self._pid_expr_refused:
+                        self._pid_expr_refused.add(key)
+                        log.warning("[plc] PID %s %s %r = %s K NOT written (%s) — the PID "
+                                    "keeps its last value", zone, kind, expr, v_k,
+                                    "not a number" if not math.isfinite(v_k)
+                                    else f"below the interlock band, {pv_min_k:.1f} K")
+                    continue
+                if key in self._pid_expr_refused:
+                    self._pid_expr_refused.discard(key)
+                    log.info("[plc] PID %s %s %r = %.2f K is written again", zone, kind, expr, v_k)
+                writes.append((_pid_reg(zone, slot), v_k - CELSIUS_TO_KELVIN))
+        if writes and self._pv_trip_reasons():
+            # The next poll's _check_pv_interlock trips it properly.
+            log.info("[plc] PV interlock tripped during the poll — PID expression "
+                     "writes skipped")
+            return
+        for addr, value_c in writes:
+            self._write_float(addr, value_c)
+
+    # ------------------------------------------------------------------
+    # PID integrator windup
+    #
+    # The CLICK PIDs run with Freeze Bias on: the integrator (Bias, DF+04)
+    # does not move while the output sits at a limit and moving it would push
+    # further past it.  That stops it creeping, not jumping: a big error step
+    # — the PV interlock's old 500 K surrogate dropping back to a real PV, or
+    # a setpoint raised while the PV is far above it — gives one sample in
+    # which the D term pins the output at 100 % while the error is hugely
+    # negative, and that sample still integrates.  The Bias lands far below
+    # 0 % in one go, and Freeze Bias then holds it there while the output
+    # reads 0 %.  The heater stays off with PV under SP until the error has
+    # unwound it — minutes on the bottom zone, up to ~80 on the nozzle.  A
+    # Manual → Auto toggle fixes it at once, because the bumpless transfer
+    # (Mode 2) sets Bias = output.  docs/pid-windup.md has the evidence.
+    #
+    #   stuck off   Auto (the PID's own indication bit), no PID error, PV more
+    #               than pid_stuck_off_delta_k below SP, output at or below
+    #               pid_stuck_off_output_pct, an output range that allows
+    #               heat, and the Bias below the output floor — continuously
+    #               for pid_stuck_off_s and at least 2 samples + 5 s, never
+    #               while the PV interlock is tripped.  The Bias test is what
+    #               makes it windup rather than the D term braking a fast
+    #               rise, and it is why resetting Bias to the output (0 %) can
+    #               only add heat.  → journal + retained alert
+    #               xsphere/alerts/pid_stuck_off/<zone>; `stuck_off` in status.
+    #   toggle      (pid_stuck_off_remedy: toggle) one Manual → Auto toggle
+    #               through the zone's mode command DF175/177/179 — the same
+    #               register the Control page's buttons write — only if the
+    #               command, the ladder's mirror and the indication all say
+    #               Auto and bumpless Mode 2 is on (C+08: that is what makes
+    #               the toggle a Bias reset), only on a PV fed by a live PV
+    #               expression, on a fresh re-read, at most once
+    #               per pid_rescue_holdoff_s.  The zone is
+    #               written to slowcontrol/pid_rescue.json before the first
+    #               write; Auto is confirmed on the indication bit, and a loop
+    #               not seen back in Auto is asked again every
+    #               PID_RESCUE_RETRY_S — after a crash or a restart too —
+    #               until it is, or until an operator sends a mode command for
+    #               that zone, which always wins.
+    #   guard       (pid_integrator_guard) clamp Bias into the output limits
+    #               every poll in Auto, so windup never outlasts a poll.  Off
+    #               until the PLC is shown to keep a Bias written in Auto; if
+    #               it does not, the guard turns itself off for that zone.
+    # ------------------------------------------------------------------
+
+    def _stuck_condition(self, r: dict, tripped: bool) -> bool:
+        """The instantaneous stuck-off test on one _read_pid_zone reading."""
+        cfg = self._config.plc
+        return (cfg.pid_stuck_off_remedy in ("alert", "toggle")
+                and not tripped
+                and r["mode_ind"] == "auto"
+                and r["error_code"] == 0
+                and r["pv_c"] < r["sp_c"] - cfg.pid_stuck_off_delta_k
+                and r["output"] <= cfg.pid_stuck_off_output_pct
+                and r["co_hi"] > r["co_lo"] + cfg.pid_stuck_off_output_pct
+                and r["bias"] < r["co_lo"])
+
+    def _update_stuck_off(self, zone: str, r: dict, tripped: bool, now: float) -> None:
+        """Track one zone's stuck-off condition and raise / clear its alert.
+        Adds "stuck_s" (how long the condition has held, 0 if not) and
+        "stuck" (held long enough: confirmed) to the reading `r`."""
+        cfg = self._config.plc
+        sp_k = r["sp_c"] + CELSIUS_TO_KELVIN
+        pv_k = r["pv_c"] + CELSIUS_TO_KELVIN
+        topic = f"xsphere/alerts/pid_stuck_off/{zone}"
+        if not self._stuck_condition(r, tripped):
+            self._pid_stuck_since[zone] = None
+            self._pid_rescue_unfed.discard(zone)
+            r["stuck_s"], r["stuck"] = 0.0, False
+            if self._pid_stuck_alerted[zone]:
+                self._pid_stuck_alerted[zone] = False
+                log.info("[plc] PID %s no longer stuck off (PV %.2f K, SP %.2f K, "
+                         "output %.1f %%, bias %.1f %%)",
+                         zone, pv_k, sp_k, r["output"], r["bias"])
+                self._mqtt.publish(topic, "", qos=1, retain=True)
+            return
+        since = self._pid_stuck_since[zone]
+        if since is None:
+            since = self._pid_stuck_since[zone] = now
+        held = now - since
+        need = max(cfg.pid_stuck_off_s, 2.0 * (r["sample_s"] or 15.0) + 5.0)
+        r["stuck_s"], r["stuck"] = round(held, 1), held >= need
+        if r["stuck"] and not self._pid_stuck_alerted[zone]:
+            self._pid_stuck_alerted[zone] = True
+            log.warning("[plc] PID %s STUCK OFF (integrator windup): Auto, PV %.2f K is "
+                        "%.2f K below SP %.2f K, output %.1f %%, bias %.1f %% below the "
+                        "%.1f %% output floor, for %.0f s — remedy: %s",
+                        zone, pv_k, sp_k - pv_k, sp_k, r["output"], r["bias"],
+                        r["co_lo"], held, cfg.pid_stuck_off_remedy)
+            self._mqtt.publish(topic, {
+                "rule": "pid_stuck_off", "zone": zone,
+                "pv_k": round(pv_k, 3), "setpoint_k": round(sp_k, 3),
+                "output_pct": round(r["output"], 2), "bias_pct": round(r["bias"], 3),
+                "held_s": round(held, 1), "remedy": cfg.pid_stuck_off_remedy,
+                "timestamp": time.time(),
+            }, qos=1, retain=True)
+
+    def _pid_windup_actions(self, pid: Dict[str, dict], tripped: bool) -> None:
+        """Once per poll, after everything else has been written: bring back
+        loops a rescue left in Manual, run the integrator guard, and toggle
+        zones confirmed stuck off.  `pid` is _publish_pid_status's readings."""
+        cfg = self._config.plc
+        now = time.monotonic()
+        # 1. Loops this service put in Manual and has not seen back in Auto
+        #    (this run, or before a crash / restart).  Done even while the
+        #    interlock is tripped: Auto then just regulates to SP = 3 K.
+        with self._pid_rescue_lock:
+            pending = list(self._pid_rescue_pending)
+        for zone in pending:
+            r = pid.get(zone)
+            if r is None or r["mode_ind"] is None:
+                continue                            # cannot tell — wait
+            if r["mode_ind"] == "auto":
+                self._pid_rescue_clear(zone)
+                log.info("[plc] PID %s is back in Auto after an automatic rescue", zone)
+                continue
+            if r["mode_ind"] != "manual" or now < self._pid_rescue_retry_at[zone]:
+                continue                            # autotune is not ours to touch
+            self._pid_rescue_retry_at[zone] = now + PID_RESCUE_RETRY_S
+            with self._pid_rescue_lock:
+                info = self._pid_rescue_pending.get(zone)
+                if info is None:
+                    continue                        # an operator just took it
+                seq0 = self._pid_mode_cmds[zone]    # any operator command after this wins
+                info["attempts"] = int(info.get("attempts", 0)) + 1
+                attempt = info["attempts"]
+                self._save_pid_rescue_locked()
+            if attempt <= 3 or attempt % 6 == 0:
+                log.warning("[plc] PID %s is still in MANUAL after an automatic rescue "
+                            "(since %s) — requesting Auto again, attempt %d",
+                            zone, info.get("since_utc", "?"), attempt)
+            result = self._pulse_auto(zone, seq0)
+            if result in ("ok", "no_manual"):
+                self._pid_rescue_clear(zone)
+                log.info("[plc] PID %s is back in Auto after an automatic rescue", zone)
+        # 2. Integrator guard.
+        if cfg.pid_integrator_guard and not tripped:
+            for zone, r in pid.items():
+                self._pid_guard_bias(zone, r, now)
+        # 3. Stuck-off remedy.
+        if cfg.pid_stuck_off_remedy != "toggle" or tripped:
+            return
+        for zone, r in pid.items():
+            if not r.get("stuck"):
+                continue
+            with self._pid_rescue_lock:
+                if zone in self._pid_rescue_pending:
+                    continue
+                # Taken before the re-read that decides: an operator mode
+                # command from here on — even one whose DF175 write has not
+                # landed yet — stops the toggle before its first write.
+                seq0 = self._pid_mode_cmds[zone]
+            if now - self._pid_rescue_last_at[zone] < cfg.pid_rescue_holdoff_s:
+                continue
+            # Re-read: a toggle of another zone may have taken a few seconds.
+            fresh = self._read_pid_zone(zone)
+            if fresh is None or not self._stuck_condition(fresh, self._interlock_tripped_was):
+                continue
+            cmd, mirror = fresh["mode_cmd"], fresh["mode_status"]
+            if cmd is None or mirror is None or abs(cmd - 1.0) > 0.01 or abs(mirror - 1.0) > 0.01:
+                continue        # the ladder's command / mirror do not both say Auto
+            if not fresh["bumpless2"]:
+                continue        # the toggle only resets the Bias with bumpless Mode 2
+            # Only on a PV that is being fed: a PV expression that evaluated
+            # this poll and that the PID's PV register agrees with.  On a
+            # frozen PV the "PV below SP" the toggle acts on may be stale,
+            # and heating sooner would be heating blind.
+            fed_k = self._pid_pv_expr_value_k.get(zone)
+            pv_raw_k = fresh["pv_raw_c"] + CELSIUS_TO_KELVIN
+            if fed_k is None or abs(pv_raw_k - fed_k) > 5.0:
+                if zone not in self._pid_rescue_unfed:
+                    self._pid_rescue_unfed.add(zone)
+                    log.warning("[plc] PID %s stuck off, but its PV is not fed by a live PV "
+                                "expression (pv_expr %r, PV register %.2f K) — not toggling; "
+                                "switch Manual → Auto by hand if the PV is right",
+                                zone, self._pid_pv_expr.get(zone, ""), pv_raw_k)
+                continue
+            self._pid_rescue(zone, fresh, now, seq0)
+
+    def _pid_rescue(self, zone: str, r: dict, now: float, seq0: int) -> None:
+        """One Manual → Auto toggle of a zone confirmed stuck off.  `seq0` is
+        the operator mode-command count the decision was taken under."""
+        sp_k = r["sp_c"] + CELSIUS_TO_KELVIN
+        pv_k = r["pv_c"] + CELSIUS_TO_KELVIN
+        self._pid_rescue_last_at[zone] = now        # the hold-off counts from here
+        with self._pid_rescue_lock:
+            if self._pid_mode_cmds[zone] != seq0:
+                return                              # an operator spoke meanwhile
+            self._pid_rescue_pending[zone] = {"since_utc": _utc_now(), "attempts": 1}
+            saved = self._save_pid_rescue_locked()
+            if not saved:
+                del self._pid_rescue_pending[zone]
+        if not saved:
+            log.error("[plc] PID %s stuck off, but %s cannot be written — not toggling "
+                      "(a crash mid-toggle could leave it in Manual)",
+                      zone, self._pid_rescue_path)
+            return
+        self._pid_rescue_count[zone] += 1
+        log.warning("[plc] PID %s rescue #%d: toggling Manual → Auto so the PLC sets "
+                    "Bias = output (bias %.1f %%, PV %.2f K, SP %.2f K)",
+                    zone, self._pid_rescue_count[zone], r["bias"], pv_k, sp_k)
+        result = self._pulse_auto(zone, seq0)
+        # The Bias right after: the PLC should have set it to the output.
+        bias_after = self._read_float(_pid_reg(zone, "bias")) if result == "ok" else None
+        self._pid_rescue_last[zone] = {
+            "utc": _utc_now(), "result": result, "pv_k": round(pv_k, 2),
+            "setpoint_k": round(sp_k, 2), "bias_pct": round(r["bias"], 2),
+            "bias_after_pct": round(bias_after, 2) if bias_after is not None else None}
+        if result in ("ok", "no_manual", "operator"):
+            self._pid_rescue_clear(zone)
+        if result == "ok" and bias_after is not None and bias_after < r["co_lo"] - 1.0:
+            log.error("[plc] PID %s rescue #%d: back in Auto but the Bias is still %.1f %% "
+                      "(was %.1f %%) — the toggle did not reset it; check bumpless Mode 2 "
+                      "(C%d)", zone, self._pid_rescue_count[zone], bias_after, r["bias"],
+                      _PID_C_BLOCKS[zone] + 8)
+        elif result == "ok":
+            log.warning("[plc] PID %s rescue #%d done: back in Auto, Bias %.1f %% → %s %%",
+                        zone, self._pid_rescue_count[zone], r["bias"],
+                        "?" if bias_after is None else f"{bias_after:.1f}")
+        elif result == "no_manual":
+            log.error("[plc] PID %s rescue: the loop never showed Manual, so nothing "
+                      "changed — check the DF%d mode rung", zone, _PID_MODE_CMD_DF_NUM[zone])
+        elif result == "operator":
+            log.warning("[plc] PID %s rescue: an operator mode command arrived "
+                        "mid-toggle — the mode is theirs", zone)
+        else:
+            log.error("[plc] PID %s rescue: NOT back in Auto (%s) — requesting Auto "
+                      "every %.0f s until it is (an operator mode command stops that)",
+                      zone, result, PID_RESCUE_RETRY_S)
+            self._pid_rescue_retry_at[zone] = time.monotonic() + PID_RESCUE_RETRY_S
+
+    def _pulse_auto(self, zone: str, seq0: int) -> str:
+        """Write the zone's mode command 0 (Manual), wait for the PID to show
+        Manual, write 1 (Auto), wait for it to show Auto.  Returns
+          "ok"           went Manual, then back to Auto
+          "no_manual"    never showed Manual, and is in Auto
+          "not_auto"     not in Auto within PID_RESCUE_WAIT_S of the request
+          "write_failed" the PLC refused a write
+          "operator"     an operator mode command arrived since `seq0` (the
+                         count the caller decided under); nothing is written
+                         if it came before the first write, and their value
+                         is written again otherwise, so it is what stands
+        Takes up to 2 × PID_RESCUE_WAIT_S of the poll thread."""
+        with self._pid_rescue_lock:
+            if self._pid_mode_cmds[zone] != seq0:
+                return "operator"
+        cmd = REG_PID_MODE_CMD[zone]
+        if not self._write_float(cmd, 0.0):
+            return "write_failed"
+        saw_manual = self._wait_pid_mode(zone, "manual", seq0)
+        if saw_manual is not None:
+            if not self._write_float(cmd, 1.0):
+                return "write_failed"
+            saw_auto = self._wait_pid_mode(zone, "auto", seq0)
+            if saw_auto is not None:
+                if not saw_auto:
+                    return "not_auto"
+                return "ok" if saw_manual else "no_manual"
+        # An operator command came in.  Our write may have landed after
+        # theirs, so put their value back.
+        with self._pid_rescue_lock:
+            value = self._pid_mode_last.get(zone)
+        if value is not None:
+            self._write_float(cmd, float(value))
+        return "operator"
+
+    def _wait_pid_mode(self, zone: str, want: str, seq0: int) -> Optional[bool]:
+        """Poll the PID's mode indication until it reads `want` (True), the
+        wait runs out (False) or an operator mode command arrives (None)."""
+        deadline = time.monotonic() + PID_RESCUE_WAIT_S
+        addr = _c(_PID_C_BLOCKS[zone] + 25)         # C+25 Manual, C+26 Auto
+        while True:
+            time.sleep(PID_RESCUE_STEP_S)
+            with self._pid_rescue_lock:
+                if self._pid_mode_cmds[zone] != seq0:
+                    return None
+            bits = self._read_coils(addr, 2)
+            if bits is not None:
+                mode = ("manual" if bits[0] and not bits[1] else
+                        "auto" if bits[1] and not bits[0] else None)
+                if mode == want:
+                    return True
+            if time.monotonic() >= deadline:
+                return False
+
+    def _pid_guard_bias(self, zone: str, r: dict, now: float) -> None:
+        """Clamp a zone's Bias into its output limits (pid_integrator_guard)."""
+        if self._pid_guard_refused[zone]:
+            return
+        with self._pid_rescue_lock:
+            pending = zone in self._pid_rescue_pending
+        lo, hi, b = r["co_lo"], r["co_hi"], r["bias"]
+        target = None
+        if r["mode_ind"] == "auto" and r["error_code"] == 0 and not pending and lo < hi:
+            if b < lo - PID_GUARD_TOL_PCT:
+                target = lo
+            elif b > hi + PID_GUARD_TOL_PCT:
+                target = hi
+        since = self._pid_guard_since[zone]
+        if target is None:
+            if since is not None:
+                self._pid_guard_since[zone] = None
+                log.info("[plc] PID %s integrator guard: bias %.2f %% is inside the "
+                         "output limits again", zone, b)
+            return
+        if since is None:
+            self._pid_guard_since[zone] = now
+            log.warning("[plc] PID %s integrator guard: bias %.2f %% is outside "
+                        "[%.1f, %.1f] %% — clamping it to %.1f %%", zone, b, lo, hi, target)
+        elif now - since > max(2.0 * (r["sample_s"] or 15.0), 10.0):
+            # Clamped every poll for two PID samples and still outside: the
+            # PLC does not keep a Bias written in Auto.  Stop writing.
+            self._pid_guard_refused[zone] = True
+            log.error("[plc] PID %s integrator guard: bias still %.2f %% after %.0f s of "
+                      "clamping — the PLC does not keep a Bias written in Auto; guard off "
+                      "for this zone (pid_stuck_off_remedy: %s)",
+                      zone, b, now - since, self._config.plc.pid_stuck_off_remedy)
+            return
+        if self._write_float(_pid_reg(zone, "bias"), target):
+            self._pid_guard_writes[zone] += 1
+
+    def _pid_rescue_clear(self, zone: str) -> None:
+        with self._pid_rescue_lock:
+            if self._pid_rescue_pending.pop(zone, None) is not None:
+                self._save_pid_rescue_locked()
+
+    def _load_pid_rescue(self) -> None:
+        """Pick up loops a previous run put in Manual and never saw back in
+        Auto (slowcontrol/pid_rescue.json); the first polls re-request Auto."""
+        try:
+            with open(self._pid_rescue_path) as fh:
+                d = json.load(fh)
+        except FileNotFoundError:
+            return
+        except (OSError, json.JSONDecodeError) as exc:
+            log.warning("[plc] cannot read %s: %s", self._pid_rescue_path, exc)
+            return
+        pending = d.get("pending") if isinstance(d, dict) else None
+        if isinstance(pending, dict):
+            for zone, info in pending.items():
+                if zone in _PID_BLOCKS:
+                    self._pid_rescue_pending[zone] = dict(info) if isinstance(info, dict) else {}
+        if self._pid_rescue_pending:
+            log.warning("[plc] %s: an automatic rescue left %s in Manual and was not "
+                        "seen back in Auto — requesting Auto until it is",
+                        self._pid_rescue_path, ", ".join(sorted(self._pid_rescue_pending)))
+
+    def _save_pid_rescue_locked(self) -> bool:
+        """Write pid_rescue.json atomically and durably (caller holds
+        _pid_rescue_lock); the file is removed when nothing is pending."""
+        path = self._pid_rescue_path
+        try:
+            if not self._pid_rescue_pending:
+                try:
+                    os.remove(path)
+                except FileNotFoundError:
+                    pass
+                return True
+            tmp = path + ".tmp"
+            with open(tmp, "w") as fh:
+                json.dump({"pending": self._pid_rescue_pending}, fh, indent=2)
+                fh.write("\n")
+                fh.flush()
+                os.fsync(fh.fileno())
+            os.replace(tmp, path)
+            return True
+        except OSError as exc:
+            log.warning("[plc] cannot write %s: %s", path, exc)
+            return False
 
     def _on_valve_state(self, topic: str, payload: dict) -> None:
         """xsphere/commands/valve/{vessel}/state  → {"state": 0|1}"""

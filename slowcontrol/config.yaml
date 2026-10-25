@@ -31,8 +31,38 @@ plc:
   # Raise pv_max_k via the Control page's Interlock card when baking.
   pv_min_k: 77.0
   pv_max_k: 310.0
-  pv_safe_surrogate_k: 500.0 # written to pv_raw on trip (must exceed any plausible SP)
-  sp_safe_surrogate_k: 3.0   # written to SP on trip (must be below any plausible PV — three-leg defense: SP low + PV high + OUT_Control=0)
+  # On trip: SP = sp_safe_surrogate_k and OUT = 0 on all three PIDs, every
+  # poll; the LabJack mirrors DF210-212 get pv_safe_surrogate_k.  Setpoint
+  # and PV writes (expressions, commands) wait until it clears.
+  pv_safe_surrogate_k: 500.0 # written to the mirrors DF210-212 on trip
+  sp_safe_surrogate_k: 3.0   # written to SP on trip (must be below any plausible PV)
+  # The old third leg — 500 K into each PID's own PV — is off: releasing it
+  # wound the integrators below 0 % and left heaters off with PV < SP for
+  # many minutes (docs/pid-windup.md).  true brings it back.
+  pv_interlock_writes_pv: false
+
+  # Heater stuck off by integrator windup (docs/pid-windup.md).  A zone is
+  # "stuck off" when its PID is in Auto (the PLC's own indication bit), its
+  # output is at or below pid_stuck_off_output_pct, its Bias (integrator) is
+  # below the output floor, and its PV is more than pid_stuck_off_delta_k
+  # below SP — continuously for pid_stuck_off_s and at least two PID samples
+  # + 5 s.  Never while the PV interlock is tripped or the loop is in Manual.
+  # Published as stuck_off on xsphere/status/pid/<zone> and as the retained
+  # alert xsphere/alerts/pid_stuck_off/<zone>.
+  pid_stuck_off_delta_k: 1.0
+  pid_stuck_off_output_pct: 0.5
+  pid_stuck_off_s: 20.0
+  # off | alert | toggle.  toggle = alert, then one Manual → Auto toggle via
+  # DF175/177/179 — what an operator does by hand — which makes the PLC set
+  # Bias = output (0 %).  The mode is verified back in Auto and re-requested
+  # until it is, also after a crash or restart (slowcontrol/pid_rescue.json);
+  # any operator mode command for the zone ends that.
+  pid_stuck_off_remedy: toggle
+  pid_rescue_holdoff_s: 600.0    # at most one toggle per zone per this many s
+  # Clamp each PID's Bias into its output limits every poll while in Auto —
+  # stops the windup before it can hold a heater off.  Leave false until the
+  # acceptance test in docs/pid-windup.md shows the PLC accepts the write.
+  pid_integrator_guard: false
 
 # Omega logger is no longer in use.
 

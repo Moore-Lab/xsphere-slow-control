@@ -590,7 +590,7 @@ class Reads:
             L.append(f"PV interlock: band {_f(il['min_k'])}–{_f(il['max_k'])} K, "
                      + ("TRIPPED (" + "; ".join(f"RTD{k}: {v}" for k, v in reasons.items()) + ")"
                         if il.get("tripped") else "not tripped")
-                     + " — a trip forces SP 3 K / PV 500 K / output 0 on every zone")
+                     + " — a trip forces SP 3 K / output 0 on every zone (the PV is left as it was)")
         else:
             L.append("PV interlock: status not seen")
         if d["interlocks"]:
@@ -853,11 +853,12 @@ class Reads:
   replaced with replace_expression: true.
 - A PID regulates on its PV, chosen by pv_expr (set_pv_source: cube = LabJack cube RTD,
   clamp = PLC clamp RTD; nozzle: cube only). With no PV source the PV is frozen (500 K =
-  the interlock surrogate) and a setpoint does nothing — or, frozen low, heats open-loop.
+  left by the old interlock surrogate) and a setpoint does nothing — or, frozen low, heats
+  open-loop.
   So raising a setpoint is refused unless pv_expr is set, evaluates, and the PV register
   agrees with it within 5 K. Lowering is always possible.
 - PV interlock: LabJack RTD1–3 against the band [min_k, max_k] (get_overview). Any channel
-  out of band or stale trips ALL zones: SP 3 K, PV 500 K, output 0 every poll, no
+  out of band or stale trips ALL zones: SP 3 K, output 0 every poll (PV untouched), no
   hysteresis; setpoints come back when it clears. AI setpoints must be ≥ 5 K inside the
   band. Heater writes are refused while tripped.
 - Rails per zone: setpoint_min_k / setpoint_max_k (both needed), max_step_k (largest single

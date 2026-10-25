@@ -22,6 +22,10 @@ slowcontrol/nge_state.json
 slowcontrol/nge_state.json.tmp
 slowcontrol/turbovac_state.json
 slowcontrol/turbovac_state.json.tmp
+# Heater PIDs an automatic windup rescue put in Manual and has not yet seen
+# back in Auto (PlcDriver; removed when empty).
+slowcontrol/pid_rescue.json
+slowcontrol/pid_rescue.json.tmp
 
 # Runtime state of the AI control service: the human rails (set on the Control
 # page), its audit log, and the LN2 open timers.  Operator decisions and

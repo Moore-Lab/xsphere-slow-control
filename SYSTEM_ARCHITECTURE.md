@@ -565,44 +565,80 @@ Y101 → coil 8224, Y105 → 8228, Y106 → 8229, Y107 → 8230 (0-based).
 ### PID Registers (Float, read/write)
 
 All temperatures in °C (PLC native). Python service converts to/from Kelvin.
+Each PID owns 25 DF, 15 DS and 40 C addresses (CLICK help CL254); the offsets
+are the same for all three. Values below were checked against the project's
+PID setup and a read-only probe on 2026-10-25.
 
-**HTR1 — Zone 1 (bottom clamp heater), PWM → Y004:**
+**HTR1 — Zone 1 (bottom clamp heater), PWM → Y004:** DF100-124, DS100-114, C100-139
 | Register | Name | R/W | Description |
 |---|---|---|---|
 | DF100 | SP_Setpoint | R/W | Temperature setpoint |
-| DF105 | P_Gain | R/W | Proportional gain (Kp) |
-| DF106 | I_Reset | R/W | Integral reset time (Ki) |
-| DF107 | D_Rate | R/W | Derivative rate (Kd) |
-| DF108 | OUT_Control | R | Current control output (0–100%) |
-| DF111 | PV_ProcessRaw | R | Raw process variable (°C) |
-| DF112 | PV_ProcessVar | R | Filtered process variable (°C) |
-| DF104 | Bias | R/W | Manual bias |
+| DF104 | Bias | R/W | The integrator (%), see docs/pid-windup.md |
+| DF105 | P_Gain | R/W | Proportional gain Kp (published as `kp`) |
+| DF106 | I_Reset | R/W | Reset **time** Ti in s (published as `ki`) |
+| DF107 | D_Rate | R/W | Derivative **time** Td in s (published as `kd`) |
+| DF108 | OUT_Control | R | Control output (0–100 %), recomputed each sample in Auto |
+| DF109 / DF110 | CO limits | R/W | Output lower / upper limit (0 / 100 %) |
+| DF111 | PV_ProcessRaw | R/W | The PID's PV input (written by the PV expression) |
+| DF112 | PV_ProcessVar | R | Filtered PV (20 % filter) the loop uses |
+| DS100 | PID_ErrorCode | R | 0 = no error; an error drops the loop to Manual |
+| DS105 | Sample_Rate | R/W | Sample time, ms (3694) |
+| C125 / C126 / C127 | IND_* | R | Manual / Auto / Autotune mode indication |
 
-**HTR2 — Zone 2 (top clamp heater), PWM → Y003:**
+**HTR2 — Zone 2 (top clamp heater), PWM → Y003:** DF125-149, DS115-129, C140-179
 | Register | Name | R/W | Description |
 |---|---|---|---|
 | DF125 | SP_Setpoint | R/W | Temperature setpoint |
+| DF129 | Bias | R/W | Integrator (%) |
 | DF130 | P_Gain | R/W | Kp |
-| DF131 | I_Reset | R/W | Ki |
-| DF132 | D_Rate | R/W | Kd |
-| DF133 | OUT_Control | R | Output (0–100%) |
-| DF136 | PV_ProcessRaw | R | Raw PV (°C) |
+| DF131 | I_Reset | R/W | Ti (s) |
+| DF132 | D_Rate | R/W | Td (s) |
+| DF133 | OUT_Control | R | Output (0–100 %) |
+| DF134 / DF135 | CO limits | R/W | Output lower / upper limit |
+| DF136 | PV_ProcessRaw | R/W | PV input (°C) |
 | DF137 | PV_ProcessVar | R | Filtered PV (°C) |
-| DF129 | Bias | R/W | Manual bias |
+| DS115 / DS120 | ErrorCode / Sample_Rate | R / R/W | Sample time 7259 ms |
+| C165 / C166 / C167 | IND_* | R | Manual / Auto / Autotune indication |
 
-**HTR3 — Zone 3 (nozzle/disk heater), PWM → Y002:**
+**HTR3 — Zone 3 (nozzle/disk heater), PWM → Y002:** DF150-174, DS130-144, C180-219
 | Register | Name | R/W | Description |
 |---|---|---|---|
-| DF151 | SP_Setpoint | R/W | Temperature setpoint |
-| DF155 | P_Gain | R/W | Kp (DF156 = Ki, DF157 = Kd per cross-ref) |
-| DF156 | I_Reset | R/W | Ki |
-| DF157 | D_Rate | R/W | Kd |
-| DF158 | OUT_Control | R | Output (0–100%) |
-| DF161 | PV_ProcessRaw | R | Raw PV (°C) |
+| DF150 | SP_Setpoint | R/W | Temperature setpoint |
+| DF154 | Bias | R/W | Integrator (%) |
+| DF155 | P_Gain | R/W | Kp |
+| DF156 | I_Reset | R/W | Ti (s) |
+| DF157 | D_Rate | R/W | Td (s) |
+| DF158 | OUT_Control | R | Output (0–100 %) |
+| DF159 / DF160 | CO limits | R/W | Output lower / upper limit |
+| DF161 | PV_ProcessRaw | R/W | PV input (°C) |
 | DF162 | PV_ProcessVar | R | Filtered PV (°C) |
-| DF155 | Bias | R/W | Manual bias |
+| DS130 / DS135 | ErrorCode / Sample_Rate | R / R/W | Sample time 13202 ms |
+| C205 / C206 / C207 | IND_* | R | Manual / Auto / Autotune indication |
 
-**Note on HTR3:** DF Memory Start = DF150 per PID config, but cross-reference confirms SP_Setpoint = DF151. DF150 is the first block register (likely PID internal). Verify on live system at commissioning.
+(An earlier version of this table put the HTR3 setpoint at DF151 and its Bias
+at DF155; the project file's PID setup has DFStart = DF150, so SP = DF150 and
+Bias = DF154.)
+
+**Mode commands (operator ladder rungs):** DF175 / DF177 / DF179 = 0 → Manual
+request, 1 → Auto request; DF176 / DF178 / DF180 copy the last *request* (not
+the PID's mode — a PID error drops a loop to Manual without changing them).
+The driver publishes `mode` from the indication bits above.
+
+**Coil addressing:** C relays start at Modbus coil 16384 (C1 = 016385, CLICK
+help CL299). Until 2026-10-25 the driver used 0, so its C reads and writes
+missed — the autotune and controller-type commands never reached the PLC.
+They are now refused until they have an enable gate. `C107/C147/C187`
+("controller type") only selects the autotune algorithm; the loops always run
+P + I + D.
+
+**PV interlock and integrator windup.** While the PV interlock is tripped the
+driver writes SP ← 3 K and OUT ← 0 to all three PIDs every poll and writes
+nothing else to them (no PV surrogate since 2026-10-25 — releasing the old
+500 K surrogate wound the integrators below 0 % and held heaters off with PV
+below SP). The driver also detects a loop held off by a wound-up integrator
+(`stuck_off` in `xsphere/status/pid/<zone>`, alert
+`xsphere/alerts/pid_stuck_off/<zone>`) and, by default, clears it with one
+verified Manual → Auto toggle. See [docs/pid-windup.md](docs/pid-windup.md).
 
 ### Current MQTT Topics (existing schema, to be replaced)
 | Topic | Direction | Content | Consumer |

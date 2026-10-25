@@ -251,6 +251,12 @@ The interlock watchdog runs every 15 seconds and checks:
 | `level_stale/{vessel}` | No level update | > 60 s |
 | `pid_saturated/{zone}` | Heater at 100% continuously | > 300 s |
 
+Published by the PLC driver itself (not the 15 s watchdog):
+
+| Rule | Condition | Default threshold |
+|---|---|---|
+| `pid_stuck_off/{zone}` | Auto, output ≤ 0.5 %, PV > 1 K below SP, PID integrator (Bias) below 0 % | ≥ 20 s and 2 PID samples + 5 s |
+
 ### When an alert fires
 
 1. The **Interlocks** tab will show the alert in red.
@@ -282,6 +288,19 @@ mosquitto_sub -h localhost -t 'xsphere/alerts/#' -v
 **level_stale**: Level sensor ESP32 has stopped publishing.
 - Check the WiFi connection of the affected ESP32.
 - Check `xsphere/status/level_{vessel}` for the board's last uptime/RSSI.
+
+**pid_stuck_off**: A heater zone is in Auto, below its setpoint, and held at
+0 % by a wound-up integrator — the old "switch to Manual and back to Auto"
+symptom ([docs/pid-windup.md](docs/pid-windup.md)).
+- With `plc.pid_stuck_off_remedy: toggle` (the default) the service does that
+  toggle itself, once per zone per 10 min, checks the zone is back in Auto and
+  keeps asking until it is.  `rescue_count` / `rescue_last` in
+  `xsphere/status/pid/{zone}` and the journal (`STUCK OFF`, `rescue`) show it.
+- It only toggles a zone whose PV is fed by a live PV expression; with no PV
+  source it alerts and logs `not fed by a live PV expression` instead.
+- Pressing Auto or Manual for that zone on the Control page always takes over.
+- Toggle by hand only a zone in Auto at 0 % with PV *below* SP — never one
+  sitting at 100 % (that sets the integrator to 100 % and it overshoots).
 
 **pid_saturated**: A heater zone has been at 100% output for > 5 minutes.
 - The heater cannot keep up with heat load — likely LN2 is boiling off faster
