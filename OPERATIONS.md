@@ -395,6 +395,42 @@ Every AI action and refusal, with Claude's stated reason, is listed under
 minute, and calls that send nothing (refusals, no-ops) beyond 30 a minute are
 counted and summed up in one entry, so a looping session cannot flood the log.
 
+### Phone alerts and the phone e-stop
+
+The `xsphere-ainotify` unit pushes AI events to the ntfy app on your phone.
+Setup, the full list of alerts and the settings are in `aicontrol/README.md`,
+"Phone alerts". Every message has a **Disarm AI** button. It disarms every
+group, exactly like **disarm all** on the card. It never arms and moves no
+hardware, and a confirmation push follows within about 10 s.
+
+| The phone says | Do this |
+|---|---|
+| **LN2: check the valve** | Close the valve on the LN₂ card, then check DF333 and the valve itself. The service could not tell whether it closed. |
+| **AI control is DOWN** (with "LN2 timers NOT running") | Only the PLC ladder can close that valve now. Close it by hand on the LN₂ card, then `journalctl -u xsphere-aicontrol -n 50`. |
+| **AI control is DOWN** (no timers) | Nothing is armed once it is down, and it starts disarmed. Look at the journal when convenient. |
+| **AI auto-disarmed** / **LN2 valve auto-closed** | The service did its job. Read the reason, and re-arm only if you still want the AI on. |
+| **arm / rails from an UNEXPECTED source** | You did not do it from the card. Tap **Disarm AI**, then find who did it from the `by` and from the journal's MCP user agents. Check the rails. |
+| **refusal storm / flood** | A session is stuck or probing. It moved nothing. Stop that session, or tap **Disarm AI**. |
+| **armed before the Sunday backup** | Disarm, unless nothing will need the AI between 02:00 and 02:30. |
+| **notifier lost the MQTT broker** | Slow control and the AI service have lost it too. Run `docker ps` and check the mosquitto container. |
+| no daily digest at 08:00 | The notifier is down or the Pi is offline: `systemctl status xsphere-ainotify`. |
+
+### The Sunday 02:00 backup
+
+The weekly IOTstack backup (root crontab, Sunday 02:00) recreates every
+container, the MQTT broker included. For about 11–15 minutes there is no
+broker:
+
+- slow control restarts, and no PV interlock or LabJack PV writes run until it
+  is back;
+- the AI service disarms everything;
+- an LN2 close that falls due in the window waits for the broker.
+
+Do not leave the AI armed, or a fill or ramp running, across it. The notifier
+warns at Saturday 22:00 if anything is armed. It also holds back its own
+broker-lost / AI-down alerts during Sunday 01:45–02:30, unless something was
+armed; if something is still down after 02:30, the alert goes out then.
+
 ### Checks after deploying it
 
 Two paths have never run end to end before the first deploy; check them once
@@ -531,6 +567,9 @@ journalctl -u xsphere-omega-logger -f
 
 # AI control service
 journalctl -u xsphere-aicontrol -f
+
+# AI notifier (phone alerts, phone e-stop)
+journalctl -u xsphere-ainotify -f
 
 # Telegraf (IOTstack container)
 docker logs telegraf -f
