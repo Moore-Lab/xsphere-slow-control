@@ -55,8 +55,9 @@ class FakeTools:
         return name in ("get_overview", "set_thing", "text_tool", "nan_tool",
                         "boom", "bad_keys", UNICODE_TOOL)
 
-    def call(self, name, args):
+    def call(self, name, args, client=None):
         self.calls.append((name, args))
+        self.clients = getattr(self, "clients", []) + [client]
         if name == "get_overview":
             return False, {"ok": True, "t_top_k": 293.5, "unit": "°C", "args": args}
         if name == "set_thing":
@@ -707,3 +708,16 @@ def test_first_request_headers_logged_once_without_secrets(tools, caplog, monkey
     assert len(firsts) == 1
     assert "s3cret" not in caplog.text
     assert "mcp-method" in firsts[0].getMessage()
+
+
+def test_the_caller_reaches_tools_call(tools):
+    """app.py resolves the Bearer token to a client name; handle() hands it
+    to the registry with every tools/call (and nothing else)."""
+    msg = {"jsonrpc": "2.0", "id": 9, "method": "tools/call",
+           "params": {"name": "get_overview", "arguments": {}}}
+    h = {"Content-Type": "application/json", "MCP-Protocol-Version": "2025-11-25"}
+    status, _h, _d = mcp.handle("POST", h, json.dumps(msg).encode(), tools, INSTRUCTIONS,
+                                client="operator")
+    assert status == 200 and tools.clients[-1] == "operator"
+    mcp.handle("POST", h, json.dumps(msg).encode(), tools, INSTRUCTIONS)
+    assert tools.clients[-1] is None

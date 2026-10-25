@@ -3,6 +3,9 @@ The AI's write tools: every path from a tool call to a command topic.
 
 Every write goes through the same pipeline, in this order (DESIGN §8):
 
+0. **A write token.**  The caller must have sent a known client's token
+   (auth.py); without one every write tool — notes and ramp stops included —
+   is refused.
 1. **Strict arguments.**  Exact JSON types against the tool's schema: a
    number is an int or float, never a bool, finite and not huge; a bool is a
    bool; enums are checked type-first (``True in (1, 2, 3)`` is true in
@@ -16,27 +19,37 @@ Every write goes through the same pipeline, in this order (DESIGN §8):
    second write is refused, never queued.  The heater ramp thread uses the
    same lock.  The lock is never needed by the MQTT thread, so a disarm is
    never stuck behind a write waiting for its confirmation.
-3. **Armed** (the human's arm for the tool's group).
+3. **Armed** for this client (Lucas's arm of the tool's group is a lease for
+   one named client, arms.py).
 4. **Rails** for the specific item (an invalid rails file refuses everything).
 5. **Preconditions**: broker connected, snapshot ≤ 5 s old, slowcontrol's
    heartbeat fresh, Sequencer not running, no enabled tracker (both would
    overwrite an AI write a second later while the AI is told "confirmed"),
-   then the tool's own checks.
-6. **Rate**: ≤ 20 write calls a minute overall, per-valve minimum intervals,
-   ≤ 6 NGE commands a minute paced on the supply's own status; ≤ 6 notes a
-   minute.  Calls that send nothing (refusals, no-ops) beyond 30 a minute are
-   counted, and summed up in one audit entry, instead of each being audited.
+   then the tool's own checks, the pressure guard (no warming, no closing the
+   xenon's buffer, no pump opening unless the pressures allow it) and the PV
+   source plausibility check (guard.py).
+6. **Rate**: ≤ 20 write calls a minute overall, the lease's write budget,
+   per-valve minimum intervals, ≤ 6 NGE commands a minute paced on the
+   supply's own status; ≤ 6 notes a minute.  Calls that send nothing
+   (refusals, no-ops, dry runs) beyond 30 a minute are counted, and summed up
+   in one audit entry, instead of each being audited.
 7. **Publish** through :meth:`Bus.publish_command` (allowlisted topics only),
    re-checking the arm immediately before every single publish.
 8. **Confirm** from the status topics (two consecutive messages where it
    matters); "not confirmed" is reported, and a PV source change that does not
    confirm is reverted.
-9. **Audit** and count.
+9. **Audit** (with the client and the values the call changed, ``previous``)
+   and count.
+
+``dry_run: true`` on any write tool runs steps 0–6 without using anything up
+and returns ``would_publish`` instead of publishing (audited as kind
+``dry_run``).
 
 Refusals are results (``ok: false`` + a sentence saying what is missing), not
-exceptions: the model has to read why.  The service's own safety actions (the
-LN2 auto-close, reverting a PV source) are the only publishes made without an
-arm.
+exceptions: the model has to read why.  Every MQTT-sourced string a refusal or
+readback quotes is passed through :func:`untrusted.untrusted` («…»).  The
+service's own safety actions (the LN2 auto-close, reverting a PV source, the
+pressure guard's trip) are the only publishes made without an arm.
 """
 
 from __future__ import annotations
@@ -52,7 +65,8 @@ import time
 from datetime import datetime, timezone
 from typing import Any, Callable, Deque, Dict, List, Optional, Tuple
 
-from .arms import CONTROL_PAGE, LOG_TEXT_MAX, PV_INTERLOCK_TOPIC, log_text, utc_iso
+from .arms import LOG_TEXT_MAX, PV_INTERLOCK_TOPIC, log_text, utc_iso
+from .untrusted import clean_text, deep_untrusted, untrusted
 from .zones import PNEUMATIC_GATE_TOPIC, VALVES, VESSELS, ZONES
 
 log = logging.getLogger(__name__)
@@ -222,6 +236,16 @@ WRITE_SCHEMAS: Dict[str, dict] = {
             "text": {"type": "string", "minLength": 1, "maxLength": MAX_NOTE,
                      "description": "The logbook entry (≤ 1000 characters)."}}},
 }
+
+_DRY_RUN = {"type": "boolean",
+            "description": "true = rehearse only: run every check (token, arm, rails, pressure "
+                           "guard, preconditions) and return would_publish, publishing nothing "
+                           "and using none of the arm's write budget. Audited as a dry run."}
+for _schema in WRITE_SCHEMAS.values():
+    _schema["properties"]["dry_run"] = dict(_DRY_RUN)
+
+NO_TOKEN_TEXT = ("this MCP client has no valid write token (Authorization: Bearer …), so write "
+                 "tools are refused; reads work without one")
 
 #: Which arm each write tool needs (None: no arm, e.g. stopping or a note).
 GROUP_OF: Dict[str, Optional[str]] = {
@@ -442,12 +466,16 @@ class Failure(Refusal):
 class _Call:
     """Book-keeping for one write call."""
 
-    def __init__(self, tool: str, args: dict):
+    def __init__(self, tool: str, args: dict, client: Optional[str] = None):
         self.tool = tool
         self.args = args
+        self.client = client                  # the AI client (None: no valid token)
         self.group = GROUP_OF.get(tool)
         self.reason = args.get("reason") if isinstance(args, dict) else None
+        self.dry_run = isinstance(args, dict) and args.get("dry_run") is True
         self.published: List[dict] = []
+        self.would_publish: List[dict] = []   # a dry run's commands
+        self.previous: Dict[str, Any] = {}    # what the call changes, as it was before
         self.warnings: List[str] = []
         self.readback: Dict[str, Any] = {}
         self.confirmed: Optional[bool] = None
@@ -455,9 +483,14 @@ class _Call:
         self.detail = ""
         self.ramp_id: Optional[int] = None    # set for a ramp step
         self.noop = False                     # nothing to do: nothing sent, nothing changed
+        self.budget_taken = False
 
     def args_for_audit(self) -> dict:
-        return {k: v for k, v in self.args.items() if k != "reason"}
+        return {k: v for k, v in self.args.items() if k not in ("reason", "dry_run")}
+
+    @property
+    def who(self) -> str:
+        return self.client or "anonymous"
 
 
 # ──────────────────────────────────────────────────────────────────────────
@@ -466,9 +499,11 @@ class _Call:
 
 class Actions:
     """The write tools.  Each public tool method takes the raw arguments dict
-    and returns ``(is_error, result)``."""
+    and the caller's client name (None: no valid write token) and returns
+    ``(is_error, result)``."""
 
     def __init__(self, bus, zones, rails, arms, audit, *, ramps=None, timers=None,
+                 guard=None, pvcheck=None,
                  clock: Callable[[], float] = time.time, confirm_timeout_s: float = 5.0,
                  nge_timeout_s: float = 5.0, on_change: Optional[Callable[[], None]] = None):
         self.bus = bus
@@ -478,6 +513,8 @@ class Actions:
         self.audit = audit
         self.ramps = ramps
         self.timers = timers
+        self.guard = guard            # guard.PressureGuard (None: every guarded write refused)
+        self.pvcheck = pvcheck        # guard.PvCheck
         self._clock = clock
         self.confirm_timeout_s = float(confirm_timeout_s)
         self.nge_timeout_s = float(nge_timeout_s)
@@ -486,7 +523,7 @@ class Actions:
         self.started_ts = clock()
 
         self._stats_lock = threading.Lock()
-        self.counters = {"actions": 0, "refused": 0, "notes": 0}
+        self.counters = {"actions": 0, "refused": 0, "notes": 0, "dry_runs": 0}
         self.last_action: Optional[dict] = None
         self.last_refused: Optional[dict] = None
         self.last_note: Optional[dict] = None
@@ -497,6 +534,7 @@ class Actions:
         self._nge_times: Deque[float] = collections.deque()
         self._nge_last: Optional[dict] = None
         self._zone_ai: Dict[str, dict] = {}         # zone → {"value", "ts"} of the last AI setpoint
+        self._pv_ai: Dict[str, str] = {}            # zone → the PV alias the AI chose
         self._ln2_last: Dict[str, float] = {}
         self._pn_last: Dict[str, float] = {}
         # valve → the AI's last gas-valve command {"want", "ts", "seq", "pending"}
@@ -507,21 +545,25 @@ class Actions:
     def set_on_change(self, fn: Optional[Callable[[], None]]) -> None:
         self._on_change = fn
 
-    def handlers(self) -> Dict[str, Callable[[dict], Tuple[bool, dict]]]:
-        """``{tool name: method}`` for the registry."""
+    def handlers(self) -> Dict[str, Callable[..., Tuple[bool, dict]]]:
+        """``{tool name: method(args, client)}`` for the registry."""
         return {name: getattr(self, name) for name in WRITE_SCHEMAS}
 
     def zone_ai_setpoints(self) -> Dict[str, dict]:
         with self._stats_lock:
             return copy.deepcopy(self._zone_ai)
 
+    def pv_ai_sources(self) -> Dict[str, str]:
+        with self._stats_lock:
+            return dict(self._pv_ai)
+
     def stats(self) -> dict:
         """Counters for the status: ``actions`` counts tool calls that did
-        something (notes are counted apart, so a note never becomes the
-        "last action" a person sees)."""
+        something (notes and dry runs are counted apart, so neither becomes
+        the "last action" a person sees)."""
         with self._stats_lock:
             return {"actions": self.counters["actions"], "refused": self.counters["refused"],
-                    "notes": self.counters["notes"],
+                    "notes": self.counters["notes"], "dry_runs": self.counters["dry_runs"],
                     "last_action": copy.deepcopy(self.last_action),
                     "last_refused": copy.deepcopy(self.last_refused),
                     "last_note": copy.deepcopy(self.last_note)}
@@ -529,12 +571,17 @@ class Actions:
     # ── pipeline plumbing ─────────────────────────────────────────────────
 
     def _run(self, tool: str, args: Any, body: Callable[[_Call], None], *,
-             lock: bool = True) -> Tuple[bool, dict]:
+             lock: bool = True, client: Optional[str] = None) -> Tuple[bool, dict]:
         try:
             a = validate_args(WRITE_SCHEMAS[tool], args, multiline=MULTILINE_ARGS.get(tool, ()))
         except ArgError as e:
-            return self._invalid(tool, args, str(e))
-        call = _Call(tool, a)
+            return self._invalid(tool, args, str(e), client)
+        call = _Call(tool, a, client)
+        if client is None:
+            return self._refused(call, NO_TOKEN_TEXT)
+        # A dry run publishes nothing and waits for nothing: it never needs
+        # (nor blocks) the write lock.
+        lock = lock and not call.dry_run
         if lock and not self.write_lock.acquire(blocking=False):
             return self._refused(call, "another AI write is in progress — try again in a few "
                                        "seconds (writes are never queued)")
@@ -547,42 +594,58 @@ class Actions:
                 log.exception("Write tool %s failed", tool)
                 return self._refused(call, f"internal error: {type(e).__name__}: {e}",
                                      internal=True)
+            if call.dry_run:
+                return self._dry_result(call)
             return self._succeeded(call)
         finally:
             if lock:
                 self.write_lock.release()
+            if call.budget_taken:
+                self.arms.end_if_spent(call.group)
 
-    def _invalid(self, tool: str, args: Any, msg: str) -> Tuple[bool, dict]:
+    def _invalid(self, tool: str, args: Any, msg: str,
+                 client: Optional[str] = None) -> Tuple[bool, dict]:
         text = f"invalid arguments: {msg}"
         try:
             shown = args if len(json.dumps(args, default=str)) <= 2000 else "(too large)"
         except (TypeError, ValueError, RecursionError):
             shown = "(not JSON)"
-        self._record_refused(tool, text, args=shown, reason=None, published=[])
+        self._record_refused(tool, text, args=shown, reason=None, published=[],
+                             client=client or "anonymous")
         return True, {"ok": False, "tool": tool, "error": text, "invalid_arguments": True}
 
     def _refused(self, call: _Call, text: str, *, failed: bool = False,
                  internal: bool = False) -> Tuple[bool, dict]:
         res: Dict[str, Any] = {"ok": False, "tool": call.tool}
+        if call.dry_run:
+            res["dry_run"] = True
         res["error" if (failed or internal) else "refused"] = text
         if internal:
             res["internal"] = True
         res.update({"published": call.published,
                     "confirmed": call.confirmed if call.published else None,
-                    "readback": call.readback, "warnings": call.warnings})
+                    "readback": call.readback,
+                    "warnings": call.warnings})
+        if call.previous and call.published:
+            res["previous"] = deep_untrusted(call.previous, 200)
         if call.note:
             res["note"] = call.note
         detail = text if not call.published else (
             f"{text} — after publishing {len(call.published)} command(s)")
+        if call.dry_run:
+            detail = f"dry run refused: {detail}"
         self._record_refused(call.tool, detail, args=call.args_for_audit(), reason=call.reason,
-                             published=call.published)
+                             published=call.published, client=call.who,
+                             previous=call.previous if call.published else None,
+                             kind="dry_run" if call.dry_run else "refused")
         return True, res
 
     def _quiet_slot_locked(self, now: float, tool: str) -> bool:
-        """For a call that sent nothing (refused, invalid, or a no-op): True
-        while it may still be audited one by one this minute; else it is only
-        counted (a looping caller would otherwise flood the audit, the card
-        and the journal with calls that moved nothing).  Hold _stats_lock."""
+        """For a call that sent nothing (refused, invalid, a no-op or a dry
+        run): True while it may still be audited one by one this minute; else
+        it is only counted (a looping caller would otherwise flood the audit,
+        the card and the journal with calls that moved nothing).  Hold
+        _stats_lock."""
         while self._quiet_times and now - self._quiet_times[0] >= 60.0:
             self._quiet_times.popleft()
         ok = len(self._quiet_times) < MAX_AUDITED_REFUSALS_PER_MIN
@@ -596,19 +659,26 @@ class Actions:
         return ok
 
     def _record_refused(self, tool: str, detail: str, *, args: Any, reason: Optional[str],
-                        published: list) -> None:
+                        published: list, client: str = "anonymous",
+                        previous: Optional[dict] = None, kind: str = "refused") -> None:
         now = self._clock()
         utc = utc_iso(now)
         with self._stats_lock:
-            self.counters["refused"] += 1
-            self.last_refused = {"utc": utc, "tool": tool, "detail": detail}
+            if kind == "dry_run":
+                self.counters["dry_runs"] += 1
+            else:
+                self.counters["refused"] += 1
+                self.last_refused = {"utc": utc, "tool": tool, "detail": detail,
+                                     "client": client}
             # One that published something is always audited.
             audit_it = bool(published) or self._quiet_slot_locked(now, tool)
         if audit_it:
-            log.warning("AI %s refused: %s", tool, log_text(detail, 500))
+            log.warning("AI %s (%s) %s: %s", tool, client,
+                        "dry run refused" if kind == "dry_run" else "refused",
+                        log_text(detail, 500))
             self.flush_unaudited(force=True)
-            self._audit("refused", detail, tool=tool, args=args, reason=reason,
-                        published=published or None)
+            self._audit(kind, detail, tool=tool, args=args, reason=reason,
+                        published=published or None, client=client, previous=previous or None)
             self._changed()
         else:
             # Not even a status publish: the 2 s status loop shows the count.
@@ -626,9 +696,9 @@ class Actions:
             n, since, tools = u["n"], u["since"], dict(u["tools"])
             self._unaudited = {"n": 0, "since": None, "tools": collections.Counter()}
         which = ", ".join(f"{t} ×{c}" for t, c in sorted(tools.items()))
-        detail = (f"{n} more call(s) that sent nothing (refused, invalid or no-op) between "
-                  f"{utc_iso(since)} and {utc_iso(now)} were counted but not audited one by "
-                  f"one (over {MAX_AUDITED_REFUSALS_PER_MIN} a minute): {which}")
+        detail = (f"{n} more call(s) that sent nothing (refused, invalid, no-op or dry run) "
+                  f"between {utc_iso(since)} and {utc_iso(now)} were counted but not audited one "
+                  f"by one (over {MAX_AUDITED_REFUSALS_PER_MIN} a minute): {which}")
         log.warning("AI: %s", detail)
         self._audit("refused", detail, unaudited=n)
 
@@ -642,8 +712,11 @@ class Actions:
 
     def _succeeded(self, call: _Call) -> Tuple[bool, dict]:
         res: Dict[str, Any] = {"ok": True, "tool": call.tool, "published": call.published,
-                               "confirmed": call.confirmed, "readback": call.readback,
+                               "confirmed": call.confirmed,
+                               "readback": call.readback,
                                "warnings": call.warnings}
+        if call.previous:
+            res["previous"] = deep_untrusted(call.previous, 200)
         if call.note:
             res["note"] = call.note
         detail = call.detail or call.tool
@@ -659,25 +732,51 @@ class Actions:
                         or self._quiet_slot_locked(now, call.tool))
             if kind == "note":
                 self.counters["notes"] += 1
-                self.last_note = {"utc": utc, "detail": detail}
+                self.last_note = {"utc": utc, "detail": detail, "client": call.who}
             else:
                 self.counters["actions"] += 1
                 if not call.noop:       # the card's "last action" is one that did something
                     self.last_action = {"utc": utc, "tool": call.tool, "detail": detail,
-                                        "reason": call.reason}
+                                        "reason": call.reason, "client": call.who}
         if not audit_it:
             log.debug("AI %s (not audited, over %d calls that sent nothing a minute): %s",
                       call.tool, MAX_AUDITED_REFUSALS_PER_MIN, log_text(detail))
             return False, res
-        log.info("AI %s: %s", call.tool, log_text(detail, LOG_TEXT_MAX if kind == "note" else 500))
+        log.info("AI %s (%s): %s", call.tool, call.who,
+                 log_text(detail, LOG_TEXT_MAX if kind == "note" else 500))
         if call.noop:
             self.flush_unaudited(force=True)
         self._audit(kind, detail, tool=call.tool,
                     args=call.args_for_audit() if kind == "action" else None,
                     reason=call.reason, published=call.published or None,
                     confirmed=call.confirmed if call.published else None,
-                    warnings=call.warnings or None)
+                    warnings=call.warnings or None, client=call.who,
+                    previous=(call.previous or None) if call.published else None)
         self._changed()
+        return False, res
+
+    def _dry_result(self, call: _Call) -> Tuple[bool, dict]:
+        """A dry run that passed every check: what it would have published."""
+        res: Dict[str, Any] = {"ok": True, "tool": call.tool, "dry_run": True,
+                               "would_publish": call.would_publish,
+                               "readback": call.readback,
+                               "warnings": call.warnings}
+        if call.previous:
+            res["previous"] = deep_untrusted(call.previous, 200)
+        res["note"] = ("dry run: every check passed; nothing was published and nothing changed"
+                       + (f". {call.note}" if call.note else ""))
+        detail = "dry run: " + (call.detail or call.tool)
+        now = self._clock()
+        with self._stats_lock:
+            self.counters["dry_runs"] += 1
+            audit_it = self._quiet_slot_locked(now, call.tool)
+        if audit_it:
+            log.info("AI %s (%s) %s", call.tool, call.who, log_text(detail, 500))
+            self.flush_unaudited(force=True)
+            self._audit("dry_run", detail, tool=call.tool, args=call.args_for_audit(),
+                        reason=call.reason, would_publish=call.would_publish or None,
+                        client=call.who)
+            self._changed()
         return False, res
 
     def _changed(self) -> None:
@@ -688,16 +787,21 @@ class Actions:
                 log.exception("Error in actions change callback")
 
     def _publish(self, call: _Call, topic: str, payload: dict, *, check_arm: bool = True) -> None:
-        """One command.  The arm is re-checked right here, before every publish."""
-        if check_arm and call.group is not None and not self.arms.is_armed(call.group):
+        """One command.  The arm (for this call's client) is re-checked right
+        here, before every publish.  A dry run records it instead."""
+        if check_arm and call.group is not None \
+                and not self.arms.is_armed_for(call.group, call.client):
             if call.published:
                 raise Refusal(f"{call.group} were disarmed during the call; "
                               f"{len(call.published)} command(s) had already been sent, the "
                               f"rest were not")
-            raise Refusal(self.arms.not_armed_text(call.group))
+            raise Refusal(self.arms.not_armed_text(call.group, call.client))
         if call.ramp_id is not None and self.ramps is not None \
                 and not self.ramps.is_active(call.args["zone"], call.ramp_id):
             raise Refusal("the ramp was stopped")
+        if call.dry_run:
+            call.would_publish.append({"topic": topic, "payload": copy.deepcopy(payload)})
+            return
         if not self.bus.publish_command(topic, payload):
             raise Refusal("the MQTT publish failed (is the broker connection down?)"
                           + (f"; {len(call.published)} command(s) had already been sent"
@@ -707,21 +811,19 @@ class Actions:
     # ── common checks ────────────────────────────────────────────────────
 
     def _require_armed(self, call: _Call) -> None:
-        if call.group is not None and not self.arms.is_armed(call.group):
-            raise Refusal(self.arms.not_armed_text(call.group))
+        if call.group is not None and not self.arms.is_armed_for(call.group, call.client):
+            raise Refusal(self.arms.not_armed_text(call.group, call.client))
 
     def _require_rails_ok(self) -> None:
         err = self.rails.error
         if err:
-            raise Refusal(f"Lucas's rails file is invalid, so nothing is writable until he "
-                          f"saves the rails again on the Control page ({CONTROL_PAGE}): {err}")
+            raise Refusal(f"the rails file is invalid, so nothing is writable: {err}")
 
     def _require_zone_rails(self, zone: str) -> Tuple[float, float]:
         if zone in self.rails.stale_zones:
             raise Refusal(f"zone {zone}: Lucas's heater rails for it were saved when the "
                           f"software zone names pointed at other sensors (the zone mapping "
-                          f"changed since), so they count as unset until he saves the rails "
-                          f"again on the Control page")
+                          f"changed since), so they count as unset")
         lims = self.rails.zone_limits(zone)
         if lims is None:
             raise Refusal(f"zone {zone}: Lucas has not set setpoint rails for it "
@@ -747,9 +849,9 @@ class Actions:
                 raise Refusal("the Sequencer status is unreadable, so it cannot be ruled out "
                               "that a sequence is running")
             if p.get("running"):
-                step = p.get("current_step")
+                step = untrusted(p.get("current_step"), 60)
                 raise Refusal(f"the Sequencer is running (item {step}) — it rewrites setpoints "
-                              f"and valves, so AI writes are refused until Lucas stops it")
+                              f"and valves, so AI writes are refused while it runs")
         trk = self.bus.raw(TRACKERS_TOPIC)
         if trk is not None:
             p = trk["payload"]
@@ -758,13 +860,15 @@ class Actions:
                               "that a tracker is rewriting a setpoint")
             on = [t for t in p if not isinstance(t, dict) or t.get("enabled")]
             if on:
-                names = ", ".join(f"{t.get('id')} (→ {t.get('target')})" if isinstance(t, dict)
-                                  else _show(t) for t in on[:5])
+                names = ", ".join(
+                    f"{untrusted(t.get('id'), 40)} (→ {untrusted(t.get('target'), 40)})"
+                    if isinstance(t, dict) else untrusted(_show(t), 40) for t in on[:5])
                 raise Refusal(f"tracker(s) enabled: {names} — a tracker rewrites its target "
-                              f"every second, so AI writes are refused until Lucas disables "
-                              f"them")
+                              f"every second, so AI writes are refused while one is enabled")
 
-    def _take_write_slot(self) -> None:
+    def _take_write_slot(self, call: _Call) -> None:
+        """The last step before publishing: the per-minute rate and one write
+        of the client's lease (a dry run only checks both, using neither)."""
         now = self._clock()
         with self._stats_lock:
             while self._write_times and now - self._write_times[0] >= 60.0:
@@ -773,9 +877,22 @@ class Actions:
                 wait = 60.0 - (now - self._write_times[0])
                 raise Refusal(f"rate limit: at most {MAX_WRITES_PER_MIN} AI write calls a "
                               f"minute — wait {wait:.0f} s")
-            self._write_times.append(now)
+            if not call.dry_run:
+                self._write_times.append(now)
+        if call.group is None:
+            return
+        if call.dry_run:
+            if not self.arms.is_armed_for(call.group, call.client):
+                raise Refusal(self.arms.not_armed_text(call.group, call.client))
+            if self.arms.budget_left(call.group) <= 0:
+                raise Refusal(f"{call.group}: this arm's write budget is used up")
+            return
+        problem = self.arms.take_write(call.group, call.client)
+        if problem:
+            raise Refusal(problem)
+        call.budget_taken = True
 
-    def _take_note_slot(self) -> None:
+    def _take_note_slot(self, call: _Call) -> None:
         now = self._clock()
         with self._stats_lock:
             while self._note_times and now - self._note_times[0] >= 60.0:
@@ -784,7 +901,16 @@ class Actions:
                 wait = 60.0 - (now - self._note_times[0])
                 raise Refusal(f"rate limit: at most {MAX_NOTES_PER_MIN} notes a minute — wait "
                               f"{wait:.0f} s, or put more into one note")
-            self._note_times.append(now)
+            if not call.dry_run:
+                self._note_times.append(now)
+
+    def _require_guard(self, check: str, *args: Any) -> None:
+        """One of the pressure guard's preconditions (guard.py); raises Refusal."""
+        if self.guard is None:
+            raise Refusal("this service has no pressure guard, so guarded writes are refused")
+        problem = getattr(self.guard, check)(*args)
+        if problem:
+            raise Refusal(problem)
 
     def _interlock(self, *, require_untripped: bool = True) -> dict:
         r = self.bus.raw(PV_INTERLOCK_TOPIC)
@@ -794,7 +920,8 @@ class Actions:
                           "seen, so its band is unknown — heater writes are refused")
         if require_untripped and p.get("tripped") is not False:
             reasons = p.get("reasons")
-            why = ("; ".join(f"RTD{k}: {v}" for k, v in reasons.items())
+            why = ("; ".join(f"RTD{clean_text(k, 10)}: {untrusted(v, 80)}"
+                             for k, v in list(reasons.items())[:6])
                    if isinstance(reasons, dict) and reasons else "no reason given")
             raise Refusal(f"the PV interlock is tripped ({why}); it holds every zone at SP 3 K "
                           f"/ output 0, and heater writes are refused until it clears")
@@ -857,21 +984,21 @@ class Actions:
         if value is not None:
             return value, {"source": "expr", "expr": expr}
         if not replace:
-            raise Refusal(f"zone {zone}: its setpoint is the expression {expr!r}, not a number; "
-                          f"a direct setpoint would replace it. Repeat with "
-                          f"replace_expression: true only if Lucas wants that expression "
-                          f"replaced")
+            raise Refusal(f"zone {zone}: its setpoint is the expression {untrusted(expr, 80)}, "
+                          f"not a number; a direct setpoint would replace it, which "
+                          f"replace_expression: true does — only when Lucas asked for that")
         ev = status.get("setpoint_expr_value_k")
         if _is_num(ev):
             return float(ev), {"source": "replaced", "expr": expr}
         if _is_num(sp_k):
             return float(sp_k), {"source": "replaced", "expr": expr}
-        raise Refusal(f"zone {zone}: the expression {expr!r} has no current value")
+        raise Refusal(f"zone {zone}: the expression {untrusted(expr, 80)} has no current value")
 
-    @staticmethod
-    def _pv_fed_problem(status: dict) -> Optional[str]:
-        """Why nothing live feeds the PID's process value — None when it is fed:
-        pv_expr set, evaluating, and the PV register agreeing with it ≤ 5 K."""
+    def _pv_fed_problem(self, status: dict, zone: Optional[str] = None) -> Optional[str]:
+        """Why nothing live and plausible feeds the PID's process value —
+        None when it is fed: pv_expr set, evaluating, the PV register agreeing
+        with it ≤ 5 K, and (with ``zone``) its sensor passing the PV
+        plausibility re-check (guard.PvCheck)."""
         pv_expr = status.get("pv_expr")
         pv_val = status.get("pv_expr_value_k")
         pv_k = status.get("pv_k")
@@ -881,14 +1008,18 @@ class Actions:
                 why += " (500 K is the PV interlock's surrogate)"
             return why
         if not _is_num(pv_val):
-            return f"its pv_expr {pv_expr!r} does not evaluate"
+            return f"its pv_expr {untrusted(pv_expr, 60)} does not evaluate"
         if not _is_num(pv_k) or abs(float(pv_k) - float(pv_val)) > PV_AGREE_K:
-            return (f"its PV register reads {_fmt(pv_k, 'K')} but pv_expr {pv_expr!r} is "
-                    f"{_fmt(pv_val, 'K')}")
+            return (f"its PV register reads {_fmt(pv_k, 'K')} but pv_expr {untrusted(pv_expr, 60)} "
+                    f"is {_fmt(pv_val, 'K')}")
+        if zone is not None and self.pvcheck is not None:
+            flag = self.pvcheck.flag(zone)
+            if flag and flag.get("problem"):
+                return f"its PV source failed the plausibility check: {flag['problem']}"
         return None
 
     def _require_pv_fed(self, zone: str, status: dict) -> None:
-        why = self._pv_fed_problem(status)
+        why = self._pv_fed_problem(status, zone)
         if why is None:
             return
         raise Refusal(f"PID {zone} sees {_fmt(status.get('pv_k'), 'K')} — no live PV source "
@@ -903,7 +1034,8 @@ class Actions:
                           f"its {INTERLOCK_MARGIN_K:g} K margin ({_fmt(lo_b)}–{_fmt(hi_b)} K); "
                           f"a setpoint there would trip the interlock for all three zones")
 
-    def _anchor(self, e: float, lo: float, hi: float, status: dict) -> Tuple[float, str]:
+    def _anchor(self, e: float, lo: float, hi: float, status: dict,
+                zone: Optional[str] = None) -> Tuple[float, str]:
         """Where a setpoint change is measured from, and what that point is.
 
         The current setpoint E when it is inside the rails.  When it is not —
@@ -914,7 +1046,7 @@ class Actions:
         """
         if lo <= e <= hi:
             return e, "setpoint"
-        if self._pv_fed_problem(status) is None:
+        if self._pv_fed_problem(status, zone) is None:
             return float(status["pv_k"]), "pv"
         return e, "setpoint"
 
@@ -934,7 +1066,7 @@ class Actions:
                           f"{_fmt(lo)}–{_fmt(hi)} K")
         self._check_band(zone, v, il)
         e, info = self._effective(zone, status, replace)
-        anchor, source = self._anchor(e, lo, hi, status)
+        anchor, source = self._anchor(e, lo, hi, status, zone)
         if source == "pv":
             frm = (f"the measured PV {_fmt(anchor)} K (the setpoint {_fmt(e)} K is outside the "
                    f"rails, so changes are measured from the temperature the PID regulates on)")
@@ -981,29 +1113,30 @@ class Actions:
         warnings = []
         mode = status.get("mode")
         if mode != "auto":
-            warnings.append(f"zone {zone} is in mode {mode!r}: the setpoint has no effect until "
-                            f"the zone is in auto (set_heater_auto)")
+            warnings.append(f"zone {zone} is in mode {untrusted(mode, 20)}: the setpoint has no "
+                            f"effect until the zone is in auto (set_heater_auto)")
         if info["source"] == "replaced":
-            warnings.append(f"zone {zone}: replaced the setpoint expression {info['expr']!r}")
+            warnings.append(f"zone {zone}: replaced the setpoint expression "
+                            f"{untrusted(info['expr'], 80)}")
         return {"E": e, "expr": info["expr"], "source": info["source"], "anchor": anchor,
                 "anchor_source": source, "ref": ref, "warnings": warnings}
 
     # ── heaters: tools ───────────────────────────────────────────────────
 
-    def set_heater_setpoints(self, args: Any) -> Tuple[bool, dict]:
+    def set_heater_setpoints(self, args: Any, client: Optional[str] = None) -> Tuple[bool, dict]:
         def body(call: _Call) -> None:
             self._setpoints(call, dict(call.args["setpoints"]),
                             bool(call.args.get("replace_expression", False)))
-        return self._run("set_heater_setpoints", args, body)
+        return self._run("set_heater_setpoints", args, body, client=client)
 
-    def set_heater_gradient(self, args: Any) -> Tuple[bool, dict]:
+    def set_heater_gradient(self, args: Any, client: Optional[str] = None) -> Tuple[bool, dict]:
         def body(call: _Call) -> None:
             a = call.args
             base = float(a["base_k"])
             targets = {"top": round(base, 6), "bottom": round(base + float(a["dv_k"]), 6),
                        "nozzle": round(base + float(a["dl_k"]), 6)}
             self._setpoints(call, targets, bool(a.get("replace_expression", False)))
-        return self._run("set_heater_gradient", args, body)
+        return self._run("set_heater_gradient", args, body, client=client)
 
     def _setpoints(self, call: _Call, targets: Dict[str, float], replace: bool) -> None:
         self._require_armed(call)
@@ -1017,21 +1150,32 @@ class Actions:
         for z, v in targets.items():
             plans[z] = self._check_setpoint(z, float(v), replace, self._pid_status(z), il, now)
             call.warnings.extend(plans[z]["warnings"])
-        self._take_write_slot()
+            call.previous[z] = {"setpoint_k": plans[z]["E"], "setpoint_expr": plans[z]["expr"]}
+        if any(float(v) > plans[z]["E"] + 1e-9 for z, v in targets.items()):
+            self._require_guard("warming_problem")
+        self._take_write_slot(call)
 
         seqs = {}
         for z, v in targets.items():
-            if self.ramps is not None and self.ramps.is_active(z):
+            if not call.dry_run and self.ramps is not None and self.ramps.is_active(z):
                 self.ramps.stop([z], "replaced by a direct AI setpoint")
             seqs[z] = self._seq(self._status_topic(z))
             self._publish(call, f"xsphere/commands/pid/{z}/setpoint", {"value_k": float(v)})
-            with self._stats_lock:
-                self._zone_ai[z] = {"value": float(v), "ts": self._clock()}
+            if not call.dry_run:
+                with self._stats_lock:
+                    self._zone_ai[z] = {"value": float(v), "ts": self._clock()}
         call.detail = ", ".join(
             f"{z} {_fmt(plans[z]['E'])} → {_fmt(v)} K"
             + (f" (measured from PV {_fmt(plans[z]['anchor'])} K)"
                if plans[z]["anchor_source"] == "pv" else "")
             for z, v in targets.items())
+        if call.dry_run:
+            for z in targets:
+                call.readback[z] = {"anchor_k": plans[z]["anchor"],
+                                    "anchor_source": plans[z]["anchor_source"]}
+            if any(self.ramps is not None and self.ramps.is_active(z) for z in targets):
+                call.note = "a running ramp for these zones would be stopped"
+            return
 
         checks = [(self._status_topic(z), seqs[z],
                    (lambda p, want=repr(float(v)): p.get("setpoint_expr") == want))
@@ -1040,9 +1184,10 @@ class Actions:
         for z, v in targets.items():
             st = self._payload(self._status_topic(z)) or {}
             keys = ("setpoint_expr", "setpoint_k", "mode", "pv_k", "pv_expr", "output_pct")
-            call.readback[z] = {k: st.get(k) for k in keys}
+            call.readback[z] = _status_copy(st, keys)
             call.readback[z]["previous_setpoint_k"] = plans[z]["E"]
-            call.readback[z]["previous_expr"] = plans[z]["expr"]
+            call.readback[z]["previous_expr"] = (untrusted(plans[z]["expr"], 80)
+                                                 if plans[z]["expr"] else "")
             # What max_step_k / the rate allowance were measured from.
             call.readback[z]["anchor_k"] = plans[z]["anchor"]
             call.readback[z]["anchor_source"] = plans[z]["anchor_source"]
@@ -1059,7 +1204,7 @@ class Actions:
                                  f"{self.confirm_timeout_s:g} s — read get_overview before "
                                  "doing anything else")
 
-    def start_heater_ramp(self, args: Any) -> Tuple[bool, dict]:
+    def start_heater_ramp(self, args: Any, client: Optional[str] = None) -> Tuple[bool, dict]:
         def body(call: _Call) -> None:
             if self.ramps is None:
                 raise Refusal("heater ramps are not available in this service")
@@ -1086,10 +1231,9 @@ class Actions:
                 status = self._pid_status(z)
                 expr = status.get("setpoint_expr") or ""
                 if isinstance(expr, str) and expr.strip() and parse_numeric_expr(expr) is None:
-                    raise Refusal(f"zone {z}: its setpoint is the expression {expr!r}; a ramp "
-                                  f"only starts from a numeric setpoint (set one first with "
-                                  f"set_heater_setpoints, replace_expression true, if Lucas "
-                                  f"agrees)")
+                    raise Refusal(f"zone {z}: its setpoint is the expression "
+                                  f"{untrusted(expr, 80)}; a ramp only starts from a numeric "
+                                  f"setpoint")
                 e, _info = self._effective(z, status, False)
                 if not lo <= e <= hi:
                     raise Refusal(f"zone {z}: its current setpoint {_fmt(e, 'K')} is outside "
@@ -1102,36 +1246,48 @@ class Actions:
                 if target > e + 1e-9:
                     self._require_pv_fed(z, status)
                 if status.get("mode") != "auto":
-                    call.warnings.append(f"zone {z} is in mode {status.get('mode')!r}: the "
-                                         f"setpoint has no effect until it is in auto")
+                    call.warnings.append(f"zone {z} is in mode {untrusted(status.get('mode'), 20)}"
+                                         f": the setpoint has no effect until it is in auto")
                 plans[z] = {"E": e, "expr": expr}
-            self._take_write_slot()
+                call.previous[z] = {"setpoint_k": e, "setpoint_expr": expr}
+            if any(t > plans[z]["E"] + 1e-9 for z, t in targets.items()):
+                self._require_guard("warming_problem")
+            self._take_write_slot(call)
             started, at_target = [], []
             for z, target in targets.items():
                 if abs(target - plans[z]["E"]) < 1e-6:
                     at_target.append(z)
                     continue
-                self.ramps.start_ramp(z, target, rate, call.reason or "", plans[z]["expr"],
-                                      plans[z]["E"])
+                if not call.dry_run:
+                    self.ramps.start_ramp(z, target, rate, call.reason or "", plans[z]["expr"],
+                                          plans[z]["E"], client=call.client)
                 started.append(f"{z} {_fmt(plans[z]['E'])} → {_fmt(target)} K")
             call.noop = not started
             call.detail = (f"ramp at {_fmt(rate)} K/min: " + (", ".join(started) or "nothing")
                            + (f"; already at target: {', '.join(at_target)}" if at_target else ""))
+            if call.dry_run:
+                call.note = ("the ramp would start now; each 10 s step would be checked again "
+                             "then")
+                return
             call.readback["ramps"] = self.ramps.status()
             call.note = (f"The service moves each setpoint every {self.ramps.interval_s:g} s "
                          "through the same checks as set_heater_setpoints, and stops the ramp on "
                          "any refusal, a disarm, an outside change of the setpoint or "
                          "stop_heater_ramp. Progress: get_ai_control.")
-        return self._run("start_heater_ramp", args, body)
+        return self._run("start_heater_ramp", args, body, client=client)
 
-    def stop_heater_ramp(self, args: Any) -> Tuple[bool, dict]:
+    def stop_heater_ramp(self, args: Any, client: Optional[str] = None) -> Tuple[bool, dict]:
         def body(call: _Call) -> None:
             zones = call.args.get("zones")
             if self.ramps is None:
                 stopped = []
+            elif call.dry_run:
+                stopped = [e["zone"] for e in self.ramps.status()
+                           if zones is None or e["zone"] in zones]
             else:
                 before = {e["zone"]: e for e in self.ramps.status()}
-                stopped = self.ramps.stop(zones, f"stop_heater_ramp: {call.reason}", audit=False)
+                stopped = self.ramps.stop(zones, f"stop_heater_ramp ({call.who}): {call.reason}",
+                                          audit=False)
                 call.readback["stopped"] = [
                     {"zone": z, "target_k": before[z]["target_k"],
                      "setpoint_k": before[z]["current_k"]} for z in stopped if z in before]
@@ -1140,22 +1296,25 @@ class Actions:
             if not stopped:
                 call.noop = True
                 call.note = "no ramp was running" + (f" for {', '.join(zones)}" if zones else "")
-        return self._run("stop_heater_ramp", args, body, lock=False)
+        return self._run("stop_heater_ramp", args, body, lock=False, client=client)
 
     def ramp_step(self, zone: str, entry: dict) -> Tuple[str, Any]:
         """One ramp step for ``zone`` (called by the ramp thread).
 
-        Same checks as a direct setpoint; never waits for a confirmation (the
+        Same checks as a direct setpoint, for the client that started the
+        ramp (its lease must still hold); never waits for a confirmation (the
         next step's "is the setpoint still what the ramp wrote?" check is the
         confirmation), so the write lock is only held for the checks and the
-        publish.
+        publish.  Steps do not use the lease's write budget: starting the ramp
+        did.
         """
         if not self.write_lock.acquire(blocking=False):
             return "busy", None
         try:
             if self.ramps is None or not self.ramps.is_active(zone, entry["id"]):
                 return "busy", None
-            call = _Call("start_heater_ramp", {"zone": zone, "reason": entry.get("reason")})
+            call = _Call("start_heater_ramp", {"zone": zone, "reason": entry.get("reason")},
+                         entry.get("client"))
             call.ramp_id = entry["id"]
             try:
                 self._require_armed(call)
@@ -1169,11 +1328,12 @@ class Actions:
                 if expected is None:
                     if expr != entry.get("start_expr"):
                         raise Refusal(f"the setpoint was changed by someone else since the ramp "
-                                      f"started (was {entry.get('start_expr')!r}, now {expr!r})")
+                                      f"started (was {untrusted(entry.get('start_expr'), 40)}, "
+                                      f"now {untrusted(expr, 40)})")
                 elif expr != repr(float(expected)):
-                    raise Refusal(f"the setpoint is now {expr!r}, not the {_fmt(expected)} K the "
-                                  f"ramp wrote — changed by someone else, or the command was "
-                                  f"lost")
+                    raise Refusal(f"the setpoint is now {untrusted(expr, 40)}, not the "
+                                  f"{_fmt(expected)} K the ramp wrote — changed by someone else, "
+                                  f"or the command was lost")
                 e, _info = self._effective(zone, status, False)
                 target = float(entry["target_k"])
                 if abs(target - e) < 1e-6:
@@ -1197,6 +1357,8 @@ class Actions:
                 else:
                     nxt = round(e + math.copysign(step, target - e), 3)
                 self._check_setpoint(zone, nxt, False, status, il, now)
+                if nxt > e + 1e-9:
+                    self._require_guard("warming_problem")
                 self._publish(call, f"xsphere/commands/pid/{zone}/setpoint",
                               {"value_k": float(nxt)})
                 with self._stats_lock:
@@ -1212,7 +1374,7 @@ class Actions:
         finally:
             self.write_lock.release()
 
-    def set_heater_auto(self, args: Any) -> Tuple[bool, dict]:
+    def set_heater_auto(self, args: Any, client: Optional[str] = None) -> Tuple[bool, dict]:
         def body(call: _Call) -> None:
             z = call.args["zone"]
             self._require_armed(call)
@@ -1227,36 +1389,41 @@ class Actions:
                 call.note = f"zone {z} is already in auto; nothing was sent"
                 return
             if mode != "manual":
-                raise Refusal(f"zone {z}: its PID mode reads {mode!r}, not manual — cannot tell "
-                              f"what switching would do")
+                raise Refusal(f"zone {z}: its PID mode reads {untrusted(mode, 20)}, not manual — "
+                              f"cannot tell what switching would do")
             il = self._interlock()
             expr = status.get("setpoint_expr")
             value = parse_numeric_expr(expr)
             if value is None:
                 raise Refusal(f"zone {z}: set a setpoint first — its setpoint expression is "
-                              f"{expr!r}, and auto mode needs a numeric setpoint inside the "
-                              f"rails that the PLC re-asserts every poll")
+                              f"{untrusted(expr, 80)}, and auto mode needs a numeric setpoint "
+                              f"inside the rails that the PLC re-asserts every poll")
             if not lo <= value <= hi:
                 raise Refusal(f"zone {z}: its setpoint {_fmt(value, 'K')} is outside Lucas's "
                               f"rails {_fmt(lo)}–{_fmt(hi)} K; set one inside first")
             self._check_band(z, value, il)
             self._require_pv_fed(z, status)
-            self._take_write_slot()
+            # Back to auto can raise the heater output as far as the PID asks.
+            self._require_guard("warming_problem")
+            call.previous[z] = {"mode": "manual", "output_pct": status.get("output_pct")}
+            self._take_write_slot(call)
             topic = self._status_topic(z)
             seq0 = self._seq(topic)
             self._publish(call, f"xsphere/commands/pid/{z}/mode", {"mode": "auto"})
             call.detail = f"zone {z} manual → auto at SP {_fmt(value)} K"
+            if call.dry_run:
+                return
             call.confirmed = self._wait_consecutive(
                 [(topic, seq0, lambda p: p.get("mode") == "auto")])
             st = self._payload(topic) or {}
             keys = ("mode", "mode_cmd", "setpoint_k", "setpoint_expr", "pv_k", "output_pct")
-            call.readback[z] = {k: st.get(k) for k in keys}
+            call.readback[z] = _status_copy(st, keys)
             if not call.confirmed:
                 call.warnings.append(f"not confirmed: zone {z} mode did not read auto on two "
                                      f"consecutive messages within {self.confirm_timeout_s:g} s")
-        return self._run("set_heater_auto", args, body)
+        return self._run("set_heater_auto", args, body, client=client)
 
-    def set_pv_source(self, args: Any) -> Tuple[bool, dict]:
+    def set_pv_source(self, args: Any, client: Optional[str] = None) -> Tuple[bool, dict]:
         def body(call: _Call) -> None:
             z, source = call.args["zone"], call.args["source"]
             self._require_armed(call)
@@ -1279,6 +1446,12 @@ class Actions:
             if not _is_num(value):
                 raise Refusal(f"zone {z}: the {source} sensor ({sensor}, {alias}) has no fresh "
                               f"reading, so it cannot be the PID's process value")
+            if self.pvcheck is None:
+                raise Refusal("this service has no PV plausibility check, so PV sources are "
+                              "not writable")
+            problem = self.pvcheck.problem(z, source, value, use_history=True, for_write=True)
+            if problem:
+                raise Refusal(f"zone {z}: {problem} — not a plausible process value for the PID")
             prev = status.get("pv_expr") if isinstance(status.get("pv_expr"), str) else ""
             prev = prev.strip()
             if prev == alias and _is_num(status.get("pv_expr_value_k")):
@@ -1289,22 +1462,32 @@ class Actions:
             pv_k = status.get("pv_k")
             if prev:
                 if not _is_num(pv_k) or abs(float(value) - float(pv_k)) > PV_SWITCH_MAX_JUMP_K:
-                    raise Refusal(f"zone {z}: switching from {prev!r} to {alias} would move the "
-                                  f"PID's PV from {_fmt(pv_k, 'K')} to {_fmt(value, 'K')} (more "
-                                  f"than {PV_SWITCH_MAX_JUMP_K:g} K) — the PID would jump; ask "
-                                  f"Lucas")
-            self._take_write_slot()
+                    raise Refusal(f"zone {z}: switching from {untrusted(prev, 40)} to {alias} "
+                                  f"would move the PID's PV from {_fmt(pv_k, 'K')} to "
+                                  f"{_fmt(value, 'K')} (more than {PV_SWITCH_MAX_JUMP_K:g} K) — "
+                                  f"the PID would jump")
+            # A lower PV makes the PID heat harder (and none → a real one, from
+            # the 500 K surrogate, starts it heating at all).
+            if not prev or not _is_num(pv_k) or float(value) < float(pv_k) - 0.5:
+                self._require_guard("warming_problem")
+            call.previous[z] = {"pv_expr": prev}
+            self._take_write_slot(call)
             topic = self._status_topic(z)
             seq0 = self._seq(topic)
             self._publish(call, f"xsphere/commands/pid/{z}/pv_expr", {"expr": alias})
-            call.detail = f"zone {z} PV source {prev or '(none)'} → {alias} ({source}, {sensor})"
+            call.detail = (f"zone {z} PV source {clean_text(prev, 40) or '(none)'} → {alias} "
+                           f"({source}, {sensor})")
+            if call.dry_run:
+                return
+            with self._stats_lock:
+                self._pv_ai[z] = alias
             call.confirmed = self._wait_consecutive(
                 [(topic, seq0, lambda p: (p.get("pv_expr") == alias
                                           and _is_num(p.get("pv_expr_value_k"))))])
             st = self._payload(topic) or {}
             keys = ("pv_expr", "pv_expr_value_k", "pv_k", "setpoint_k", "output_pct")
-            call.readback[z] = {k: st.get(k) for k in keys}
-            call.readback[z]["previous_pv_expr"] = prev
+            call.readback[z] = _status_copy(st, keys)
+            call.readback[z]["previous_pv_expr"] = untrusted(prev, 40) if prev else ""
             if not call.confirmed:
                 msg = (f"not confirmed: zone {z} did not report pv_expr {alias!r} with a value "
                        f"within {self.confirm_timeout_s:g} s")
@@ -1319,15 +1502,86 @@ class Actions:
                     try:
                         self._publish(call, f"xsphere/commands/pid/{z}/pv_expr", {"expr": prev},
                                       check_arm=False)
-                        msg += f"; reverted to the previous pv_expr {prev!r}"
+                        with self._stats_lock:
+                            self._pv_ai.pop(z, None)
+                        msg += f"; reverted to the previous pv_expr {untrusted(prev, 40)}"
                     except Refusal as r:
-                        msg += f"; the revert to {prev!r} failed too: {r.text}"
+                        msg += f"; the revert to {untrusted(prev, 40)} failed too: {r.text}"
                 else:
                     # A third expression: someone else chose a PV meanwhile.
-                    msg += (f"; pv_expr now reads {cur!r} (changed by someone else meanwhile) — "
-                            f"not reverted")
+                    msg += (f"; pv_expr now reads {untrusted(cur, 40)} (changed by someone else "
+                            f"meanwhile) — not reverted")
                 raise Failure(msg)
-        return self._run("set_pv_source", args, body)
+        return self._run("set_pv_source", args, body, client=client)
+
+    # ── the service's own safety actions (guard.py calls these) ───────────
+
+    def pv_source_failed(self, zone: str, source: str, problem: str) -> None:
+        """A zone's current PV source failed the plausibility re-check: disarm
+        the heaters and, when the AI chose that clamp sensor, put the zone back
+        on its cube RTD (if that one is plausible)."""
+        alias = self.zones.alias(zone, source)
+        reason = (f"zone {zone}: its PV source {alias} ({source}) failed the plausibility "
+                  f"check — {problem}")
+        disarmed = self.arms.disarm("heaters", reason, auto=True)
+        with self._stats_lock:
+            ai_chose = self._pv_ai.get(zone) == alias
+        published, note = [], ""
+        if source == "clamp" and ai_chose:
+            cube = self.zones.alias(zone, "cube")
+            sid = self.zones.sensor_state(zone, "cube")
+            cube_v = self.bus.state_value(sid) if sid else None
+            cube_problem = (self.pvcheck.problem(zone, "cube", cube_v) if self.pvcheck
+                            else "no PV check") if cube else "no cube sensor"
+            if cube and not cube_problem:
+                topic = f"xsphere/commands/pid/{zone}/pv_expr"
+                if self.bus.publish_command(topic, {"expr": cube}):
+                    published.append({"topic": topic, "payload": {"expr": cube}})
+                    with self._stats_lock:
+                        self._pv_ai.pop(zone, None)
+                    note = f"; the service put zone {zone} back on its cube RTD {cube}"
+                else:
+                    note = f"; putting zone {zone} back on {cube} FAILED (publish refused)"
+            else:
+                note = f"; not reverted to the cube RTD ({cube_problem})"
+        if disarmed or published:
+            self._audit("pv_check", reason + note, zone=zone, published=published or None)
+            self._changed()
+
+    def guard_trip(self, reason: str) -> None:
+        """The pressure guard tripped: stop every ramp, disarm heaters and
+        pneumatic, and lower each zone the AI last set to its setpoint_min_k."""
+        stopped = self.ramps.stop(None, reason) if self.ramps is not None else []
+        disarmed = self.arms.disarm_groups(["heaters", "pneumatic"], reason, auto=True)
+        published, lowered, skipped = [], [], []
+        for z, last in self.zone_ai_setpoints().items():
+            st = self._payload(self._status_topic(z)) or {}
+            if st.get("setpoint_expr") != repr(float(last["value"])):
+                continue                              # changed since by someone else
+            lims = self.rails.zone_limits(z)
+            if lims is None:
+                skipped.append(f"{z} (no setpoint_min_k in force)")
+                continue
+            if float(last["value"]) <= lims[0] + 1e-9:
+                continue
+            topic = f"xsphere/commands/pid/{z}/setpoint"
+            payload = {"value_k": float(lims[0])}
+            if self.bus.publish_command(topic, payload):
+                published.append({"topic": topic, "payload": payload})
+                lowered.append(f"{z} {_fmt(last['value'])} → {_fmt(lims[0])} K")
+            else:
+                skipped.append(f"{z} (publish failed)")
+        parts = [reason]
+        if stopped:
+            parts.append("ramps stopped: " + ", ".join(stopped))
+        if disarmed:
+            parts.append("disarmed: " + ", ".join(disarmed))
+        if lowered:
+            parts.append("AI setpoints lowered to setpoint_min_k: " + "; ".join(lowered))
+        if skipped:
+            parts.append("not lowered: " + "; ".join(skipped))
+        self._audit("guard", " — ".join(parts), published=published or None)
+        self._changed()
 
     # ── heaters: NGE supply ──────────────────────────────────────────────
 
@@ -1360,27 +1614,50 @@ class Actions:
         status = self._pid_status(zone)
         mode = status.get("mode")
         if mode != "auto":
-            raise Refusal(f"{head}, whose PID is in mode {mode!r}: its output is whatever a "
-                          f"person set, so the AI may not power it up — return it to auto "
-                          f"first (set_heater_auto)")
+            raise Refusal(f"{head}, whose PID is in mode {untrusted(mode, 20)}: its output is "
+                          f"whatever a person set, so the AI may not power it up — return it to "
+                          f"auto first (set_heater_auto)")
         try:
             e, _info = self._effective(zone, status, False)
         except Refusal:
             raise Refusal(f"{head}, whose setpoint is the expression "
-                          f"{status.get('setpoint_expr')!r}, not a plain number — the service "
-                          f"cannot check where its PID would drive the heater") from None
+                          f"{untrusted(status.get('setpoint_expr'), 80)}, not a plain number — "
+                          f"the service cannot check where its PID would drive the "
+                          f"heater") from None
         lo, hi = self._require_zone_rails(zone)
         if not lo <= e <= hi:
             raise Refusal(f"{head}, whose setpoint {_fmt(e, 'K')} is outside Lucas's rails "
                           f"{_fmt(lo)}–{_fmt(hi)} K — set one inside them first")
         self._check_band(zone, e, il)
-        why = self._pv_fed_problem(status)
+        why = self._pv_fed_problem(status, zone)
         if why is not None:
             raise Refusal(f"{head}, whose PID sees {_fmt(status.get('pv_k'), 'K')} — no live PV "
                           f"source ({why}); choose one with set_pv_source first. Power into a "
                           f"PID regulating on a frozen PV heats open-loop")
 
-    def set_heater_supply(self, args: Any) -> Tuple[bool, dict]:
+    @staticmethod
+    def _nge_payload(what: str, value: Any) -> Tuple[dict, str, Any]:
+        """(command payload, status field, wanted value) for one supply step."""
+        if what == "voltage":
+            return {"value_v": float(value)}, "voltage_request_v", float(value)
+        if what == "current":
+            return {"value_a": float(value)}, "current_request_a", float(value)
+        return {"state": int(bool(value))}, "desired", int(bool(value))
+
+    @staticmethod
+    def _check_held(ch: int, sr: dict, vr: Any, ir: Any) -> None:
+        """Before switching a channel on: its held V / I inside the rails."""
+        if not (_is_num(vr) and _is_num(ir)
+                and float(sr["voltage_min_v"]) - 1e-6 <= float(vr)
+                <= float(sr["voltage_max_v"]) + 1e-6
+                and float(sr["current_min_a"]) - 1e-6 <= float(ir)
+                <= float(sr["current_max_a"]) + 1e-6):
+            raise Refusal(f"supply ch{ch}: not switched on — its held targets "
+                          f"({_fmt(vr, 'V')}, {_fmt(ir, 'A')}) are not inside "
+                          f"Lucas's rails; set voltage_v / current_a inside them in "
+                          f"the same call")
+
+    def set_heater_supply(self, args: Any, client: Optional[str] = None) -> Tuple[bool, dict]:
         def body(call: _Call) -> None:
             a = call.args
             ch = a["channel"]
@@ -1473,6 +1750,10 @@ class Actions:
                          for what, value in steps)
             if ("output", True) in steps or (raises and (on_now or out is True)):
                 self._require_zone_ready_for_power(ch, il)
+                self._require_guard("warming_problem")
+            call.previous[f"ch{ch}"] = {"voltage_request_v": st.get("voltage_request_v"),
+                                        "current_request_a": st.get("current_request_a"),
+                                        "output": st.get("desired")}
             now = self._clock()
             with self._stats_lock:
                 while self._nge_times and now - self._nge_times[0] >= 60.0:
@@ -1482,22 +1763,30 @@ class Actions:
                 raise Refusal(f"NGE command budget: at most {NGE_MAX_PER_MIN} supply commands a "
                               f"minute ({used} used, this call needs {len(steps)}) — each one "
                               f"blocks slowcontrol's MQTT thread for seconds")
-            self._take_write_slot()
+            self._take_write_slot(call)
+
+            parts = []
+            for what, value in steps:
+                parts.append(f"{what} {value:g} {'V' if what == 'voltage' else 'A'}"
+                             if what != "output" else f"output {'ON' if value else 'OFF'}")
+            if call.dry_run:
+                held_v = vq if vq is not None else st.get("voltage_request_v")
+                held_i = aq if aq is not None else st.get("current_request_a")
+                for what, value in steps:
+                    if what == "output" and value is True:
+                        self._check_held(ch, sr, held_v, held_i)
+                    self._publish(call, f"xsphere/commands/nge/{ch}/{what}",
+                                  self._nge_payload(what, value)[0])
+                call.detail = f"supply ch{ch}: " + ", ".join(parts)
+                self._nge_readback(call, ch, topic)
+                return
 
             done = []
             for i, (what, value) in enumerate(steps):
                 if what == "output" and value is True:
                     cur = self._payload(topic) or {}
-                    vr, ir = cur.get("voltage_request_v"), cur.get("current_request_a")
-                    if not (_is_num(vr) and _is_num(ir)
-                            and float(sr["voltage_min_v"]) - 1e-6 <= float(vr)
-                            <= float(sr["voltage_max_v"]) + 1e-6
-                            and float(sr["current_min_a"]) - 1e-6 <= float(ir)
-                            <= float(sr["current_max_a"]) + 1e-6):
-                        raise Refusal(f"supply ch{ch}: not switched on — its held targets "
-                                      f"({_fmt(vr, 'V')}, {_fmt(ir, 'A')}) are not inside "
-                                      f"Lucas's rails; set voltage_v / current_a inside them in "
-                                      f"the same call")
+                    self._check_held(ch, sr, cur.get("voltage_request_v"),
+                                     cur.get("current_request_a"))
                     zone = self.zones.channel_zone(ch)
                     pid = self._payload(self._status_topic(zone)) if zone in ZONES else None
                     if pid and _is_num(pid.get("output_pct")) and \
@@ -1523,13 +1812,9 @@ class Actions:
                 break
             else:
                 call.confirmed = True
-            parts = []
-            for what, value in steps:
-                parts.append(f"{what} {value:g} {'V' if what == 'voltage' else 'A'}"
-                             if what != "output" else f"output {'ON' if value else 'OFF'}")
             call.detail = f"supply ch{ch}: " + ", ".join(parts)
             self._nge_readback(call, ch, topic)
-        return self._run("set_heater_supply", args, body)
+        return self._run("set_heater_supply", args, body, client=client)
 
     def _nge_step(self, call: _Call, ch: int, topic: str, what: str, value: Any
                   ) -> Tuple[bool, Optional[str]]:
@@ -1537,12 +1822,7 @@ class Actions:
         nge = self._payload(NGE_TOPIC) or {}
         ev0 = (nge.get("event"), nge.get("event_utc"))
         seq0 = self._seq(topic)
-        if what == "voltage":
-            payload, field, want = {"value_v": float(value)}, "voltage_request_v", float(value)
-        elif what == "current":
-            payload, field, want = {"value_a": float(value)}, "current_request_a", float(value)
-        else:
-            payload, field, want = {"state": int(bool(value))}, "desired", int(bool(value))
+        payload, field, want = self._nge_payload(what, value)
         self._publish(call, f"xsphere/commands/nge/{ch}/{what}", payload)
         with self._stats_lock:
             self._nge_times.append(self._clock())
@@ -1554,7 +1834,7 @@ class Actions:
             ev = p.get("event")
             if (ev, p.get("event_utc")) != ev0 and isinstance(ev, str) and f"ch{ch}" in ev \
                     and ("rejected" in ev or "ignored" in ev):
-                call.readback["event"] = ev
+                call.readback["event"] = untrusted(ev, 200)
                 return True
             return False
 
@@ -1580,9 +1860,9 @@ class Actions:
 
     def _nge_readback(self, call: _Call, ch: int, topic: str) -> None:
         st = self._payload(topic) or {}
-        call.readback[f"ch{ch}"] = {k: st.get(k) for k in (
+        call.readback[f"ch{ch}"] = _status_copy(st, (
             "output", "desired", "voltage_set_v", "voltage_request_v", "current_limit_a",
-            "current_request_a", "voltage_v", "current_a", "power_w", "mode", "trip")}
+            "current_request_a", "voltage_v", "current_a", "power_w", "mode", "trip"))
         lim, req = st.get("current_limit_a"), st.get("current_request_a")
         if _is_num(lim) and _is_num(req) and float(lim) < float(req) - 1e-3:
             call.warnings.append(f"ch{ch} current limit reads {_fmt(lim, 'A')} for a request of "
@@ -1618,7 +1898,7 @@ class Actions:
                           f"{LN2_MIN_INTERVAL_S - (now - last):.0f} s more (at most one command "
                           f"per {LN2_MIN_INTERVAL_S:g} s)")
 
-    def set_ln2_valve(self, args: Any) -> Tuple[bool, dict]:
+    def set_ln2_valve(self, args: Any, client: Optional[str] = None) -> Tuple[bool, dict]:
         def body(call: _Call) -> None:
             vessel, want_open = call.args["vessel"], call.args["open"]
             self._require_armed(call)
@@ -1633,6 +1913,8 @@ class Actions:
             self._require_global()
             topic, st = self._valve_status(vessel)
             prefix = self.zones.vessels[vessel]["command_prefix"]
+            call.previous[vessel] = {k: st.get(k) for k in ("state", "desired", "auto_open",
+                                                            "auto_close")}
             if want_open:
                 if st.get("auto_close") != 1 or isinstance(st.get("auto_close"), bool):
                     raise Refusal(f"LN2 {vessel}: auto-close is off — the PLC's fill timeout "
@@ -1643,8 +1925,14 @@ class Actions:
                     raise Refusal(f"LN2 {vessel}: the valve is not closed (state "
                                   f"{st.get('state')}, desired {st.get('desired')})")
                 self._require_ln2_interval(vessel)
-                self._take_write_slot()
+                self._take_write_slot(call)
                 minutes = float(vr["max_open_minutes"])
+                if call.dry_run:
+                    self._publish(call, f"{prefix}/state", {"state": 1})
+                    call.detail = (f"LN2 {vessel} would open (the service would close it after "
+                                   f"{minutes:g} min)")
+                    self._valve_readback(call, vessel, topic)
+                    return
                 timer = self.timers.set(vessel, minutes) if self.timers is not None else None
                 seq0 = self._seq(topic)
                 try:
@@ -1694,12 +1982,13 @@ class Actions:
                 # topic, it is applied after that open — and the timer stays.
                 timer = self.timers.get(vessel) if self.timers is not None else None
                 if timer is not None and (st.get("state") == 1 or st.get("desired") == 1):
-                    self.timers.mark_seen_open(vessel)   # the open has landed
+                    if not call.dry_run:
+                        self.timers.mark_seen_open(vessel)   # the open has landed
                     timer["seen_open"] = True
                 unseen = timer is not None and not timer.get("seen_open")
                 if (st.get("state") == 0 and st.get("desired") == 0 and st.get("auto_open") == 0
                         and not unseen):
-                    if timer is not None:
+                    if timer is not None and not call.dry_run:
                         self.timers.clear(vessel)        # it was seen open, and is closed now
                     call.noop = True
                     call.detail = f"LN2 {vessel} already closed — nothing sent"
@@ -1707,18 +1996,23 @@ class Actions:
                     self._valve_readback(call, vessel, topic)
                     return
                 self._require_ln2_interval(vessel)
-                self._take_write_slot()
+                self._take_write_slot(call)
                 seq0 = self._seq(topic)
-                self._ln2_last[vessel] = self._clock()
+                if not call.dry_run:
+                    self._ln2_last[vessel] = self._clock()
                 if st.get("auto_open") != 0:
                     # auto-open would re-open it on the next scan: off first.
                     self._publish(call, f"{prefix}/auto_open", {"enabled": False})
                 self._publish(call, f"{prefix}/state", {"state": 0})
+                sent = len(call.would_publish if call.dry_run else call.published)
                 call.detail = f"LN2 {vessel} closed" + (" (auto-open switched off first)"
-                                                        if len(call.published) > 1 else "")
+                                                        if sent > 1 else "")
                 if unseen:
                     call.detail += (f" — sent although it reads closed: the AI's open of "
                                     f"{timer['opened_utc']} was never seen")
+                if call.dry_run:
+                    self._valve_readback(call, vessel, topic)
+                    return
                 call.confirmed = self._wait_consecutive(
                     [(topic, seq0, lambda p: p.get("state") == 0 and p.get("desired") == 0)])
                 t_now = self.timers.get(vessel) if self.timers is not None else None
@@ -1735,14 +2029,14 @@ class Actions:
                                          f"consecutive messages within "
                                          f"{self.confirm_timeout_s:g} s")
             self._valve_readback(call, vessel, topic)
-        return self._run("set_ln2_valve", args, body)
+        return self._run("set_ln2_valve", args, body, client=client)
 
     def _valve_readback(self, call: _Call, vessel: str, topic: str) -> None:
         st = self._payload(topic) or {}
         keys = ("state", "desired", "auto_close", "auto_open")
-        call.readback[vessel] = {k: st.get(k) for k in keys}
+        call.readback[vessel] = _status_copy(st, keys)
 
-    def set_ln2_auto(self, args: Any) -> Tuple[bool, dict]:
+    def set_ln2_auto(self, args: Any, client: Optional[str] = None) -> Tuple[bool, dict]:
         def body(call: _Call) -> None:
             a = call.args
             vessel = a["vessel"]
@@ -1766,6 +2060,7 @@ class Actions:
                               "auto-open on and auto-close off")
             self._require_global()
             topic, st = self._valve_status(vessel)
+            call.previous[vessel] = {k: st.get(k) for k in ("auto_open", "auto_close")}
             if want.get("auto_open") is True:
                 if st.get("auto_close") != 1 and want.get("auto_close") is not True:
                     raise Refusal(f"LN2 {vessel}: auto-close is off — auto-open only works with "
@@ -1802,8 +2097,15 @@ class Actions:
                 self._valve_readback(call, vessel, topic)
                 return
             self._require_ln2_interval(vessel)
-            self._take_write_slot()
+            self._take_write_slot(call)
             prefix = self.zones.vessels[vessel]["command_prefix"]
+            if call.dry_run:
+                for k, v in steps:
+                    self._publish(call, f"{prefix}/{k}", {"enabled": bool(v)})
+                call.detail = f"LN2 {vessel}: " + ", ".join(f"{k} {'on' if v else 'off'}"
+                                                            for k, v in steps)
+                self._valve_readback(call, vessel, topic)
+                return
             self._ln2_last[vessel] = self._clock()
             for i, (k, v) in enumerate(steps):
                 seq0 = self._seq(topic)
@@ -1825,7 +2127,7 @@ class Actions:
             done = [f"{k} {'on' if v else 'off'}" for k, v in steps]
             call.detail = f"LN2 {vessel}: " + ", ".join(done)
             self._valve_readback(call, vessel, topic)
-        return self._run("set_ln2_auto", args, body)
+        return self._run("set_ln2_auto", args, body, client=client)
 
     # ── pneumatic ─────────────────────────────────────────────────────────
 
@@ -1856,7 +2158,7 @@ class Actions:
                 return None
         return max(age, 0.0)
 
-    def set_pneumatic_valve(self, args: Any) -> Tuple[bool, dict]:
+    def set_pneumatic_valve(self, args: Any, client: Optional[str] = None) -> Tuple[bool, dict]:
         def body(call: _Call) -> None:
             valve, want_open = call.args["valve"], call.args["open"]
             want = int(want_open)
@@ -1873,33 +2175,45 @@ class Actions:
             gate = self.bus.live_payload(PNEUMATIC_GATE_TOPIC, GATE_LIVE_S)
             if not isinstance(gate, dict) or gate.get("enabled") != 1 \
                     or isinstance(gate.get("enabled"), bool):
-                raise Refusal("the pneumatic valve gate on the Control page is disabled (or the "
-                              "PLC driver is not reporting it) — Lucas must enable it there as "
-                              "well; it is a second, separate lock")
+                raise Refusal("the PLC's pneumatic valve gate is disabled (or the PLC driver is "
+                              "not reporting it); it is a second, separate lock in front of the "
+                              "gas valves")
             topic = self.zones.valves[valve]["status_topic"]
             st = self.bus.live_payload(topic, GATE_LIVE_S)
             if not isinstance(st, dict):
                 raise Refusal(f"pneumatic {valve}: no live valve status from the PLC")
+            # The pressure guard: never close the xenon's buffer with xenon
+            # present; open the pump only below its limit.
+            if not want_open and valve in ("ballast", "bottle"):
+                self._require_guard("close_buffer_problem", valve)
+            if want_open and valve == "pump":
+                self._require_guard("pump_open_problem")
             if want_open:
-                for pair in self.rails.pneumatic()["forbid_open_together"]:
+                pairs = [(tuple(pr), "Lucas's rails forbid")
+                         for pr in self.rails.pneumatic()["forbid_open_together"]]
+                builtin = (self.guard.builtin_pairs() if self.guard is not None
+                           else [("pump", "ballast"), ("pump", "bottle")])
+                pairs += [(pr, "the pressure guard (guard.pump_open_with) forbids")
+                          for pr in builtin]
+                for pair, who in pairs:
                     if valve not in pair:
                         continue
                     partner = pair[1] if pair[0] == valve else pair[0]
                     pst = self.bus.live_payload(self.zones.valves[partner]["status_topic"],
                                                 GATE_LIVE_S)
                     if not isinstance(pst, dict) or "state" not in pst:
-                        raise Refusal(f"pneumatic {valve}: Lucas's rails forbid {valve} and "
-                                      f"{partner} open together, and {partner}'s state is not "
-                                      f"known (no live status)")
+                        raise Refusal(f"pneumatic {valve}: {who} {valve} and {partner} open "
+                                      f"together, and {partner}'s state is not known (no live "
+                                      f"status)")
                     if pst.get("state") == 1 or pst.get("desired") == 1:
-                        raise Refusal(f"pneumatic {valve}: {partner} is open, and Lucas's rails "
-                                      f"forbid {valve} and {partner} open at the same time")
+                        raise Refusal(f"pneumatic {valve}: {partner} is open, and {who} "
+                                      f"{valve} and {partner} open at the same time")
                     age = self._pending_open_age(partner)
                     if age is not None:
                         raise Refusal(f"pneumatic {valve}: an AI open of {partner} was sent "
                                       f"{age:.0f} s ago and is not confirmed — it may still be on "
-                                      f"its way, and Lucas's rails forbid {valve} and {partner} "
-                                      f"open together. Close {partner} first, or wait until "
+                                      f"its way, and {who} {valve} and {partner} open together. "
+                                      f"Close {partner} first, or wait until "
                                       f"{PN_PENDING_OPEN_S:.0f} s have passed")
             interval = float(self.rails.pneumatic()["min_interval_s"])
             now = self._clock()
@@ -1916,12 +2230,18 @@ class Actions:
                 call.noop = True
                 call.detail = f"pneumatic {valve} already {'open' if want else 'closed'}"
                 call.note = f"{valve} is already {'open' if want else 'closed'}; nothing sent"
-                call.readback[valve] = {k: st.get(k) for k in ("state", "desired", "relay")}
+                call.readback[valve] = _status_copy(st, ("state", "desired", "relay"))
                 return
-            self._take_write_slot()
+            call.previous[valve] = {k: st.get(k) for k in ("state", "desired")}
+            self._take_write_slot(call)
             lr0 = copy.deepcopy(gate.get("last_refused"))
             seq0 = self._seq(topic)
             t_pub = self._clock()
+            if call.dry_run:
+                self._publish(call, f"xsphere/commands/pneumatic/{valve}/state", {"state": want})
+                call.detail = f"pneumatic {valve} → {'open' if want else 'closed'}"
+                call.readback[valve] = _status_copy(st, ("state", "desired", "relay"))
+                return
             self._pn_last[valve] = t_pub
             self._publish(call, f"xsphere/commands/pneumatic/{valve}/state", {"state": want})
             # Out now: pending until the status confirms it (or the PLC refuses it).
@@ -1953,22 +2273,31 @@ class Actions:
             if call.confirmed:
                 self._note_pn_command(valve, want, t_pub, seq0, pending=False)
             st2 = self._payload(topic) or {}
-            call.readback[valve] = {k: st2.get(k) for k in ("state", "desired", "relay")}
+            call.readback[valve] = _status_copy(st2, ("state", "desired", "relay"))
             if not call.confirmed:
                 call.warnings.append(f"not confirmed: {valve} did not read {word} on two "
                                      f"consecutive messages within {self.confirm_timeout_s:g} s"
                                      + ("" if "state" in st2 else " (the PLC did not report the "
                                         "relay state)"))
-        return self._run("set_pneumatic_valve", args, body)
+        return self._run("set_pneumatic_valve", args, body, client=client)
 
     # ── notes ─────────────────────────────────────────────────────────────
 
-    def add_note(self, args: Any) -> Tuple[bool, dict]:
+    def add_note(self, args: Any, client: Optional[str] = None) -> Tuple[bool, dict]:
         def body(call: _Call) -> None:
-            self._take_note_slot()
+            self._take_note_slot(call)
             call.detail = call.args["text"].strip()
-            call.note = "noted in the AI logbook (audit), shown on the Control page card"
-        return self._run("add_note", args, body, lock=False)
+            call.note = ("would be noted in the AI logbook" if call.dry_run else
+                         "noted in the AI logbook (audit), shown on the Control page card as "
+                         f"a note by AI client {call.who}")
+        return self._run("add_note", args, body, lock=False, client=client)
+
+
+def _status_copy(status: dict, keys) -> dict:
+    """``{key: value}`` from a status payload, its text values quoted «…»
+    (they came from MQTT, where anything on the network can write)."""
+    return {k: (untrusted(status.get(k), 120) if isinstance(status.get(k), str)
+                else status.get(k)) for k in keys}
 
 
 def _safe(cond: Callable[[dict], bool], payload: dict) -> bool:

@@ -40,6 +40,19 @@ VALVES = ("ballast", "pump", "bottle")            # pneumatic gas valves
 PNEUMATIC_GATE_TOPIC = "xsphere/status/pneumatic_control"
 PNEUMATIC_GATE_STATE = "pneumatic_control_enabled"
 
+#: The pressure states the guard watches (guard.py, rails "guard" section).
+GAUGES = ("p_xe_cube", "p_primary_bottle")
+
+#: HARDWARE FACT (GHS ESP32 firmware main.cpp): the highest pressure each Setra
+#: 225 channel can show before its ADC (±2.048 V behind a 180.1/36 divider)
+#: saturates — Setra #1 is 0–25 psi, #2 is 0–100 psi.  A reading at the clip
+#: says only "this much or more" (p_xe_cube sat at exactly 1766 mbar for 22 min
+#: on 2026-10-14); a reading above it is not physical.  Keyed by the channel
+#: number in the state's source topic, so the clip follows the gauge, not the
+#: state name.
+SETRA_CLIP_MBAR = {1: 1766.0, 2: 7064.0}
+_SETRA_TOPIC_RE = re.compile(r"xsphere/sensors/pressure/ghs/setra/(\d+)")
+
 #: HARDWARE FACT (Lucas, cryostat test 2026-10-15): where each sensor really
 #: sits.  Physically TOP = clamp PLC RTD6 & cube LabJack RTD3; physically
 #: BOTTOM = clamp PLC RTD5 & cube LabJack RTD2; the nozzle region = LabJack RTD1.
@@ -121,13 +134,18 @@ class ZoneMap:
 
     def __init__(self, zones: Dict[str, dict], channels: Dict[str, dict],
                  vessels: Dict[str, dict], valves: Dict[str, dict],
-                 errors: Optional[List[str]] = None, source_path: Optional[str] = None):
+                 errors: Optional[List[str]] = None, source_path: Optional[str] = None,
+                 gauges: Optional[Dict[str, dict]] = None):
         self.zones = zones
         self.channels = channels
         self.vessels = vessels
         self.valves = valves
         self.errors = list(errors or [])
         self.source_path = source_path
+        #: ``{state id: {state_id, topic, label, setra, clip_mbar}}`` for GAUGES.
+        self.gauges = gauges if gauges is not None else {
+            g: {"state_id": None, "topic": None, "label": g, "setra": None, "clip_mbar": None}
+            for g in GAUGES}
 
     # construction --------------------------------------------------------
 
@@ -213,7 +231,22 @@ class ZoneMap:
             if not sdef:
                 errors.append(f"state {sid} missing")
 
-        return cls(zones, channels, vessels, valves, errors)
+        gauges: Dict[str, dict] = {}
+        for g in GAUGES:
+            sdef = states.get(g)
+            topic = _source_topic(sdef)
+            m = _SETRA_TOPIC_RE.fullmatch(topic) if topic else None
+            setra = int(m.group(1)) if m else None
+            gauges[g] = {"state_id": g if sdef else None, "topic": topic,
+                         "label": (sdef or {}).get("label") or g, "setra": setra,
+                         "clip_mbar": SETRA_CLIP_MBAR.get(setra) if setra is not None else None}
+            if not sdef:
+                errors.append(f"pressure state {g} missing")
+            elif gauges[g]["clip_mbar"] is None:
+                errors.append(f"{g}: source {topic!r} is not a Setra channel with a known "
+                              f"range — its clip is unknown")
+
+        return cls(zones, channels, vessels, valves, errors, gauges=gauges)
 
     @staticmethod
     def _detect_zone(zone: str, states: Dict[str, dict], pid_blocks: Dict[str, int],

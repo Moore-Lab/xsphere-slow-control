@@ -29,6 +29,7 @@ from aicontrol.actions import (MAX_WRITES_PER_MIN, WRITE_SCHEMAS, parse_numeric_
                                validate_args, ArgError)
 from aicontrol.app import Service, create_app
 from aicontrol.arms import Ln2Timers
+from aicontrol.auth import Totp, decode_secret, token_hash, totp_code
 from aicontrol.bus import LoopbackTransport, SNAPSHOT_TOPIC, is_allowed_command
 from aicontrol.config import Settings
 from aicontrol.rails import default_rails
@@ -38,6 +39,12 @@ from aicontrol.zones import CHANNELS, VALVES, VESSELS, ZONES
 REPO = Path(__file__).resolve().parent.parent
 STATE_YAML = REPO / "slowcontrol" / "state.yaml"
 T0 = 1_792_650_000.0
+
+# Test-only secrets (never Lucas's): a one-time-code secret and two client tokens.
+TEST_SECRET = "JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP"
+TOKENS = {"operator": "test-token-operator-0123456789", "dev": "test-token-dev-0123456789"}
+CLIENTS_SPEC = ",".join(f"{n}:{token_hash(t)}" for n, t in TOKENS.items())
+AUTH = {"Authorization": "Bearer " + TOKENS["operator"]}
 
 
 def _load_registry():
@@ -116,6 +123,8 @@ class FakeSlowcontrol:
         self.esp32_alive = True
         self.levels = {"cryostat": 3.0, "primary_xe": 5.0, "ballast": 4.0}
         self.probe_v = 1.7
+        # Setra channels: 1 = Xe cube (clips at 1766 mbar), 2 = primary bottle.
+        self.pressures = {1: 200.0, 2: 1500.0, 3: 1000.0}
         self.stale_ids = set()
         transport.add_responder("xsphere/commands/#", self._on_command)
 
@@ -199,6 +208,12 @@ class FakeSlowcontrol:
             self.last[f"xsphere/sensors/level/{v}"] = {"raw": lv, "filtered": lv}
         self.last["xsphere/sensors/level_probe/cryostat"] = {
             "voltage_v": self.probe_v, "count": 400}
+        for n, v in self.pressures.items():
+            topic = f"xsphere/sensors/pressure/ghs/setra/{n}"
+            if v is None:
+                self.last.pop(topic, None)
+            else:
+                self.last[topic] = {"value": v}
 
     def set_interlock(self, **kw):
         self.pv_interlock.update(kw)
@@ -402,16 +417,30 @@ def full_rails():
         doc["pneumatic"]["valves"][v] = {"may_open": True, "may_close": True}
     doc["pneumatic"]["forbid_open_together"] = [["pump", "bottle"]]
     doc["pneumatic"]["min_interval_s"] = 10
+    doc["general"] = {"arm_hours": 12, "write_budget": 1000}
+    doc["heaters"]["pv_cross_check_k"] = 15
+    doc["guard"] = {
+        "p_xe_cube": {"warn_mbar": 1200, "trip_mbar": 1400},
+        "p_primary_bottle": {"warn_mbar": 5000, "trip_mbar": 6000},
+        "fresh_s": 300, "blind_disarm_s": None, "xenon_present_mbar": 1000,
+        "pump_open_max_mbar": 2000,
+        # The generic rig leaves the pump pairs to forbid_open_together; the
+        # guard's own pairs are tested on their own.
+        "pump_open_with": ["ballast", "bottle"]}
     return doc
 
 
 class Rig:
     def __init__(self, tmp_path, *, rails=True, interlock=True, history=None):
         self.clock = Clock()
+        # One-time codes run on their own clock, advanced a step per code, so
+        # arming several groups never needs the service's clock to move.
+        self.code_clock = Clock(T0)
         self.transport = LoopbackTransport()
-        self.settings = Settings(state_dir=tmp_path)
+        self.settings = Settings(state_dir=tmp_path, clients=CLIENTS_SPEC)
         self.svc = Service(self.settings, self.transport, clock=self.clock, history=history,
-                           confirm_timeout_s=0.3, nge_timeout_s=0.3)
+                           confirm_timeout_s=0.3, nge_timeout_s=0.3,
+                           totp=Totp(decode_secret(TEST_SECRET), clock=self.code_clock))
         self.fake = FakeSlowcontrol(self.transport, self.clock)
         self.svc.start(threads=False)
         # A full token bucket: the service has been up for 10 minutes.
@@ -430,13 +459,21 @@ class Rig:
         ok, err, _ = self.svc.rails.replace(doc, self.svc.rails.revision, "test")
         assert ok, err
 
-    def arm(self, *groups, armed=True):
-        for g in groups:
-            self.transport.inject(f"{self.settings.cmd_prefix}/arm",
-                                  {"group": g, "armed": armed, "by": "pytest"})
+    def code(self):
+        """A fresh valid one-time code (the next 30 s step)."""
+        self.code_clock.advance(30)
+        return totp_code(decode_secret(TEST_SECRET), int(self.code_clock() // 30))
 
-    def call(self, tool, args):
-        return self.svc.registry.call(tool, args)
+    def arm(self, *groups, armed=True, client="operator", **extra):
+        for g in groups:
+            payload = {"group": g, "armed": armed, "by": "pytest"}
+            if armed:
+                payload.update(code=self.code(), client=client)
+            payload.update(extra)
+            self.transport.inject(f"{self.settings.cmd_prefix}/arm", payload)
+
+    def call(self, tool, args, client="operator"):
+        return self.svc.registry.call(tool, args, client)
 
     def cmds(self):
         return [(t, p) for t, p, _q, _r in self.transport.published_to("xsphere/commands/#")]
@@ -574,9 +611,12 @@ def test_validate_args_returns_a_copy():
     ("set_pneumatic_valve", "Pneumatic valves")])
 def test_disarmed_refuses_every_write(rig, tool, group):
     out = assert_refused(rig.call(tool, GOOD[tool]), f"{group} are not armed",
-                         "http://xbox-pi:8088/control")
+                         "only Lucas arms them")
+    # A fact, not a request: nothing tells the AI to ask for an arm.
+    assert "Ask Lucas" not in out["refused"] and "ask Lucas" not in out["refused"]
     assert out["published"] == [] and rig.cmds() == []
-    assert rig.svc.audit.recent(1)[0]["kind"] == "refused"
+    e = rig.svc.audit.recent(1)[0]
+    assert e["kind"] == "refused" and e["client"] == "operator"
 
 
 def test_refusal_names_the_last_disarm(rig):
@@ -709,7 +749,8 @@ def test_setpoint_happy_path_exact_publish_and_confirm(rig):
     assert out["published"] == [{"topic": "xsphere/commands/pid/top/setpoint",
                                  "payload": {"value_k": 170.0}}]
     assert out["confirmed"] is True
-    assert out["readback"]["top"]["setpoint_expr"] == "170.0"
+    # Text read back from a status topic is quoted as data.
+    assert out["readback"]["top"]["setpoint_expr"] == "«170.0»"
     assert out["readback"]["top"]["setpoint_k"] == 170.0
     assert out["readback"]["top"]["previous_setpoint_k"] == 165.0
     assert out["warnings"] == []
@@ -910,7 +951,7 @@ def test_interlock_tripped_refuses(rig):
     rig.fake.poll()
     rig.arm("heaters")                      # re-armed by a human while still tripped
     assert_refused(rig.call("set_heater_setpoints", GOOD["set_heater_setpoints"]),
-                   "PV interlock is tripped", "RTD2: stale 12 s")
+                   "PV interlock is tripped", "RTD2: «stale 12 s»")
     assert rig.cmds() == []
 
 
@@ -969,12 +1010,13 @@ def test_non_numeric_expression_needs_replace_expression(rig):
     rig.fake.pid["top"]["setpoint_expr"] = "rtd5 + 2"        # = 167.5 K
     rig.fake.poll()
     assert_refused(rig.call("set_heater_setpoints", {"setpoints": {"top": 170}, "reason": "r"}),
-                   "expression 'rtd5 + 2'", "replace_expression")
+                   "expression «rtd5 + 2»", "replace_expression")
     assert rig.cmds() == []
     out = assert_ok(rig.call("set_heater_setpoints", {"setpoints": {"top": 170}, "reason": "r",
                                                       "replace_expression": True}))
-    assert any("replaced the setpoint expression 'rtd5 + 2'" in w for w in out["warnings"])
-    assert out["readback"]["top"]["previous_expr"] == "rtd5 + 2"
+    assert any("replaced the setpoint expression «rtd5 + 2»" in w for w in out["warnings"])
+    assert out["readback"]["top"]["previous_expr"] == "«rtd5 + 2»"
+    assert out["previous"]["top"] == {"setpoint_k": 167.5, "setpoint_expr": "«rtd5 + 2»"}
     assert out["readback"]["top"]["previous_setpoint_k"] == 167.5
 
 
@@ -1208,7 +1250,7 @@ def test_heater_auto_from_manual(rig):
     rig.fake.poll()
     out = assert_ok(rig.call("set_heater_auto", {"zone": "top", "reason": "r"}))
     assert rig.cmds() == [("xsphere/commands/pid/top/mode", {"mode": "auto"})]
-    assert out["confirmed"] is True and out["readback"]["top"]["mode"] == "auto"
+    assert out["confirmed"] is True and out["readback"]["top"]["mode"] == "«auto»"
 
 
 def test_heater_auto_already_auto_sends_nothing(rig):
@@ -1255,8 +1297,8 @@ def test_pv_source_happy_path(rig):
     # On main, software top's cube sensor is LabJack RTD2.
     assert rig.cmds() == [("xsphere/commands/pid/top/pv_expr", {"expr": "rtd2"})]
     assert out["confirmed"] is True
-    assert out["readback"]["top"]["pv_expr"] == "rtd2"
-    assert out["readback"]["top"]["previous_pv_expr"] == "rtd5"
+    assert out["readback"]["top"]["pv_expr"] == "«rtd2»"
+    assert out["readback"]["top"]["previous_pv_expr"] == "«rtd5»"
 
 
 def test_pv_source_from_none(rig):
@@ -1300,7 +1342,7 @@ def test_pv_source_reverted_when_not_confirmed(rig):
     rig.fake.pid["top"]["pv_expr_value_k"] = 165.5
     out = assert_refused(rig.call("set_pv_source", {"zone": "top", "source": "cube",
                                                     "reason": "r"}),
-                         "not confirmed", "reverted to the previous pv_expr 'rtd5'")
+                         "not confirmed", "reverted to the previous pv_expr «rtd5»")
     assert rig.cmds() == [("xsphere/commands/pid/top/pv_expr", {"expr": "rtd2"}),
                           ("xsphere/commands/pid/top/pv_expr", {"expr": "rtd5"})]
     assert out["confirmed"] is False
@@ -1312,7 +1354,7 @@ def test_pv_source_reverted_when_the_command_never_showed(rig):
     rig.arm("heaters")
     rig.fake.respond = False
     assert_refused(rig.call("set_pv_source", {"zone": "top", "source": "cube", "reason": "r"}),
-                   "reverted to the previous pv_expr 'rtd5'")
+                   "reverted to the previous pv_expr «rtd5»")
     assert rig.cmds()[-1] == ("xsphere/commands/pid/top/pv_expr", {"expr": "rtd5"})
 
 
@@ -1332,7 +1374,7 @@ def test_pv_source_not_reverted_over_someone_elses_change(rig):
     rig.fake.on_command_hook = hook
     out = assert_refused(rig.call("set_pv_source", {"zone": "top", "source": "cube",
                                                     "reason": "r"}),
-                         "pv_expr now reads 'rtd4'", "not reverted")
+                         "pv_expr now reads «rtd4»", "not reverted")
     assert rig.cmds() == [("xsphere/commands/pid/top/pv_expr", {"expr": "rtd2"})]
     assert out["published"] == [{"topic": "xsphere/commands/pid/top/pv_expr",
                                  "payload": {"expr": "rtd2"}}]
@@ -1472,7 +1514,7 @@ def _top_channel(rig):
     # would heat towards 300 K, or open-loop.
     (lambda p: p.update(setpoint_expr="300.0", pv_expr="", pv_k=80.0, output_pct=100.0),
      "outside Lucas's rails"),
-    (lambda p: p.update(mode="manual", output_pct=100.0), "mode 'manual'"),
+    (lambda p: p.update(mode="manual", output_pct=100.0), "mode «manual»"),
     (lambda p: p.update(setpoint_expr="rtd5 + 50"), "not a plain number"),
     (lambda p: p.update(pv_expr="", pv_k=500.0), "no live PV source"),
 ])
@@ -1494,9 +1536,9 @@ def test_supply_raise_while_on_needs_the_zone_ready_but_lowering_does_not(rig):
     rig.fake.pid["top"].update(mode="manual", output_pct=100.0)
     rig.fake.poll()
     assert_refused(rig.call("set_heater_supply", {"channel": ch, "voltage_v": 24,
-                                                  "reason": "r"}), "mode 'manual'")
+                                                  "reason": "r"}), "mode «manual»")
     assert_refused(rig.call("set_heater_supply", {"channel": ch, "current_a": 2.0,
-                                                  "reason": "r"}), "mode 'manual'")
+                                                  "reason": "r"}), "mode «manual»")
     assert rig.cmds() == []
     assert_ok(rig.call("set_heater_supply", {"channel": ch, "voltage_v": 20, "current_a": 1.0,
                                              "reason": "less power"}))
@@ -1510,7 +1552,7 @@ def test_supply_raise_while_off_is_not_power(rig):
     rig.fake.poll()
     assert_ok(rig.call("set_heater_supply", {"channel": ch, "voltage_v": 24, "reason": "r"}))
     assert_refused(rig.call("set_heater_supply", {"channel": ch, "output": True, "reason": "r"}),
-                   "mode 'manual'")
+                   "mode «manual»")
 
 
 def test_supply_zero_needs_may_switch_off_even_with_old_rails(rig, monkeypatch):
@@ -1868,11 +1910,11 @@ def test_ln2_timer_deadline_and_arm_expiry_ignore_a_backward_clock_step(tmp_path
     assert e["deadline_mono"] == pytest.approx(50.0 + 30.0) and not again.is_due(e, wall2())
 
     rails = RailsStore(tmp_path / "rails.json")
-    rails.load()                                           # defaults: arm_hours 8
+    rails.load()                                           # defaults: arm_hours 2
     arms = ArmState(rails, clock=wall, mono=mono)
-    arms.arm("ln2", "pytest")
+    arms.arm("ln2", "pytest", client="operator")
     wall.advance(-3600)
-    mono.advance(8 * 3600 + 1)
+    mono.advance(2 * 3600 + 1)
     assert not arms.is_armed("ln2") and arms.expired_groups() == ["ln2"]
 
 
@@ -1964,7 +2006,7 @@ def test_pneumatic_gate_disabled_refused(rig):
     rig.fake.gate["enabled"] = 0
     rig.fake.poll()
     assert_refused(rig.call("set_pneumatic_valve", GOOD["set_pneumatic_valve"]),
-                   "pneumatic valve gate on the Control page is disabled")
+                   "pneumatic valve gate is disabled", "second, separate lock")
 
 
 def test_pneumatic_gate_status_must_be_live(rig):
@@ -2245,7 +2287,7 @@ def test_retained_arm_command_is_ignored(rig):
 
 def test_arm_expires(rig):
     rig.arm("ln2")
-    rig.advance(8 * 3600 + 1)
+    rig.advance(12 * 3600 + 1)
     assert not rig.svc.arms.is_armed("ln2")        # immediately, before any tick
     rig.svc.supervisor.tick()
     assert rig.svc.arms.last_disarm("ln2")["reason"] == "the arm expired"
@@ -2253,14 +2295,20 @@ def test_arm_expires(rig):
     assert rig.audit_kinds()[-1] == "auto_disarm"
 
 
-def test_arm_without_time_limit(rig):
+def test_an_arm_always_has_an_end(rig):
+    """arm_hours may not be null any more, nor above 12 h: an arm always ends."""
     doc = full_rails()
     doc["general"]["arm_hours"] = None
-    rig.set_rails(doc)
+    ok, err, _ = rig.svc.rails.replace(doc, rig.svc.rails.revision, "test")
+    assert not ok and "general.arm_hours: must be a number" in err
+    doc["general"]["arm_hours"] = 12.5
+    ok, err, _ = rig.svc.rails.replace(doc, rig.svc.rails.revision, "test")
+    assert not ok and "≤ 12 hours" in err
     rig.arm("ln2")
-    rig.advance(100 * 3600)
+    assert rig.svc.arms.snapshot()["ln2"]["expires_utc"] is not None
+    rig.advance(12 * 3600 + 1)
     rig.svc.supervisor.tick()
-    assert rig.svc.arms.is_armed("ln2")
+    assert not rig.svc.arms.is_armed("ln2")
 
 
 def test_reconnect_disarms_everything(rig):
@@ -2362,15 +2410,17 @@ def test_rails_command_with_base_revision(rig):
     doc = full_rails()
     doc["heaters"]["zones"]["top"]["setpoint_max_k"] = 190
     rig.transport.inject(f"{rig.settings.cmd_prefix}/rails",
-                         {"rails": doc, "base_revision": rev, "by": "control page"})
+                         {"rails": doc, "base_revision": rev, "by": "control page",
+                          "code": rig.code()})
     assert rig.svc.rails.revision == rev + 1
     assert rig.svc.last_rails_result["ok"] is True
     e = rig.svc.audit.recent(1)[0]
     assert e["kind"] == "rails" and "setpoint_max_k: 200 → 190" in e["detail"]
-    assert e["by"] == "control page"
+    assert e["by"] == "control page" and e["client"] == "human" and "(code ok)" in e["detail"]
     # A save made from an old editor is refused.
     rig.transport.inject(f"{rig.settings.cmd_prefix}/rails",
-                         {"rails": full_rails(), "base_revision": rev, "by": "other tab"})
+                         {"rails": full_rails(), "base_revision": rev, "by": "other tab",
+                          "code": rig.code()})
     assert rig.svc.rails.revision == rev + 1
     assert rig.svc.last_rails_result["ok"] is False
     assert "rails changed since you opened the editor" in rig.svc.last_rails_result["error"]
@@ -2384,12 +2434,12 @@ def test_rails_command_echoes_the_editors_request_id(rig):
     rev = rig.svc.rails.revision
     rig.transport.inject(f"{rig.settings.cmd_prefix}/rails",
                          {"rails": full_rails(), "base_revision": rev, "by": "tab A",
-                          "request_id": "tab-a-1"})
+                          "request_id": "tab-a-1", "code": rig.code()})
     assert rig.svc.last_rails_result["ok"] is True
     assert rig.svc.last_rails_result["request_id"] == "tab-a-1"
     rig.transport.inject(f"{rig.settings.cmd_prefix}/rails",
                          {"rails": full_rails(), "base_revision": rev, "by": "tab B",
-                          "request_id": "tab-b-1"})
+                          "request_id": "tab-b-1", "code": rig.code()})
     res = rig.transport.retained_payload(rig.settings.status_topic)["last_rails_result"]
     assert res["ok"] is False and res["request_id"] == "tab-b-1"
     rig.transport.inject(f"{rig.settings.cmd_prefix}/rails",
@@ -2397,8 +2447,14 @@ def test_rails_command_echoes_the_editors_request_id(rig):
     assert rig.svc.last_rails_result["ok"] is False
     assert "request_id must be a string" in rig.svc.last_rails_result["error"]
     assert rig.svc.last_rails_result["request_id"] is None
+    # Without a code, a save that would otherwise go through is refused.
     rig.transport.inject(f"{rig.settings.cmd_prefix}/rails",
                          {"rails": full_rails(), "base_revision": rev + 1})
+    res = rig.svc.last_rails_result
+    assert res["ok"] is False and "6 digits" in res["error"]
+    assert rig.svc.audit.recent(1)[0]["kind"] == "auth_failed"
+    rig.transport.inject(f"{rig.settings.cmd_prefix}/rails",
+                         {"rails": full_rails(), "base_revision": rev + 1, "code": rig.code()})
     res = rig.svc.last_rails_result
     assert res["ok"] is True and res["request_id"] is None
 
@@ -2455,14 +2511,14 @@ def test_overview_warns_about_sequencer_and_trackers(rig):
     rig.fake.set_sequencer(running=True)
     rig.fake.set_trackers([{"id": "t9", "target": "a", "source": "b", "enabled": True}])
     _e, text = rig.call("get_overview", {})
-    assert "Sequencer is RUNNING" in text and "tracker(s) enabled: t9" in text
+    assert "Sequencer is RUNNING" in text and "tracker(s) enabled: «t9»" in text
 
 
 def test_list_states(rig):
     _e, out = rig.call("list_states", {"group": "pid", "query": "top"})
     assert out["ok"] and out["count"] == out["matched"] > 0
     row = next(r for r in out["rows"] if r.startswith("pid_top_setpoint_expr |"))
-    assert row.endswith("ai: set_heater_setpoints") and "'165.0'" in row
+    assert row.endswith("ai: set_heater_setpoints") and "«165.0»" in row
     assert any(r.startswith("pid_top_kp |") and r.endswith("ai: -") for r in out["rows"])
     _e, out = rig.call("list_states", {"limit": 3})
     assert out["count"] == 3 and out["matched"] > 3
@@ -2474,7 +2530,7 @@ def test_get_states_with_raw_status(rig):
                                               "t_cube_top", "nope"]})
     assert out["states"]["pid_top_setpoint"]["value"] == 165.0
     assert "control" not in out["states"]["pid_top_setpoint"]
-    assert out["raw_status"]["xsphere/status/pid/top"]["payload"]["setpoint_expr"] == "165.0"
+    assert out["raw_status"]["xsphere/status/pid/top"]["payload"]["setpoint_expr"] == "«165.0»"
     assert "xsphere/status/valve/cryostat" in out["raw_status"]
     assert out["unknown_ids"] == ["nope"]
     is_error, out = rig.call("get_states", {"ids": [f"x{i}" for i in range(41)]})
@@ -2582,7 +2638,7 @@ def test_registry_call_is_safe(rig):
         def handlers(self):
             return {n: self.fail for n in WRITE_SCHEMAS}
 
-        def fail(self, args):
+        def fail(self, args, client=None):
             raise RuntimeError("kaboom")
 
     reg = ToolRegistry(Boom(), rig.svc.reads)
@@ -2673,10 +2729,21 @@ def test_mcp_tools_list_through_flask(client):
                     headers={"MCP-Protocol-Version": "2025-11-25"})
     assert r.status_code == 200
     assert len(r.get_json()["result"]["tools"]) == len(TOOL_TEXT)
-    r = client.post("/mcp", json={"jsonrpc": "2.0", "id": 3, "method": "tools/call",
-                                  "params": {"name": "set_ln2_valve",
-                                             "arguments": GOOD["set_ln2_valve"]}},
-                    headers={"MCP-Protocol-Version": "2025-11-25"})
+    call = {"jsonrpc": "2.0", "id": 3, "method": "tools/call",
+            "params": {"name": "set_ln2_valve", "arguments": GOOD["set_ln2_valve"]}}
+    # No token: a tool result saying so (never HTTP 401).
+    r = client.post("/mcp", json=call, headers={"MCP-Protocol-Version": "2025-11-25"})
+    assert r.status_code == 200
+    res = r.get_json()["result"]
+    assert res["isError"] is True
+    assert "no valid write token" in json.loads(res["content"][0]["text"])["refused"]
+    # A wrong token is the same as none.
+    r = client.post("/mcp", json=call, headers={"MCP-Protocol-Version": "2025-11-25",
+                                                "Authorization": "Bearer wrong"})
+    assert r.status_code == 200
+    assert "no valid write token" in r.get_json()["result"]["content"][0]["text"]
+    # The operator's token: the write gets as far as the arm check.
+    r = client.post("/mcp", json=call, headers={"MCP-Protocol-Version": "2025-11-25", **AUTH})
     res = r.get_json()["result"]
     assert res["isError"] is True
     assert "not armed" in json.loads(res["content"][0]["text"])["refused"]
@@ -2685,6 +2752,9 @@ def test_mcp_tools_list_through_flask(client):
 def test_rest_action_refusal_is_409(client, rig):
     r = client.post("/api/v1/actions/set_ln2_valve", json=GOOD["set_ln2_valve"])
     assert r.status_code == 409
+    assert "no valid write token" in r.get_json()["refused"]
+    r = client.post("/api/v1/actions/set_ln2_valve", json=GOOD["set_ln2_valve"], headers=AUTH)
+    assert r.status_code == 409
     assert "not armed" in r.get_json()["refused"]
     assert rig.cmds() == []
 
@@ -2692,8 +2762,9 @@ def test_rest_action_refusal_is_409(client, rig):
 def test_rest_action_success_and_errors(client, rig):
     rig.arm("heaters")
     r = client.post("/api/v1/actions/set_heater_setpoints",
-                    json={"setpoints": {"top": 170}, "reason": "rest"})
+                    json={"setpoints": {"top": 170}, "reason": "rest"}, headers=AUTH)
     assert r.status_code == 200 and r.get_json()["confirmed"] is True
+    assert rig.svc.audit.recent(1)[0]["client"] == "operator"
     r = client.post("/api/v1/actions/set_heater_setpoints",
                     json={"setpoints": {"top": True}, "reason": "rest"})
     assert r.status_code == 400 and r.get_json()["invalid_arguments"] is True
@@ -2740,11 +2811,19 @@ def test_rest_integer_parameters_are_ascii_digits(client, value):
 
 
 def test_rest_reads_survive_a_lone_surrogate_in_the_audit(client, rig):
-    # "by" of an arm command (any MQTT client) can carry one; UTF-8 cannot.
+    # An arm command (any MQTT client) can carry one; UTF-8 cannot.  The
+    # "by" is recorded as "unknown", and the ignored command's arguments go
+    # into the audit as sent — the read cleans them.
     rig.transport.inject(f"{rig.settings.cmd_prefix}/arm",
-                         {"group": "heaters", "armed": True, "by": "x \ud800"})
+                         {"group": "heaters", "armed": True, "by": "x \ud800",
+                          "client": "x \ud800"})
+    e = rig.svc.audit.recent(1)[0]
+    assert e["by"] == "unknown" and e["args"]["client"] == "x \ud800"
     r = client.get("/api/v1/ai_control")
-    assert r.status_code == 200 and r.get_json()["arms"]["heaters"]["by"] == "x \ud800"
+    assert r.status_code == 200
+    j = r.get_json()
+    assert j["arms"]["heaters"]["armed"] is False
+    assert j["audit"][0]["args"]["client"] == "«x»"
 
 
 def test_rest_deeply_nested_body_is_400(client, rig):

@@ -119,7 +119,8 @@ def errors_for(path, value):
 def test_default_rails_are_valid_and_allow_nothing():
     assert validate_rails(DEFAULT_RAILS, stored=True) == []
     d = default_rails()
-    assert d["general"]["arm_hours"] == 8
+    assert d["general"] == {"arm_hours": 2, "write_budget": 30}
+    assert d["heaters"]["pv_cross_check_k"] is None
     assert d["pneumatic"]["min_interval_s"] == 10
     assert d["pneumatic"]["forbid_open_together"] == []
     for z in ("top", "bottom", "nozzle"):
@@ -136,6 +137,13 @@ def test_default_rails_are_valid_and_allow_nothing():
                                           "may_disarm_auto_close": False}
     for v in ("ballast", "pump", "bottle"):
         assert d["pneumatic"]["valves"][v] == {"may_open": False, "may_close": False}
+    # The pressure guard denies by default: no limits, no thresholds, no
+    # pump together with ballast or bottle.
+    g = d["guard"]
+    assert g["p_xe_cube"] == g["p_primary_bottle"] == {"warn_mbar": None, "trip_mbar": None}
+    assert g["fresh_s"] is None and g["blind_disarm_s"] is None
+    assert g["xenon_present_mbar"] is None and g["pump_open_max_mbar"] is None
+    assert g["pump_open_with"] == []
 
 
 def test_default_rails_copy_is_independent():
@@ -149,9 +157,19 @@ def test_full_document_is_valid():
 
 
 @pytest.mark.parametrize("path, value", [
-    (("general", "arm_hours"), None),
-    (("general", "arm_hours"), 168),
+    (("general", "arm_hours"), 12),
     (("general", "arm_hours"), 0.25),
+    (("general", "write_budget"), 1),
+    (("general", "write_budget"), 1000),
+    (("heaters", "pv_cross_check_k"), 50),
+    (("heaters", "pv_cross_check_k"), None),
+    (("guard", "p_xe_cube"), {"warn_mbar": 1200, "trip_mbar": 1400}),
+    (("guard", "p_xe_cube"), {"warn_mbar": None, "trip_mbar": None}),
+    (("guard", "fresh_s"), 300),
+    (("guard", "blind_disarm_s"), 3600),
+    (("guard", "xenon_present_mbar"), 10000),
+    (("guard", "pump_open_max_mbar"), 2000),
+    (("guard", "pump_open_with"), ["bottle", "ballast"]),
     (("heaters", "zones", "top", "setpoint_max_k"), 400),
     (("heaters", "zones", "top", "pv_sources"), []),
     (("heaters", "zones", "top", "pv_sources"), ["clamp", "cube"]),
@@ -188,6 +206,12 @@ NOT_NUMBERS = [True, False, "5", [5], {"v": 5}, float("nan"), float("inf"), floa
 
 NUMERIC_FIELDS = [
     ("general", "arm_hours"),
+    ("heaters", "pv_cross_check_k"),
+    ("guard", "p_xe_cube", "warn_mbar"),
+    ("guard", "fresh_s"),
+    ("guard", "blind_disarm_s"),
+    ("guard", "xenon_present_mbar"),
+    ("guard", "pump_open_max_mbar"),
     ("heaters", "zones", "top", "setpoint_min_k"),
     ("heaters", "zones", "top", "setpoint_max_k"),
     ("heaters", "zones", "top", "max_step_k"),
@@ -228,9 +252,30 @@ def test_permissions_must_be_json_bools(path, value):
 
 
 @pytest.mark.parametrize("path, value, expect", [
-    (("general", "arm_hours"), 0, "> 0 and ≤ 168"),
-    (("general", "arm_hours"), -1, "> 0 and ≤ 168"),
-    (("general", "arm_hours"), 168.01, "> 0 and ≤ 168"),
+    (("general", "arm_hours"), 0, "> 0 and ≤ 12"),
+    (("general", "arm_hours"), -1, "> 0 and ≤ 12"),
+    (("general", "arm_hours"), 12.01, "> 0 and ≤ 12"),
+    (("general", "arm_hours"), 168, "> 0 and ≤ 12"),
+    (("general", "arm_hours"), None, "must be a number (got null)"),
+    (("general", "write_budget"), 0, "whole number from 1 to 1000"),
+    (("general", "write_budget"), 1001, "whole number from 1 to 1000"),
+    (("general", "write_budget"), 2.5, "whole number from 1 to 1000"),
+    (("general", "write_budget"), True, "whole number from 1 to 1000"),
+    (("general", "write_budget"), None, "whole number from 1 to 1000"),
+    (("heaters", "pv_cross_check_k"), 0, "> 0 and ≤ 50 K"),
+    (("heaters", "pv_cross_check_k"), 51, "> 0 and ≤ 50 K"),
+    (("guard", "p_xe_cube"), {"warn_mbar": 1400, "trip_mbar": 1200}, "must be below"),
+    (("guard", "p_xe_cube"), {"warn_mbar": 1400, "trip_mbar": None}, "set both"),
+    (("guard", "p_primary_bottle"), {"warn_mbar": 0, "trip_mbar": 10}, "> 0 and ≤ 20000"),
+    (("guard", "p_primary_bottle"), {"warn_mbar": 10, "trip_mbar": 20001}, "> 0 and ≤ 20000"),
+    (("guard", "p_xe_cube"), {"warn_mbar": 1, "trip_mbar": 2, "x": 3}, "unknown key"),
+    (("guard", "fresh_s"), 301, "> 0 and ≤ 300 s"),
+    (("guard", "blind_disarm_s"), 0, "> 0 and ≤ 3600 s"),
+    (("guard", "xenon_present_mbar"), 10001, "> 0 and ≤ 10000"),
+    (("guard", "pump_open_max_mbar"), 2001, "> 0 and ≤ 2000"),
+    (("guard", "pump_open_with"), ["pump"], "unknown valve"),
+    (("guard", "pump_open_with"), ["ballast", "ballast"], "listed twice"),
+    (("guard", "pump_open_with"), "ballast", "must be a list"),
     (("heaters", "zones", "top", "setpoint_min_k"), 0, "> 0 and ≤ 400"),
     (("heaters", "zones", "top", "setpoint_min_k"), -5, "> 0 and ≤ 400"),
     (("heaters", "zones", "top", "setpoint_max_k"), 400.001, "> 0 and ≤ 400"),
@@ -320,10 +365,24 @@ def test_forbid_pairs_must_be_two_distinct_known_valves(value, expect):
     assert any(expect in e for e in errs), errs
 
 
-@pytest.mark.parametrize("value", [1, "2", True, 2.0, 3, None])
-def test_version_must_be_2(value):
+@pytest.mark.parametrize("value", [1, 2, "3", True, 3.0, 4, None])
+def test_version_must_be_3(value):
+    """Version 2 documents (before the guard and the leases) are refused."""
     errs = errors_for(("version",), value)
-    assert any(e.startswith("rails.version: must be 2") for e in errs), errs
+    assert any(e.startswith("rails.version: must be 3") for e in errs), errs
+
+
+def test_a_version_2_file_leaves_nothing_writable(tmp_path, main_map):
+    old = full_doc()
+    old["version"] = 2
+    del old["guard"], old["heaters"]["pv_cross_check_k"], old["general"]["write_budget"]
+    old.update(revision=4, zone_fingerprints=main_map.fingerprints())
+    path = tmp_path / "rails.json"
+    path.write_text(json.dumps(old), encoding="utf-8")
+    store = RailsStore(path, main_map)
+    store.load()
+    assert store.error and "rails.version: must be 3" in store.error
+    assert store.revision == 4 and nothing_writable(store)
 
 
 @pytest.mark.parametrize("value", [True, -1, 1.5, "3"])
@@ -610,7 +669,7 @@ def test_replace_saves_and_reloads(tmp_path, main_map):
     ok, err, diff = store.replace(full_doc(), 0, "control page")
     assert (ok, err) == (True, None)
     assert "heaters.zones.top.setpoint_max_k: null → 200" in diff
-    assert "general.arm_hours: 8 → 4" in diff
+    assert "general.arm_hours: 2 → 4" in diff
     assert diff.endswith("… and 6 more")                    # long diffs are cut at 20
     assert store.revision == 1
     assert store.updated_by == "control page"
@@ -622,7 +681,9 @@ def test_replace_saves_and_reloads(tmp_path, main_map):
     assert store.valve("pump") == {"may_open": False, "may_close": True}
     assert store.pneumatic() == {"forbid_open_together": [["pump", "bottle"], ["pump", "ballast"]],
                                  "min_interval_s": 15}
-    assert store.general() == {"arm_hours": 4} and store.arm_hours == 4
+    assert store.general() == {"arm_hours": 4, "write_budget": 30} and store.arm_hours == 4
+    assert store.write_budget == 30 and store.pv_cross_check_k is None
+    assert store.guard()["pump_open_with"] == []
 
     on_disk = json.loads(path.read_text(encoding="utf-8"))
     assert validate_rails(on_disk, stored=True) == []
@@ -706,8 +767,13 @@ def test_by_is_sanitised(tmp_path, main_map):
     store.load()
     store.replace(full_doc(), 0, None)
     assert store.updated_by == "unknown"
+    # Only a short plain name is kept; anything else is "unknown".
     store.replace(full_doc(), 1, "x" * 500)
-    assert store.updated_by == "x" * 80
+    assert store.updated_by == "unknown"
+    store.replace(full_doc(), 2, "Lucas\nWARNINGS: none")
+    assert store.updated_by == "unknown"
+    store.replace(full_doc(), 3, "  Lucas D.  ")
+    assert store.updated_by == "Lucas D."
 
 
 def test_write_is_atomic(tmp_path, main_map, monkeypatch):

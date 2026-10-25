@@ -2,9 +2,11 @@
 The AI control service process: wiring, HTTP routes, main().
 
 :class:`Service` builds every part (settings → zone map → rails → bus → audit
-→ arms → LN2 timers → ramps → actions → supervisor → history → reads → tool
-registry), connects the human-only MQTT commands (``<cmd_prefix>/arm`` and
-``/rails``) and publishes the retained status every 2 s and on every change.
+→ one-time-code checker → arms → LN2 timers → ramps → history → pressure guard
+and PV check → actions → supervisor → reads → tool registry), connects the
+human-only MQTT commands (``<cmd_prefix>/arm`` and ``/rails``, both needing
+Lucas's one-time code except a disarm) and publishes the retained status every
+2 s and on every change.
 
 :func:`create_app` is the Flask side.  Every route sits behind a fixed Host
 allowlist (421 otherwise — DNS rebinding would defeat any "same host" check,
@@ -15,6 +17,10 @@ that is not ``application/json`` (a cross-site ``text/plain`` form post is a
 "simple" request browsers send without asking).  There are no human write
 endpoints on this port: arming and rails are MQTT commands from the Control
 page only.
+
+``Authorization: Bearer <token>`` on ``/mcp`` and ``/api/v1/actions/*`` names
+the AI client (auth.py).  It is never required at the HTTP level — no 401 —
+but without a known token every write tool refuses in its result.
 
 Routes::
 
@@ -56,11 +62,14 @@ from .actions import Actions
 from .arms import (PV_INTERLOCK_TOPIC, ArmState, Ln2Timers, Ramps, Supervisor, default_mono,
                    utc_iso)
 from .audit import Audit
+from .auth import Totp
 from .bus import OFFLINE_STATUS, Bus, loads_strict
 from .config import ConfigError, Settings
+from .guard import PressureGuard, PvCheck
 from .rails import RailsStore
 from .reads import Reads, may_now
 from .tools import INSTRUCTIONS, ToolRegistry
+from .untrusted import clean_by
 from .zones import ZoneMap
 
 log = logging.getLogger(__name__)
@@ -94,7 +103,7 @@ class Service:
                  zone_map: Optional[ZoneMap] = None,
                  history: Any = _AUTO, confirm_timeout_s: float = 5.0,
                  nge_timeout_s: float = 5.0, ramp_interval_s: float = 10.0,
-                 status_interval_s: float = STATUS_INTERVAL_S):
+                 status_interval_s: float = STATUS_INTERVAL_S, totp: Optional[Totp] = None):
         self.settings = settings
         self._clock = clock
         # Arm expiry and LN2 deadlines (default: time.monotonic, or the fake
@@ -118,23 +127,38 @@ class Service:
         self.rails.load()
         self.bus = Bus(settings, transport, clock=clock)
         self.audit = Audit(settings.audit_path, publish=self.bus.publish_audit, clock=clock)
-        self.arms = ArmState(self.rails, self.audit, clock=clock, mono=mono)
+        self.clients = settings.client_tokens
+        # Lucas's one-time codes (arming, rails).  Tests inject their own.
+        self.totp = totp if totp is not None else Totp(settings.totp_secret, clock=clock)
+        self.arms = ArmState(self.rails, self.audit, clock=clock, mono=mono, totp=self.totp,
+                             clients=self.clients)
         self.timers = Ln2Timers(settings.runtime_path, clock=clock, mono=mono)
         self.timers.load()
         self.ramps = Ramps(self.arms, self.audit, clock=clock, interval_s=ramp_interval_s)
-        self.actions = Actions(self.bus, self.zones, self.rails, self.arms, self.audit,
-                               ramps=self.ramps, timers=self.timers, clock=clock,
-                               confirm_timeout_s=confirm_timeout_s, nge_timeout_s=nge_timeout_s)
-        self.supervisor = Supervisor(self.bus, self.arms, self.audit, self.zones, self.timers,
-                                     clock=clock)
         self.history = self._make_history() if history is _AUTO else history
+        self.guard = PressureGuard(self.bus, self.zones, self.rails, clock=clock, mono=mono)
+        self.pvcheck = PvCheck(self.bus, self.zones, self.rails, history=self.history,
+                               clock=clock)
+        self.actions = Actions(self.bus, self.zones, self.rails, self.arms, self.audit,
+                               ramps=self.ramps, timers=self.timers, guard=self.guard,
+                               pvcheck=self.pvcheck, clock=clock,
+                               confirm_timeout_s=confirm_timeout_s, nge_timeout_s=nge_timeout_s)
+        # The guard's actions on the service's own authority (no arm needed).
+        self.guard.set_callbacks(
+            on_trip=self.actions.guard_trip,
+            on_blind=lambda reason: self.arms.disarm_groups(["heaters", "pneumatic"], reason,
+                                                            auto=True))
+        self.pvcheck.set_on_fail(self.actions.pv_source_failed)
+        self.supervisor = Supervisor(self.bus, self.arms, self.audit, self.zones, self.timers,
+                                     clock=clock, guard=self.guard, pvcheck=self.pvcheck)
         self.reads = Reads(self.bus, self.zones, self.rails, self.arms, self.audit,
                            actions=self.actions, ramps=self.ramps, timers=self.timers,
-                           history=self.history, status_fn=self.status_payload, clock=clock)
+                           history=self.history, status_fn=self.status_payload, clock=clock,
+                           guard=self.guard, pvcheck=self.pvcheck)
         self.registry = ToolRegistry(self.actions, self.reads)
 
         # Human-only commands (the Control page card).
-        self.bus.on_command("arm", self.arms.handle_command)
+        self.bus.on_command("arm", self._on_arm_command)
         self.bus.on_command("rails", self._on_rails_command)
         # Status: on connect (bus), on every change, and every 2 s.
         self.bus.set_status_provider(self.status_payload)
@@ -147,9 +171,11 @@ class Service:
         if self.timers.error:
             self.audit.record("note", f"LN2 auto-close timers from before this start are lost: "
                                       f"{self.timers.error}")
-        log.info("AI control service %s ready: %d tools, rails revision %d%s", __version__,
-                 len(self.registry.names()), self.rails.revision,
-                 f" (ERROR: {self.rails.error})" if self.rails.error else "")
+        log.info("AI control service %s ready: %d tools, rails revision %d%s; one-time codes "
+                 "%s; client tokens: %s", __version__, len(self.registry.names()),
+                 self.rails.revision, f" (ERROR: {self.rails.error})" if self.rails.error else "",
+                 "configured" if self.totp.configured else "NOT CONFIGURED (nothing can be armed)",
+                 ", ".join(self.clients.names()) or "none (every write is refused)")
 
     def _make_history(self):
         try:
@@ -171,26 +197,50 @@ class Service:
         # still send from before the reconnect.
         self.audit.pending = True
 
-    # human rails command -----------------------------------------------------
+    # human arm / rails commands ------------------------------------------------
+
+    def _on_arm_command(self, payload: Any) -> None:
+        self.arms.handle_command(payload)
+        # Also when nothing changed: the card shows a refused code at once.
+        self.publish_status()
 
     def _on_rails_command(self, payload: Any) -> None:
-        by = payload.get("by") if isinstance(payload, dict) else None
-        by = by.strip()[:80] if isinstance(by, str) and by.strip() else "unknown"
+        """Lucas's rails save.  The document and its base revision are checked
+        first (a refused save does not use up the code), then the one-time
+        code, then the save."""
+        by = clean_by(payload.get("by") if isinstance(payload, dict) else None)
         rid = payload.get("request_id") if isinstance(payload, dict) else None
-        ok, err, diff = self.rails.replace_from_command(payload, default_by="unknown")
+        err = self.rails.precheck_command(payload)
+        if err is None:
+            code_ok, why = self.totp.verify(payload.get("code"))
+            if not code_ok:
+                log.warning("Rails save from %s REFUSED: %s", by, why)
+                self.audit.record("auth_failed", f"rails save refused: {why}", by=by,
+                                  client="human")
+                self._rails_result(False, f"not saved — {why}", rid)
+                self.publish_status()
+                return
+        if err is not None:
+            ok, diff = False, ""
+        else:
+            ok, err, diff = self.rails.replace_from_command(payload, default_by="unknown")
+        self._rails_result(ok, err, rid)
+        if ok:
+            self.audit.record("rails", f"rails revision {self.rails.revision} saved by {by} "
+                                       f"(code ok): {diff}", by=by, client="human")
+        else:
+            log.warning("Rails save from %s refused: %s", by, err)
+            self.audit.record("rails_refused", f"rails save refused: {err}", by=by,
+                              client="human")
+        self.publish_status()
+
+    def _rails_result(self, ok: bool, err: Optional[str], rid: Any) -> None:
         # request_id (the editor's nonce) lets the page that sent this save tell
         # its own answer from another tab's.
         self.last_rails_result = {"utc": _utc_ms(self._clock()), "ok": ok, "error": err,
                                   "revision": self.rails.revision,
                                   "request_id": rid if isinstance(rid, str) and len(rid) <= 64
                                   else None}
-        if ok:
-            self.audit.record("rails", f"rails revision {self.rails.revision} saved by {by}: "
-                                       f"{diff}", by=by)
-        else:
-            log.warning("Rails save from %s refused: %s", by, err)
-            self.audit.record("rails_refused", f"rails save refused: {err}", by=by)
-        self.publish_status()
 
     # status ------------------------------------------------------------------
 
@@ -213,12 +263,19 @@ class Service:
             "rails_stale_zones": self.rails.stale_zones,
             "rails_updated_utc": self.rails.updated_utc,
             "rails_updated_by": self.rails.updated_by,
-            "may_now": may_now(self.arms, self.rails, self.bus),
+            "may_now": may_now(self.arms, self.rails, self.bus, self.guard),
+            "clients": self.clients.names(),
+            "totp_configured": self.totp.configured,
+            "codes_locked_s": round(self.totp.locked_for()),
+            "last_arm_result": self.arms.last_result,
+            "guard": self.guard.summary(),
+            "pv_checks": self.pvcheck.flags(),
             "ramps": self.ramps.status(),
             "ln2_timers": self.timers.status(),
             "actions": stats["actions"],
             "refused": stats["refused"],
             "notes": stats["notes"],
+            "dry_runs": stats["dry_runs"],
             "auto_disarms": self.arms.auto_disarms,
             "last_action": stats["last_action"],
             "last_refused": stats["last_refused"],
@@ -339,6 +396,18 @@ def create_app(service: Service) -> Flask:
     settings = service.settings
     registry = service.registry
     mcp_mod: Dict[str, Any] = {}
+    bad_token_logged = {"t": float("-inf")}
+
+    def caller() -> Optional[str]:
+        """The AI client this request's ``Authorization: Bearer`` token names."""
+        header = request.headers.get("Authorization")
+        client = service.clients.resolve(header)
+        if header and client is None and time.monotonic() - bad_token_logged["t"] > 60:
+            bad_token_logged["t"] = time.monotonic()
+            log.warning("HTTP %s %s: an Authorization header that names no known client "
+                        "(writes refused; logged at most once a minute)", request.method,
+                        request.path)
+        return client
 
     def is_api(path: str) -> bool:
         return path == "/mcp" or path == "/api/v1" or path.startswith("/api/v1/")
@@ -397,7 +466,8 @@ def create_app(service: Service) -> Flask:
         body = request.get_data(cache=False) if request.method == "POST" else b""
         status, headers, data = mcp_mod["handle"](request.method, request.headers, body,
                                                   registry, INSTRUCTIONS,
-                                                  server_version=__version__)
+                                                  server_version=__version__,
+                                                  client=caller())
         resp = Response(data, status=status)
         for k, v in headers.items():
             resp.headers[k] = v
@@ -411,7 +481,9 @@ def create_app(service: Service) -> Flask:
         return _json({"ok": True, "service": "xsphere-aicontrol", "version": __version__,
                       "instance": settings.instance, "mqtt_connected": service.bus.connected(),
                       "snapshot_age_s": round(age, 1) if age is not None else None,
-                      "armed": service.arms.armed_groups()})
+                      "armed": service.arms.armed_groups(),
+                      "one_time_codes": "configured" if service.totp.configured
+                      else "NOT configured", "clients": len(service.clients)})
 
     @app.get("/")
     def index():
@@ -426,7 +498,7 @@ def create_app(service: Service) -> Flask:
     def run_tool(name: str, args: Any) -> Response:
         if not registry.has(name):
             return _json({"ok": False, "tool": name, "error": f"unknown tool: {name}"}, 404)
-        is_error, result = registry.call(name, args)
+        is_error, result = registry.call(name, args, caller())
         if not is_error:
             status = 200
         elif isinstance(result, dict) and result.get("invalid_arguments"):

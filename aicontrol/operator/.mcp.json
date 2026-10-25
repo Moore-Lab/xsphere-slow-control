@@ -3,6 +3,9 @@
     "xsphere": {
       "type": "http",
       "url": "http://xbox-pi:8089/mcp",
+      "headers": {
+        "Authorization": "Bearer ${XSPHERE_AI_TOKEN}"
+      },
       "alwaysLoad": true,
       "timeout": 60000
     }

@@ -90,6 +90,9 @@
       <div id="ai-rails-err"></div>
       <div id="ai-rails-form"></div>
       <div class="row" style="margin-top:.4rem">
+        <label class="rf" title="a fresh 6-digit code from your authenticator app (each code works once)">code
+          <input id="ai-rails-code" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="6"
+                 placeholder="6 digits" style="width:5.5rem"></label>
         <button id="ai-rails-save" onclick="aiSaveRails()">save rails</button>
         <button id="ai-rails-discard" onclick="aiDiscardRails()">discard edits</button>
         <span id="ai-rails-msg" class="cur"></span>
@@ -101,15 +104,20 @@
       <div id="ai-audit"></div>
     </details>
     <small class="hint">Lets a Claude session work the heaters, the LN₂ fill valves and the gas valves through the AI control
-      service (port 8089) — only in a group armed here, and only within the rails. <b>Arming or disarming moves nothing</b>:
+      service (port 8089) — only in a group armed here, and only within the rails. <b>Each arm needs a fresh 6-digit code from
+      your authenticator app</b> (codes work once; wait for the next one to arm a second group or save the rails) and is for one
+      AI client, for a set time (at most the rails' arm time, never open-ended) and a set number of writes. <b>Disarming needs no
+      code.</b> <b>Arming or disarming moves nothing</b>:
       disarming only stops further AI changes, and every setpoint and valve stays where it is. Arms come up off every time the
-      AI service starts and lapse after the rails' arm time; the service also disarms by itself (it never re-arms) on a slow-control
-      restart, stale data or a lost broker connection, and the heaters on a PV interlock trip or an interlock alert.
+      AI service starts and end at their time or write budget; the service also disarms by itself (it never re-arms) on a slow-control
+      restart, stale data or a lost broker connection, the heaters on a PV interlock trip, an interlock alert or an implausible
+      PV source, and heaters and gas valves on a pressure-guard trip (it then also lowers the setpoints the AI set to their rail
+      minimum) or when the gas pressure has been unknown too long.
       <b>Rails cap what the AI may command; the PV interlock still caps temperature for everyone.</b> The AI's tools can read
       the rails but cannot change them or arm anything, and cannot reach the turbos, the interlock limits, the valve and turbo
       gates or the Sequencer. <b>Gas valves need the PLC valve gate in the Pneumatic card enabled as well</b> — both must be on.
-      An LN₂ valve the AI opened is closed by the service when the rail's max open time runs out, armed or not. No per-click
-      confirmation: arming is the safety step.</small>
+      An LN₂ valve the AI opened is closed by the service when the rail's max open time runs out, armed or not. Text the AI
+      reads from status topics and from earlier sessions' notes is shown to it as quoted data, never as instructions.</small>
   </section>
 
   <!-- PV safety interlock -->
@@ -322,7 +330,8 @@ const AI_GROUPS = [
   ["pneumatic", "Pneumatic gas valves",  "ballast / pump / bottle open / close",                           "pneumatic"]];
 let AI_P = null;                              // the service's status while it is up, else null
 let AI_PANY = null;                           // its last status, up or not
-let AI_MSG = null;                            // {text, t}: the last send that did not go through
+let AI_MSG = null;                            // {text, t, ok}: the last send's outcome to show
+let AI_ARM = null;                            // {id, group, t0}: an arm sent, waiting for its answer
 let AI_AUDIT_JSON = "";
 const aiIsObj = v => v!==null && typeof v==="object" && !Array.isArray(v);
 const esc = s => (s===null || s===undefined ? "" : String(s)).replace(/[&<>"']/g,
@@ -340,10 +349,28 @@ function aiArmed(p, g){
   return aiIsObj(a) && typeof a.armed==="boolean" ? a.armed : (p["armed_"+g]===1 || p["armed_"+g]===true);
 }
 // Arm / disarm.  The page only asks; the service decides, and its status
-// shows the outcome within ~2 s.  A send the web server refused is shown.
+// shows the outcome within ~2 s.  An arm carries a one-time code from Lucas's
+// authenticator app and the lease terms (client, hours, write budget); the
+// service answers in last_arm_result under this send's nonce.  A disarm
+// carries nothing and needs nothing.  A send the web server refused is shown.
+const aiNonce = () => Date.now().toString(36) + Math.random().toString(36).slice(2);
 async function aiArm(group, armed){
-  await aiSent(await cmd(AI_CMD+"arm", {group, armed: !!armed, by: "control page"}),
-               (armed ? "arm " : "disarm ") + group);
+  if (!armed){
+    await aiSent(await cmd(AI_CMD+"arm", {group, armed: false, by: "control page"}), "disarm " + group);
+    return;
+  }
+  const code = $("ai-code").value.trim();
+  if (!/^[0-9]{6}$/.test(code)){
+    AI_MSG = {text: "⚠ type the 6-digit code from your authenticator app first, then press arm", t: Date.now()};
+    $("ai-code").focus(); return;
+  }
+  const payload = {group, armed: true, code, client: $("ai-client").value, by: "control page", request_id: aiNonce()};
+  const h = parseFloat($("ai-hours").value), b = parseInt($("ai-budget").value, 10);
+  if (isFinite(h)) payload.hours = h;
+  if (isFinite(b)) payload.budget = b;
+  $("ai-code").value = "";                    // each code works once
+  AI_ARM = {id: payload.request_id, group, t0: Date.now()};
+  if (!await aiSent(await cmd(AI_CMD+"arm", payload), "arm " + group)) AI_ARM = null;
 }
 async function aiSent(r, what){
   if (r && r.ok){ AI_MSG = null; return true; }
@@ -352,6 +379,19 @@ async function aiSent(r, what){
           why = "the web server refused it (HTTP " + r.status + (e ? ": " + e : "") + ")"; }
   AI_MSG = {text: "⚠ " + what + " not sent — " + why, t: Date.now()};
   return false;
+}
+// The answer to this page's last arm (matched by its nonce), shown once.
+function aiArmResult(p){
+  if (!AI_ARM) return;
+  const res = p && aiIsObj(p.last_arm_result) ? p.last_arm_result : null;
+  if (res && res.request_id === AI_ARM.id){
+    AI_MSG = res.ok ? {text: "armed " + AI_ARM.group, t: Date.now(), ok: true}
+                    : {text: "⚠ " + AI_ARM.group + " " + (res.error || "not armed"), t: Date.now()};
+    AI_ARM = null;
+  } else if (Date.now() - AI_ARM.t0 > 8000){
+    AI_MSG = {text: "⚠ no answer from the AI control service in 8 s — probably not armed", t: Date.now()};
+    AI_ARM = null;
+  }
 }
 function aiBuild(){
   $("ai").innerHTML = `
@@ -363,6 +403,18 @@ function aiBuild(){
         <button class="danger" id="ai-dis-all" onclick="aiArm('all',false)">disarm all</button>
       </div>
       <div class="row"><span id="ai-note" class="cur"></span></div>
+      <div class="row" style="margin-top:.3rem">
+        <label class="rf" title="the 6-digit code from your authenticator app; each code works once">code
+          <input id="ai-code" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="6"
+                 placeholder="6 digits" style="width:5.5rem"></label>
+        <label class="rf" title="the AI client (write token) the next arm is for; other clients stay refused">for client
+          <select id="ai-client"></select></label>
+        <label class="rf" title="how long the next arm lasts; at most the rails' arm time">for
+          <input id="ai-hours" type="number" step="any" min="0" style="width:4rem"> h</label>
+        <label class="rf" title="how many AI write calls the next arm allows; at most the rails' write budget">budget
+          <input id="ai-budget" type="number" step="1" min="1" style="width:4.5rem"> writes</label>
+      </div>
+      <div class="row"><span id="ai-codes" class="cur"></span></div>
     </div>` + AI_GROUPS.map(([g,name,what])=>`
     <div class="blk">
       <div class="row">
@@ -377,6 +429,8 @@ function aiBuild(){
       <div class="row"><span id="ai-gate" class="cur"></span></div>` : ""}
     </div>`).join("") + `
     <div class="blk">
+      <div class="row"><span id="ai-guard" class="cur"></span></div>
+      <div class="row"><span id="ai-pv" class="cur"></span></div>
       <div class="row"><span id="ai-last" class="cur"></span></div>
       <div class="row"><span id="ai-lastref" class="cur"></span></div>
       <div class="row"><span id="ai-run" class="cur"></span></div>
@@ -393,7 +447,16 @@ function aiBuild(){
 // focus or there are unsaved edits the 1.5 s refresh leaves the form alone
 // and only updates the live values next to it.
 const AI_RAIL_INFO = {                        // key: [label, hint]
-  arm_hours:             ["arm lasts (h)", "how long an arm stays on; empty = until disarmed (at most 168 h)"],
+  arm_hours:             ["longest arm (h)", "the longest an arm may last (at most 12 h; every arm ends); the arm row offers this by default"],
+  write_budget:          ["write budget", "the most AI write calls one arm allows (1–1000); the arm ends when they are used"],
+  pv_cross_check_k:      ["clamp cross-check (K)", "a clamp sensor more than this from its zone's cube RTD is refused as a PV source; empty = no clamp sources at all"],
+  warn_mbar:             ["warn (mbar)", "at or above this the AI may not warm anything; warn and trip are both needed or nothing warms"],
+  trip_mbar:             ["trip (mbar)", "at or above this the service disarms heaters and gas valves, stops ramps and lowers the AI's setpoints to their rail minimum"],
+  fresh_s:               ["reading max age (s)", "a pressure older than this counts as unknown: no warming, no closing ballast / bottle, no pump opening"],
+  blind_disarm_s:        ["blind disarm (s)", "no fresh pressure for this long disarms heaters and gas valves; empty = never"],
+  xenon_present_mbar:    ["xenon present at (mbar)", "Xe cube pressure at or above this means xenon is in the system: ballast and bottle are never closed, and warming needs both open"],
+  pump_open_max_mbar:    ["pump opens below (mbar)", "the pump valve opens only with both gauges fresh and at or below this; empty = never"],
+  pump_open_with:        ["pump may be open with", "valves the pump may be open together with; unticked = never at the same time"],
   setpoint_min_k:        ["SP min (K)", "lowest setpoint the AI may command; min and max are both needed or the AI cannot change this zone"],
   setpoint_max_k:        ["SP max (K)", "highest setpoint the AI may command; min and max are both needed or the AI cannot change this zone"],
   max_step_k:            ["max step (K)", "largest single setpoint change, from the current setpoint (from the measured PV while the setpoint is outside these rails); empty = no limit"],
@@ -414,7 +477,7 @@ const AI_RAIL_INFO = {                        // key: [label, hint]
   forbid_open_together:  ["never open together", "pairs the AI may never have open at once, e.g. pump+bottle, pump+ballast"],
   min_interval_s:        ["min interval (s)", "between two AI moves of one gas valve (at least 2)"],
 };
-const AI_REQUIRED_NUM = new Set(["min_interval_s"]);   // numbers that may not be left empty
+const AI_REQUIRED_NUM = new Set(["min_interval_s", "arm_hours", "write_budget"]);   // numbers that may not be left empty
 // The service's own bookkeeping: not shown, sent back as received.
 const AI_META = new Set(["version","revision","zone_fingerprints","updated_utc","updated_by"]);
 // Collections shown one block per item: title, live-value span, hint, item name.
@@ -429,12 +492,16 @@ const AI_EACH = {
   "pneumatic.valves": {title:"Pneumatic gas valves", live:"ai-lv-gate", hint:"",
     name:k=>{ const v = PNEUMATIC.find(([x])=>x==="pneumatic_"+k); return v ? v[1] : k; }},
 };
-const AI_TITLES = {"general":"General", "pneumatic":"Gas valves — pairs and pacing"};
+const AI_TITLES = {"general":"General — arms", "heaters":"Heaters — PV source check", "pneumatic":"Gas valves — pairs and pacing",
+  "guard":"Pressure guard — limits on the gas pressure (deny by default)",
+  "guard.p_xe_cube":"Pressure guard — Xe cube, Setra #1 (shows at most 1766 mbar: at the limit it counts as above every level)",
+  "guard.p_primary_bottle":"Pressure guard — primary bottle, Setra #2 (shows at most 7064 mbar)"};
 // Display order.  The document arrives with its keys sorted (Flask's jsonify),
 // so the form puts sections, items and fields in this order; anything else
 // follows alphabetically.
-const AI_ORDER = ["general","heaters","ln2","pneumatic","zones","supply","vessels","valves",
-  "top","bottom","nozzle","cryostat","primary_xe","ballast","pump","bottle", ...Object.keys(AI_RAIL_INFO)];
+const AI_ORDER = ["general","heaters","ln2","pneumatic","guard","zones","supply","vessels","valves",
+  "top","bottom","nozzle","cryostat","primary_xe","ballast","pump","bottle","p_xe_cube","p_primary_bottle",
+  ...Object.keys(AI_RAIL_INFO)];
 function aiEntries(obj){
   const rank = k => { const i = AI_ORDER.indexOf(k); return i < 0 ? 1e6 : i; };
   return Object.entries(obj).sort((a, b) => rank(a[0]) - rank(b[0]) || (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0));
@@ -486,6 +553,9 @@ function aiField(k, v, path){
     return `<span class="rf"${t}>${esc(lab)}` + choices.map(c =>
       `<label class="rf" style="margin-right:.25rem"><input type="checkbox" data-kind="set" data-path="${dp}" data-val="${esc(c)}"${v.includes(c) ? " checked" : ""}>${esc(c)}<span id="ai-pvl-${aiId([zone, c])}"></span></label>`).join("") + `</span>`;
   }
+  if (Array.isArray(v) && k === "pump_open_with")
+    return `<span class="rf"${t}>${esc(lab)}` + ["ballast", "bottle"].map(c =>
+      `<label class="rf" style="margin-right:.25rem"><input type="checkbox" data-kind="set" data-path="${dp}" data-val="${c}"${v.includes(c) ? " checked" : ""}>${c}</label>`).join("") + `</span>`;
   if (Array.isArray(v) && (k === "forbid_open_together" || (v.length && v.every(Array.isArray))))
     return `<label class="rf"${t}>${esc(lab)}<input type="text" data-kind="pairs" data-path="${dp}" value="${esc(v.map(x => Array.isArray(x) ? x.join("+") : String(x)).join(", "))}" placeholder="none, e.g. pump+bottle"></label>`;
   if (typeof v === "string")
@@ -531,12 +601,19 @@ async function aiSaveRails(){
   if (!AI_ED.doc || AI_ED.pending || !AI_P) return;
   const bad = Object.values(AI_ED.bad);
   if (bad.length){ AI_ED.msg = "⚠ fix first — " + bad[0]; AI_ED.msgBad = true; aiRailsButtons(); return; }
+  const code = $("ai-rails-code").value.trim();
+  if (!/^[0-9]{6}$/.test(code)){
+    AI_ED.msg = "⚠ type a fresh 6-digit code from your authenticator app first"; AI_ED.msgBad = true;
+    aiRailsButtons(); $("ai-rails-code").focus(); return;
+  }
+  $("ai-rails-code").value = "";              // each code works once
   // A nonce the service echoes in last_rails_result, so this tab takes only
   // the answer to its own save (not another tab's that lands meanwhile).
   const id = Date.now().toString(36) + Math.random().toString(36).slice(2);
   AI_ED.pending = {id, before: JSON.stringify(AI_P.last_rails_result || null), t0: Date.now()};
   AI_ED.msg = ""; AI_ED.msgBad = false; aiRailsButtons();
-  const ok = await aiSent(await cmd(AI_CMD+"rails", {rails: AI_ED.doc, base_revision: AI_ED.rev, by: "control page", request_id: id}), "rails");
+  const ok = await aiSent(await cmd(AI_CMD+"rails", {rails: AI_ED.doc, base_revision: AI_ED.rev, by: "control page",
+                                                      request_id: id, code}), "rails");
   if (!ok){ AI_ED.pending = null; AI_ED.msg = AI_MSG.text; AI_ED.msgBad = true; aiRailsButtons(); }
 }
 function aiDiscardRails(){                    // back to the rails the service holds now
@@ -659,7 +736,8 @@ function aiRailsLive(st, p){
     setHtml("ai-lv-"+aiId(["pneumatic","valves",v]), esc("now " + onoff(val(st["pneumatic_"+v]), "OPEN", "closed")));
 }
 const AI_KIND_COLOR = {action:"var(--ok)", ramp:"var(--ok)", refused:"var(--bad)", rails_refused:"var(--bad)",
-  arm:"var(--warn)", auto_disarm:"var(--warn)", auto_close:"var(--warn)", rails:"var(--acc)", note:"var(--acc)", disarm:"var(--mut)"};
+  auth_failed:"var(--bad)", arm:"var(--warn)", auto_disarm:"var(--warn)", auto_close:"var(--warn)", guard:"var(--warn)",
+  pv_check:"var(--warn)", rails:"var(--acc)", note:"var(--acc)", disarm:"var(--mut)", dry_run:"var(--mut)"};
 function aiAuditUpdate(){
   const a = RAW[AI_STATUS + "/audit"];
   const ents = (a && aiIsObj(a.payload) && Array.isArray(a.payload.entries) ? a.payload.entries : []).filter(aiIsObj).slice(0, 10);
@@ -668,8 +746,9 @@ function aiAuditUpdate(){
   AI_AUDIT_JSON = json;
   $("ai-audit").innerHTML = !ents.length ? `<div class="row"><span class="cur">nothing yet</span></div>` : ents.map(e => {
     const c = Object.prototype.hasOwnProperty.call(AI_KIND_COLOR, e.kind) ? AI_KIND_COLOR[e.kind] : "var(--fg)";
+    const who = e.client && !["service", "human"].includes(e.client) ? `<span class="cur">[${esc(e.client)}]</span>` : "";
     return `<div class="row aud"><span class="cur num">${esc(when(e.utc))}</span><span style="color:${c}">${esc(e.kind || "?")}</span>`
-      + (e.tool ? `<b>${esc(e.tool)}</b>` : "") + `<span>${esc(e.detail || "")}</span>`
+      + who + (e.tool ? `<b>${esc(e.tool)}</b>` : "") + `<span>${esc(e.detail || "")}</span>`
       + (e.reason ? `<span class="cur">“${esc(e.reason)}”</span>` : "") + (e.by ? `<span class="cur">— ${esc(e.by)}</span>` : "") + `</div>`;
   }).join("");
 }
@@ -710,18 +789,21 @@ function aiUpdate(d, st){
     se.textContent = "⚠ AI armed for " + armed.map(a => a[3]).join(", ") + " — it may act there, within the rails";
     se.style.color = "var(--warn)";
   } else { se.textContent = "AI disarmed — it can read everything and change nothing"; se.style.color = "var(--mut)"; }
+  aiArmResult(p);
+  aiLeaseControls(p);
   const bits = [];
   if (pAny && pAny.instance && pAny.instance !== "production") bits.push("instance: " + pAny.instance);
   if (up && p.started_utc) bits.push("service up since " + when(p.started_utc));
-  if (up) bits.push((p.actions || 0) + " actions · " + (p.refused || 0) + " refused · " + (p.notes || 0) + " notes · " + (p.auto_disarms || 0) + " automatic disarms");
+  if (up) bits.push((p.actions || 0) + " actions · " + (p.refused || 0) + " refused · " + (p.notes || 0) + " notes · "
+                    + (p.dry_runs || 0) + " dry runs · " + (p.auto_disarms || 0) + " automatic disarms");
   const ne = $("ai-note");
-  if (AI_MSG && Date.now() - AI_MSG.t < 20000){ ne.textContent = AI_MSG.text; ne.style.color = "var(--bad)"; }
+  if (AI_MSG && Date.now() - AI_MSG.t < 20000){ ne.textContent = AI_MSG.text; ne.style.color = AI_MSG.ok ? "var(--warn)" : "var(--bad)"; }
   else { ne.textContent = bits.join(" · "); ne.style.color = ""; }
   AI_GROUPS.forEach(([g]) => {
     const on = aiArmed(known, g), a = (known && aiIsObj(known.arms) && aiIsObj(known.arms[g])) ? known.arms[g] : {};
     // Arming needs a running service AND this panel on the broker (the web
     // server refuses to relay it otherwise).  Disarm stays clickable.
-    $("ai-arm-"+g).disabled = !up || blind;
+    $("ai-arm-"+g).disabled = !up || blind || !p.totp_configured || !(Array.isArray(p.clients) && p.clients.length);
     $("ai-arm-"+g).className = on ? "held" : "";
     $("ai-dis-"+g).className = up && !on ? "on" : "";
     const s = $("ai-st-"+g);
@@ -732,8 +814,10 @@ function aiUpdate(d, st){
       s.style.color = on ? "var(--warn)" : "var(--mut)";
     }
     else if (on){
-      s.textContent = "⚠ ARMED since " + when(a.since_utc) + (a.by ? " (" + a.by + ")" : "")
-        + (a.expires_utc ? " — lapses " + when(a.expires_utc) : " — no time limit");
+      s.textContent = "⚠ ARMED for AI client " + (a.client || "?") + " since " + when(a.since_utc)
+        + (a.expires_utc ? " — ends " + when(a.expires_utc) : "")
+        + (a.budget != null ? " — " + (a.writes_used || 0) + " of " + a.budget + " writes used" : "")
+        + (a.by ? " (armed by " + a.by + ")" : "");
       s.style.color = "var(--warn)";
     } else {
       const ld = aiIsObj(a.last_disarm) ? a.last_disarm : null;
@@ -751,8 +835,10 @@ function aiUpdate(d, st){
     : pnOn ? "PLC valve gate: enabled — so an armed AI can move gas valves, within the rails"
     : "PLC valve gate: disabled — the AI cannot move a gas valve, armed or not, until the gate in the Pneumatic card is enabled as well";
   ge.style.color = aiArmed(p, "pneumatic") && !pnOn ? "var(--warn)" : "";
+  aiGuardLines(p);
   const la = p && aiIsObj(p.last_action) ? p.last_action : null, lf = p && aiIsObj(p.last_refused) ? p.last_refused : null;
-  $("ai-last").textContent = la ? "last action " + when(la.utc) + " — " + [la.tool, la.detail].filter(Boolean).join(": ") + (la.reason ? " — “" + la.reason + "”" : "")
+  $("ai-last").textContent = la ? "last action " + when(la.utc) + (la.client ? " by " + la.client : "") + " — "
+      + [la.tool, la.detail].filter(Boolean).join(": ") + (la.reason ? " — “" + la.reason + "”" : "")
     : up ? "no AI action since the service started" : "";
   $("ai-lastref").textContent = lf ? "last refused " + when(lf.utc) + " — " + [lf.tool, lf.detail].filter(Boolean).join(": ") : "";
   const run = [];
@@ -764,6 +850,52 @@ function aiUpdate(d, st){
   $("ai-run").style.color = run.length ? "var(--warn)" : "";
   aiRailsUpdate(pAny, st);
   aiAuditUpdate();
+}
+
+// The arm row: clients from the service, hours and budget prefilled from the
+// rails (and capped by them), and why arming is impossible when it is.
+function aiLeaseControls(p){
+  const sel = $("ai-client"), clients = p && Array.isArray(p.clients) ? p.clients : [];
+  const want = clients.join(",");
+  if (sel._c !== want){
+    const keep = sel.value;
+    sel.innerHTML = clients.map(c => `<option>${esc(c)}</option>`).join("") || `<option value="">(none)</option>`;
+    sel.value = clients.includes(keep) ? keep : clients.includes("operator") ? "operator" : (clients[0] || "");
+    sel._c = want;
+  }
+  const g = p && aiIsObj(p.rails) && aiIsObj(p.rails.general) ? p.rails.general : null;
+  for (const [id, key] of [["ai-hours", "arm_hours"], ["ai-budget", "write_budget"]]){
+    const el = $(id);
+    if (!g || typeof g[key] !== "number") continue;
+    el.max = g[key];
+    if (document.activeElement !== el && (el.value === "" || el._rails !== g[key])){ el.value = g[key]; el._rails = g[key]; }
+  }
+  const why = [];
+  if (p && !p.totp_configured) why.push("one-time codes are not set up on the Pi, so nothing can be armed and the rails cannot be saved (aicontrol/README.md, “Enrolling”)");
+  if (p && !clients.length) why.push("no AI client has a write token on the Pi, so there is nobody to arm for");
+  if (p && p.codes_locked_s > 0) why.push("too many wrong codes — codes are refused for another " + p.codes_locked_s + " s");
+  const ce = $("ai-codes");
+  ce.textContent = why.length ? "⚠ " + why.join(" · ") : "each arm and each rails save needs a fresh code; disarm needs none";
+  ce.style.color = why.length ? "var(--bad)" : "";
+}
+// The pressure guard and the PV-source check, as the service sees them.
+function aiGuardLines(p){
+  const g = p && aiIsObj(p.guard) ? p.guard : null, ge = $("ai-guard");
+  if (!g){ ge.textContent = ""; }
+  else {
+    const parts = Object.entries(aiIsObj(g.gauges) ? g.gauges : {}).filter(([, r]) => aiIsObj(r)).map(([id, r]) =>
+      id + " " + (r.value_mbar != null && (r.status === "ok" || r.status === "clipped") ? fmtNum(r.value_mbar) + " mbar" : r.status)
+      + " (" + r.level + (r.trip_mbar != null ? "; warn " + fmtNum(r.warn_mbar) + " / trip " + fmtNum(r.trip_mbar) : "") + ")");
+    const xe = g.xenon_present === true ? "yes" : g.xenon_present === false ? "no" : "unknown";
+    ge.textContent = "Pressure guard: " + (g.configured ? "" : "NOT SET UP in the rails — no warming writes · ") + parts.join(" · ")
+      + " · xenon present: " + xe + (Array.isArray(g.tripped) && g.tripped.length ? " · TRIPPED (" + g.tripped.join(", ") + ")" : "")
+      + (g.warming_refused ? " · warming refused: " + g.warming_refused : " · warming allowed");
+    ge.style.color = (Array.isArray(g.tripped) && g.tripped.length) ? "var(--bad)" : g.warming_refused ? "var(--warn)" : "";
+  }
+  const pv = p && aiIsObj(p.pv_checks) ? Object.entries(p.pv_checks).filter(([, f]) => aiIsObj(f)) : [];
+  const pe = $("ai-pv");
+  pe.textContent = pv.map(([z, f]) => "⚠ PV source check, zone " + z + ": " + (f.alias || "?") + " (" + (f.source || "?") + ") — " + f.problem).join(" · ");
+  pe.style.color = pv.length ? "var(--bad)" : "";
 }
 
 let built = false;

@@ -334,12 +334,31 @@ the pneumatic gas valves. Design, tool list and deploy steps:
 
 The **AI control (Claude)** card at the top of the Control page
 (`http://xbox-pi:8088/control`) has one row per group: heaters, ln2 and
-pneumatic.
+pneumatic. Arming needs the 6-digit code from your authenticator app (set up
+once: `aicontrol/README.md`, "Enrolling").
 
-- **arm** lets Claude write in that group, within the rails, for
-  `arm_hours` (8 h by default). **disarm**, or **disarm all**, stops it at
-  once. Disarming moves nothing.
+To arm a group:
+
+1. Type the current code into the code box next to the arm buttons.
+2. Check the client (default `operator`), the hours (default and maximum: the
+   rails' `arm_hours`) and the write budget (default: the rails'
+   `write_budget`).
+3. Click **arm** on the group's row.
+
+- An arm is a lease: Claude (that client only) may write in that group,
+  within the rails and the pressure guard, until the hours run out or it has
+  made that many write calls, whichever comes first. Other Claude sessions,
+  and any without a write token, stay refused.
+- Each code works once. To arm a second group, wait for the next code (up to
+  30 s). After 5 wrong codes in 5 minutes, codes are refused for 5 minutes.
+- **disarm** and **disarm all** need no code. They stop Claude at once.
+  Disarming moves nothing.
+- The card shows the result of the last arm (refused codes say why), and for
+  each armed group the client, when it lapses, and the writes used.
 - Each row says what Claude may do right now, or why the group is disarmed.
+  The card also shows the pressure guard (readings, xenon present, whether
+  warming writes are allowed) and any zone whose PV source failed its
+  plausibility check.
   The header pill shows "AI: off" or which groups are ARMED. "AI: no status"
   (or "ARMED? (no status)") means the card has heard nothing from the service
   for over 10 s: it may still be running, with the arms shown last. Arm
@@ -349,7 +368,11 @@ pneumatic.
   disarms by itself in these cases:
   - **All groups:** the arm expires; slow control restarts; the snapshot goes
     stale; the AI service reconnects to the broker.
-  - **Heaters:** the PV interlock trips, or the interlocks go not-ok.
+  - **The group whose write budget is used up.**
+  - **Heaters:** the PV interlock trips, the interlocks go not-ok, or a zone's
+    PV source fails its plausibility check.
+  - **Heaters and pneumatic:** the pressure guard trips, or a pressure gauge
+    has had no fresh reading for `guard.blind_disarm_s`.
   - **LN2:** a valve the AI opened is still open (by its live status) at its
     time limit. The service closes the valve, then disarms. It never acts on
     an unknown valve state; if the status stays unknown past the limit, the
@@ -363,37 +386,86 @@ Open **rails — limits the AI can never change** on the card. The rails set:
 
 - the setpoint range, the step and the rate per zone, and which sensors may
   be the PID's PV;
+- how far a clamp sensor may be from the zone's cube RTD to be used as a PV
+  (`heaters.pv_cross_check_k`);
 - the voltage and current range per supply channel, and whether Claude may
   switch a channel on or off;
 - per LN2 vessel, whether Claude may operate it, its maximum open time, and
   the auto flags;
 - per pneumatic valve, open and close permission, the pairs that must never
-  be open together, and the minimum interval between commands.
+  be open together, and the minimum interval between commands;
+- the longest an arm may last (`general.arm_hours`, at most 12 h) and the most
+  write calls one arm allows (`general.write_budget`);
+- the pressure guard (`guard`, below).
 
 Empty fields work like this:
 
 - An empty min / max pair means Claude may not change that quantity at all.
-- An empty step, rate or arm time means no limit.
+- An empty step or rate means no limit. The arm time and write budget cannot
+  be empty.
+- An empty `pv_cross_check_k` means Claude may not pick a clamp sensor.
+- An empty guard field refuses the writes that need it (see below).
 - A supply minimum of 0 V or 0 A needs "may switch off" too: it unpowers the
   heater just as switching the output off does.
 - An unticked permission means "not allowed".
-- With no rails saved, or an invalid rails file, nothing is writable.
+- With no rails saved, or an invalid rails file, nothing is writable. Rails
+  saved before the guard was added (schema version 2) count as invalid: save
+  them again once.
 
-**save rails** sends the whole set. If someone saved in between, your save is
-refused: press **discard edits** to load the newer rails, re-apply your change
-and save again (reloading the page also works). If the heater zones' sensor
-mapping changes, for example after the top/bottom swap is deployed, the card
-asks you to save the rails again before those zones are writable.
+**save rails** needs a code too: type it into the code box next to the button.
+It sends the whole set. If someone saved in between, your save is refused:
+press **discard edits** to load the newer rails, re-apply your change and save
+again (reloading the page also works). A save refused for its content does not
+use up the code. If the heater zones' sensor mapping changes, for example after
+the top/bottom swap is deployed, the card asks you to save the rails again
+before those zones are writable.
+
+**The pressure guard** (`guard`) watches `p_xe_cube` (Setra #1, which tops out
+at about 1766 mbar) and `p_primary_bottle` (Setra #2, about 7064 mbar). A
+reading at 97 % of a gauge's top counts as "this much or more", i.e. above
+every limit. With the guard set up, Claude may not warm anything while a
+pressure is unknown or at its warn level, or with xenon present while ballast
+or bottle is closed; it may never close ballast or bottle with xenon present;
+it may open the pump only at low pressure, and never together with ballast or
+bottle unless `pump_open_with` allows it. At a trip level the service stops
+ramps, disarms heaters and pneumatic, and lowers the zones Claude set to their
+`setpoint_min_k`. The values are yours to set; as starting points:
+
+| Field | Starting point (your choice) |
+|---|---|
+| `p_xe_cube` warn / trip | 1200 / 1400 mbar |
+| `p_primary_bottle` warn / trip | about 3800 / 4000 mbar |
+| `fresh_s` | 20 s |
+| `blind_disarm_s` | 180 s (the GHS ESP32 routinely stalls 5–80 s) |
+| `xenon_present_mbar` | above the empty-system cube reading (about 200 mbar today) |
+| `pump_open_max_mbar` | 10 mbar |
+| `pump_open_with` | empty |
+| `heaters.pv_cross_check_k` | 15 K |
 
 The rails cap what Claude may *command*. The PV interlock still caps the
 temperature for everyone, Claude included.
 
-Every AI action and refusal, with Claude's stated reason, is listed under
-**recent AI activity** (the last 10). The last 20 are at
-`http://xbox-pi:8089/`; the full log is `aicontrol/audit.jsonl` on the Pi (and
-`audit.jsonl.1` … `.5` after rotation, 5 MB each). Notes are limited to 6 a
-minute, and calls that send nothing (refusals, no-ops) beyond 30 a minute are
-counted and summed up in one entry, so a looping session cannot flood the log.
+Every AI action, refusal and dry run, with Claude's stated reason and the
+client, is listed under **recent AI activity** (the last 10). The last 20 are
+at `http://xbox-pi:8089/`; the full log is `aicontrol/audit.jsonl` on the Pi
+(and `audit.jsonl.1` … `.5` after rotation, 5 MB each). Notes are limited to 6
+a minute, and calls that send nothing (refusals, no-ops, dry runs) beyond 30 a
+minute are counted and summed up in one entry, so a looping session cannot
+flood the log. A note is shown as "note by AI client …", never as yours.
+
+### If the AI did something unexpected
+
+1. **Disarm** on the card (or **disarm all**). No code is needed, and nothing
+   moves.
+2. Find the entry in **recent AI activity** (or `aicontrol/audit.jsonl`). An
+   action that sent something records `previous`: the setpoint and
+   expression, PV source, supply V / I / output, or valve state and auto flags
+   as they were before. Put those back on the matching card.
+3. Entries of kind `guard` (a pressure trip: what was disarmed and which
+   setpoints were lowered) and `pv_check` (a PV source that failed, and
+   whether the service put the zone back on its cube RTD) are the service's
+   own actions. `auth_failed` entries are refused codes: if you did not send
+   them, someone else tried to arm.
 
 ### Checks after deploying it
 
@@ -412,9 +484,10 @@ on the Pi (with everything disarmed — nothing below moves hardware):
    curl -s 'http://localhost:8089/api/v1/history?ids=t_cube_top,t_cube_bottom,t_cube_nozzle,pid_top_pv,pid_bottom_pv,pid_nozzle_pv,level_cryostat,valve_cryostat&start=-30d'
    ```
 2. **A real MCP tool call.** In the operator profile, ask Claude for
-   `get_overview`, then (nothing armed) for a heater setpoint: the first must
-   return the overview, the second must be refused with "not armed"
-   (acceptance step 6 in `aicontrol/operator/README.md`). The journal shows
+   `get_ai_control`, then (nothing armed) for a heater setpoint: the first must
+   say `you_are: AI client operator` (the token arrived), the second must be
+   refused with "not armed" (acceptance step 6 in
+   `aicontrol/operator/README.md`). The journal shows
    the protocol era of the first request at INFO; start the service once with
    `XSPHERE_AICONTROL_LOG_LEVEL=DEBUG` to see every `tools/call`. Note the
    date in the operator README's "Verified on" paragraph.
@@ -423,19 +496,21 @@ on the Pi (with everything disarmed — nothing below moves hardware):
 
 To confine a session to the AI control tools, copy the operator profile
 (`aicontrol/operator/`, see its README) to `C:\Users\xbox\xsphere-ai-operator`,
-open Claude Code there, and run the acceptance check.
+set `XSPHERE_AI_TOKEN` for the user that runs it, open Claude Code there, and
+run the acceptance check.
 
 Any other Claude Code session can add the tools with
-`claude mcp add --transport http xsphere http://xbox-pi:8089/mcp`, but it keeps
-its shell and browser.
+`claude mcp add --transport http xsphere http://xbox-pi:8089/mcp`. Without a
+write token it can only read, but it keeps its shell and browser.
 
 ### Limitations
 
-Arms and rails only bind clients that go through this service. The MQTT
-broker is anonymous, `/api/cmd` on the Control page relays commands, and
+Arms, rails and the guard only bind clients that go through this service. The
+MQTT broker is anonymous, `/api/cmd` on the Control page relays commands, and
 code-server and Node-RED are open on the LAN. A session with a shell or a
-browser can therefore bypass all of it, arming included. Use the operator
-profile for any AI that should be confined.
+browser can still send hardware commands directly. It can no longer arm the AI
+or save rails without your code, nor make AI writes without a token. Use the
+operator profile for any AI that should be confined.
 
 ---
 

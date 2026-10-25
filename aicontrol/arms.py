@@ -1,10 +1,14 @@
 """
 Arms, the auto-disarm supervisor, LN2 open timers and heater ramps.
 
-**Arms.**  Three groups — heaters, ln2, pneumatic — each armed by a human on
-the Control page (MQTT ``<cmd_prefix>/arm``).  Every group starts disarmed at
-every service start and nothing about an arm is ever written to disk, the
-same as the PLC's pneumatic and turbo gates.  :meth:`ArmState.is_armed` is a
+**Arms.**  Three groups — heaters, ln2, pneumatic — each armed by Lucas on
+the Control page (MQTT ``<cmd_prefix>/arm``) with a one-time code from his
+authenticator app (auth.py).  An arm is a lease: it is for one named AI client
+(the others, and callers without a write token, stay refused), lasts at most
+``general.arm_hours`` (≤ 12 h, never open-ended) and allows at most
+``general.write_budget`` write calls, after which the group disarms.  Every
+group starts disarmed at every service start and nothing about an arm is ever
+written to disk, the same as the PLC's pneumatic and turbo gates.  :meth:`ArmState.is_armed` is a
 plain read of two values (the flag and the expiry time) with no lock, so the
 action pipeline can re-check it immediately before every single publish and a
 disarm arriving on the MQTT thread is never queued behind a write that is
@@ -21,7 +25,10 @@ the human armed under no longer hold:
   armed AI should not "restore" setpoints into that; the snapshot is older
   than 30 s;
 * heaters: the PV interlock trips (``tripped`` false → true on a live
-  message), or ``xsphere/status/interlocks`` turns not-ok.
+  message), or ``xsphere/status/interlocks`` turns not-ok;
+* heaters and pneumatic: the pressure guard trips or goes blind, and heaters
+  when a zone's PV source fails its plausibility check (guard.py, run from
+  this supervisor's tick).
 
 Each automatic disarm is audited (kind ``auto_disarm``), counted and shown as
 the group's ``last_disarm``.
@@ -61,6 +68,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
+from .untrusted import clean_by, clean_text, untrusted
 from .zones import VESSELS
 
 log = logging.getLogger(__name__)
@@ -123,24 +131,36 @@ def _is_number(x: Any) -> bool:
 # ──────────────────────────────────────────────────────────────────────────
 
 class ArmState:
-    """Who may write what right now.  Never persisted; all off at start."""
+    """Who may write what right now.  Never persisted; all off at start.
+
+    An arm is a *lease*: one group, armed by Lucas (with a one-time code) for
+    one named AI client, for at most ``general.arm_hours`` and at most
+    ``general.write_budget`` write calls.  Another client — or one without a
+    token — is refused even while the group is armed.
+    """
 
     def __init__(self, rails, audit=None, *, clock: Callable[[], float] = time.time,
-                 mono: Optional[Callable[[], float]] = None):
+                 mono: Optional[Callable[[], float]] = None, totp=None, clients=None):
         self._rails = rails
         self._audit = audit
         self._clock = clock
         self._mono = mono if mono is not None else default_mono(clock)
+        self._totp = totp                         # auth.Totp (None: nothing can be armed)
+        self._clients = clients                   # auth.ClientTokens (names of lease holders)
         self._lock = threading.Lock()            # bookkeeping only, never held while waiting
         # Read without the lock by is_armed(): single dict lookups are atomic.
         # Expiry is kept on the monotonic clock (arms are never persisted);
         # the wall-clock time is for display only.
         self._flags: Dict[str, bool] = {g: False for g in GROUPS}
         self._expires: Dict[str, Optional[float]] = {g: None for g in GROUPS}
+        self._client: Dict[str, Optional[str]] = {g: None for g in GROUPS}
+        self._budget: Dict[str, int] = {g: 0 for g in GROUPS}
+        self._used: Dict[str, int] = {g: 0 for g in GROUPS}
         self._info: Dict[str, dict] = {g: {"since_utc": None, "expires_utc": None, "by": None,
-                                           "last_disarm": None} for g in GROUPS}
+                                           "hours": None, "last_disarm": None} for g in GROUPS}
         self._listeners: List[Callable[[str, bool, Optional[str]], None]] = []
         self.auto_disarms = 0
+        self.last_result: Optional[dict] = None    # the last arm command's outcome (for the card)
 
     # reading -------------------------------------------------------------
 
@@ -149,48 +169,77 @@ class ArmState:
         if not self._flags.get(group, False):
             return False
         exp = self._expires.get(group)
-        return exp is None or self._mono() < exp
+        return exp is not None and self._mono() < exp
+
+    def is_armed_for(self, group: str, client: Optional[str]) -> bool:
+        """True while ``group`` is armed for exactly this client.  No locks."""
+        return client is not None and self.is_armed(group) and self._client.get(group) == client
+
+    def lease_client(self, group: str) -> Optional[str]:
+        return self._client.get(group) if self.is_armed(group) else None
 
     def armed_groups(self) -> List[str]:
         return [g for g in GROUPS if self.is_armed(g)]
 
     @property
-    def arm_hours(self) -> Optional[float]:
-        """How long a new arm lasts (``general.arm_hours`` of the rails in force)."""
+    def arm_hours(self) -> float:
+        """The longest a new arm may last (``general.arm_hours`` of the rails in force)."""
         return self._rails.arm_hours
+
+    @property
+    def totp_configured(self) -> bool:
+        return self._totp is not None and self._totp.configured
+
+    def client_names(self) -> List[str]:
+        return self._clients.names() if self._clients is not None else []
 
     def expired_groups(self) -> List[str]:
         """Groups still flagged armed whose expiry time has passed."""
         now = self._mono()
         return [g for g in GROUPS
-                if self._flags[g] and self._expires[g] is not None and now >= self._expires[g]]
+                if self._flags[g] and (self._expires[g] is None or now >= self._expires[g])]
 
     def last_disarm(self, group: str) -> Optional[dict]:
         with self._lock:
             ld = self._info[group]["last_disarm"]
             return dict(ld) if ld else None
 
+    def budget_left(self, group: str) -> int:
+        with self._lock:
+            return max(0, self._budget[group] - self._used[group])
+
     def snapshot(self) -> Dict[str, dict]:
-        """``{group: {armed, since_utc, expires_utc, by, last_disarm}}`` for the status."""
+        """``{group: {armed, client, since_utc, expires_utc, hours, by, budget,
+        writes_used, last_disarm}}`` for the status."""
         out = {}
         with self._lock:
             info = copy.deepcopy(self._info)
+            client, budget, used = dict(self._client), dict(self._budget), dict(self._used)
         for g in GROUPS:
             armed = self.is_armed(g)
             out[g] = {"armed": armed,
+                      "client": client[g] if armed else None,
                       "since_utc": info[g]["since_utc"] if armed else None,
                       "expires_utc": info[g]["expires_utc"] if armed else None,
+                      "hours": info[g]["hours"] if armed else None,
                       "by": info[g]["by"] if armed else None,
+                      "budget": budget[g] if armed else None,
+                      "writes_used": used[g] if armed else None,
                       "last_disarm": info[g]["last_disarm"]}
         return out
 
-    def not_armed_text(self, group: str) -> str:
-        """The refusal sentence for a write to a disarmed group."""
-        text = (f"{GROUP_NAMES.get(group, group)} are not armed for AI control. Ask Lucas to "
-                f"arm them on the Control page ({CONTROL_PAGE}).")
+    def not_armed_text(self, group: str, client: Optional[str] = None) -> str:
+        """The refusal sentence for a write to a group not armed for ``client``.
+        It states the fact only — arming is Lucas's decision, not a request."""
+        name = GROUP_NAMES.get(group, group)
+        holder = self.lease_client(group)
+        if holder is not None and holder != client:
+            return (f"{name} are armed for AI client {holder}, not for this client "
+                    f"({client or 'no write token'}).")
+        text = f"{name} are not armed for AI control (only Lucas arms them)."
         ld = self.last_disarm(group)
         if ld and ld.get("reason"):
-            text += f" Last disarmed {ld.get('utc')}: {ld['reason']}."
+            text += f" Last disarmed {ld.get('utc')}: {untrusted(ld['reason'], 300)}."
         return text
 
     # listeners -----------------------------------------------------------
@@ -206,25 +255,66 @@ class ArmState:
             except Exception:
                 log.exception("Error in arm listener")
 
+    # the write budget ------------------------------------------------------
+
+    def take_write(self, group: str, client: Optional[str]) -> Optional[str]:
+        """Use one write of the lease; None when allowed, else the refusal text."""
+        if not self.is_armed_for(group, client):
+            return self.not_armed_text(group, client)
+        with self._lock:
+            if self._used[group] >= self._budget[group]:
+                return (f"{GROUP_NAMES.get(group, group)}: this arm's write budget "
+                        f"({self._budget[group]} calls) is used up.")
+            self._used[group] += 1
+            return None
+
+    def end_if_spent(self, group: Optional[str]) -> None:
+        """Disarm a group whose lease has no writes left (after the call that used the last)."""
+        if group is None or not self.is_armed(group):
+            return
+        with self._lock:
+            spent = self._used[group] >= self._budget[group]
+            budget = self._budget[group]
+        if spent:
+            self.disarm(group, f"the arm's write budget of {budget} calls is used up", auto=True)
+
     # changing ------------------------------------------------------------
 
-    def arm(self, group: str, by: str = "unknown") -> None:
+    def arm(self, group: str, by: str = "unknown", *, client: str,
+            hours: Optional[float] = None, budget: Optional[int] = None) -> None:
+        """Arm ``group`` for ``client`` (the caller has checked Lucas's code)."""
         if group not in GROUPS:
             raise ValueError(f"unknown group {group!r}")
-        hours = self._rails.arm_hours
+        if not isinstance(client, str) or not client:
+            raise ValueError("an arm needs a client")
+        max_h = float(self._rails.arm_hours)
+        hours = max_h if hours is None else min(float(hours), max_h)
+        max_b = int(self._rails.write_budget)
+        budget = max_b if budget is None else min(int(budget), max_b)
+        by = clean_by(by)
         now = self._clock()
-        expires = now + float(hours) * 3600.0 if hours is not None else None
-        expires_mono = self._mono() + float(hours) * 3600.0 if hours is not None else None
+        expires = now + hours * 3600.0
         with self._lock:
             again = self._flags[group] and self.is_armed(group)
-            self._expires[group] = expires_mono     # expiry before the flag
-            self._info[group].update(since_utc=utc_iso(now), expires_utc=utc_iso(expires), by=by)
+            prev_client = self._client[group] if again else None
+            self._expires[group] = self._mono() + hours * 3600.0   # expiry before the flag
+            self._client[group] = client
+            self._budget[group] = budget
+            self._used[group] = 0
+            self._info[group].update(since_utc=utc_iso(now), expires_utc=utc_iso(expires), by=by,
+                                     hours=hours)
             self._flags[group] = True
-        until = f"expires {utc_iso(expires)} ({hours:g} h)" if expires else "no time limit"
-        detail = f"{group} {'re-armed' if again else 'armed'} by {by} — {until}"
+        detail = (f"{group} {'re-armed' if again else 'armed'} for AI client {client} by {by} "
+                  f"(code ok) — expires {utc_iso(expires)} ({hours:g} h), write budget "
+                  f"{budget} calls"
+                  + (f"; the lease of {prev_client} ended" if prev_client
+                     and prev_client != client else ""))
         log.warning("AI control: %s", detail)
         if self._audit is not None:
-            self._audit.record("arm", detail, by=by)
+            self._audit.record("arm", detail, by=by, client=client, group=group, hours=hours,
+                               budget=budget)
+        if prev_client and prev_client != client:
+            self._notify(group, False, f"re-armed for {client}")
         self._notify(group, True, None)
 
     def disarm(self, group: str, reason: str, *, by: Optional[str] = None,
@@ -236,10 +326,15 @@ class ArmState:
         """Disarm every group; returns the groups that were armed."""
         return self._disarm(list(GROUPS), reason, by=by, auto=auto)
 
+    def disarm_groups(self, groups: List[str], reason: str, *, by: Optional[str] = None,
+                      auto: bool = False) -> List[str]:
+        """Disarm several groups in one audit entry; returns those that were armed."""
+        return self._disarm(list(groups), reason, by=by, auto=auto)
+
     def _disarm(self, groups: List[str], reason: str, *, by: Optional[str],
                 auto: bool) -> List[str]:
         now_utc = utc_iso(self._clock())
-        changed = []
+        changed, clients = [], []
         with self._lock:
             for g in groups:
                 if g not in GROUPS:
@@ -249,37 +344,59 @@ class ArmState:
                 self._expires[g] = None
                 if was:
                     changed.append(g)
+                    if self._client[g]:
+                        clients.append(self._client[g])
                     self._info[g]["last_disarm"] = {"reason": reason, "utc": now_utc}
+                self._client[g] = None
             if changed and auto:
                 self.auto_disarms += 1
         if changed:
             detail = f"{', '.join(changed)} disarmed — {reason}"
-            log.warning("AI control: %s", detail)
+            log.warning("AI control: %s", log_text(detail, 500))
             if self._audit is not None:
-                self._audit.record("auto_disarm" if auto else "disarm", detail, by=by)
+                self._audit.record("auto_disarm" if auto else "disarm", detail, by=by,
+                                   client=",".join(dict.fromkeys(clients)) or None)
             for g in changed:
                 self._notify(g, False, reason)
         else:
-            log.info("AI control: disarm (%s) of %s — nothing was armed", reason, ", ".join(groups))
+            log.info("AI control: disarm (%s) of %s — nothing was armed", log_text(reason),
+                     ", ".join(groups))
         return changed
 
+    # the human's MQTT command ------------------------------------------------
+
+    _ARM_KEYS = ("group", "armed", "by", "code", "client", "hours", "budget", "request_id")
+
+    def _result(self, ok: bool, error: Optional[str], rid: Any, group: Any) -> None:
+        self.last_result = {"utc": utc_iso(self._clock()), "ok": ok, "error": error,
+                            "group": group if isinstance(group, str) else None,
+                            "request_id": rid if isinstance(rid, str) and len(rid) <= 64
+                            else None}
+
     def handle_command(self, payload: Any) -> None:
-        """The human's MQTT ``<cmd_prefix>/arm`` message:
-        ``{"group": "heaters"|"ln2"|"pneumatic"|"all", "armed": true|false, "by"?: str}``.
+        """The human's MQTT ``<cmd_prefix>/arm`` message::
+
+            {"group": "heaters"|"ln2"|"pneumatic", "armed": true, "code": "123456",
+             "client": "operator", "hours"?: num, "budget"?: int, "by"?: str,
+             "request_id"?: str}
+            {"group": "heaters"|"ln2"|"pneumatic"|"all", "armed": false, "by"?: str}
 
         ``armed`` must be a JSON bool (0 / 1 / "true" are refused, as the
-        drivers' own gates do); ``"all"`` can only be disarmed.
+        drivers' own gates do); ``"all"`` can only be disarmed.  An arm needs
+        Lucas's one-time code (checked last, so a malformed message does not
+        use it up), a known client, and stays within the rails' arm_hours and
+        write_budget.  A disarm needs nothing.
         """
         if not isinstance(payload, dict):
             log.warning("Ignoring arm command: not a JSON object")
             return
-        raw_by = payload.get("by")
-        by = raw_by.strip()[:80] if isinstance(raw_by, str) and raw_by.strip() else "unknown"
+        by = clean_by(payload.get("by"))
         group, armed = payload.get("group"), payload.get("armed")
-        unknown = sorted(str(k) for k in payload if k not in ("group", "armed", "by"))
+        rid = payload.get("request_id")
+        unknown = sorted(str(k) for k in payload if k not in self._ARM_KEYS)
         problem = None
         if unknown:
-            problem = f"unknown key {unknown[0]!r}"
+            problem = f"unknown key {clean_text(unknown[0], 40)!r}"
         elif not isinstance(group, str) or group not in GROUPS + ("all",):
             problem = "group must be heaters, ln2, pneumatic or all"
         elif not isinstance(armed, bool):
@@ -287,17 +404,53 @@ class ArmState:
         elif group == "all" and armed:
             problem = '"all" can only be disarmed'
         if problem:
-            log.warning("Ignoring arm command %r from %s: %s", payload, by, problem)
-            if self._audit is not None:
-                self._audit.record("arm", f"arm command ignored: {problem}", by=by,
-                                   args=payload)
+            self._ignored(payload, by, problem, rid, group)
             return
-        if group == "all":
-            self.disarm_all(f"disarmed by {by}", by=by)
-        elif armed:
-            self.arm(group, by)
+        if not armed:
+            self._result(True, None, rid, group)
+            if group == "all":
+                self.disarm_all(f"disarmed by {by}", by=by)
+            else:
+                self.disarm(group, f"disarmed by {by}", by=by)
+            return
+
+        client, hours, budget = payload.get("client"), payload.get("hours"), payload.get("budget")
+        names = self.client_names()
+        max_h, max_b = float(self._rails.arm_hours), int(self._rails.write_budget)
+        if not names:
+            problem = ("no AI client has a write token on this service "
+                       "(XSPHERE_AICONTROL_CLIENTS) — there is nobody to arm for")
+        elif not isinstance(client, str) or client not in names:
+            problem = f"client must be one of {', '.join(names)}"
+        elif hours is not None and (not _is_number(hours) or not 0 < float(hours) <= max_h):
+            problem = f"hours must be a number above 0 and at most the rails' arm_hours {max_h:g}"
+        elif budget is not None and (isinstance(budget, bool) or not isinstance(budget, int)
+                                     or not 1 <= budget <= max_b):
+            problem = (f"budget must be a whole number from 1 to the rails' write_budget "
+                       f"{max_b}")
+        if problem:
+            self._ignored(payload, by, problem, rid, group)
+            return
+        if self._totp is None:
+            ok, why = False, "this service has no one-time-code checker"
         else:
-            self.disarm(group, f"disarmed by {by}", by=by)
+            ok, why = self._totp.verify(payload.get("code"))
+        if not ok:
+            log.warning("Arm %s for %s from %s REFUSED: %s", group, client, by, why)
+            if self._audit is not None:
+                self._audit.record("auth_failed", f"arm {group} for {client} refused: {why}",
+                                   by=by, client=client, group=group)
+            self._result(False, f"not armed — {why}", rid, group)
+            return
+        self._result(True, None, rid, group)
+        self.arm(group, by, client=client, hours=hours, budget=budget)
+
+    def _ignored(self, payload: dict, by: str, problem: str, rid: Any, group: Any) -> None:
+        log.warning("Ignoring arm command from %s: %s", by, problem)
+        if self._audit is not None:
+            shown = {k: ("[redacted]" if k == "code" else v) for k, v in payload.items()}
+            self._audit.record("arm", f"arm command ignored: {problem}", by=by, args=shown)
+        self._result(False, f"ignored — {problem}", rid, group)
 
 
 # ──────────────────────────────────────────────────────────────────────────
@@ -471,8 +624,11 @@ class Supervisor:
     """Auto-disarm triggers and the LN2 auto-close, on a 1 s tick + bus observers."""
 
     def __init__(self, bus, arms: ArmState, audit, zones, timers: Ln2Timers, *,
-                 clock: Callable[[], float] = time.time, tick_s: float = 1.0):
+                 clock: Callable[[], float] = time.time, tick_s: float = 1.0,
+                 guard=None, pvcheck=None):
         self._bus = bus
+        self._guard = guard          # guard.PressureGuard (pressure trips, blindness)
+        self._pvcheck = pvcheck      # guard.PvCheck (PV-source re-check every 10 s)
         self._arms = arms
         self._audit = audit
         self._zones = zones
@@ -545,8 +701,9 @@ class Supervisor:
         prev, self._pv_tripped = self._pv_tripped, tripped
         if tripped and prev is not True and self._live(topic):
             reasons = payload.get("reasons")
-            why = "; ".join(f"RTD{k}: {v}" for k, v in reasons.items()) \
-                if isinstance(reasons, dict) and reasons else "no reason given"
+            why = ("; ".join(f"RTD{clean_text(k, 10)}: {clean_text(v, 80)}"
+                             for k, v in list(reasons.items())[:6])
+                   if isinstance(reasons, dict) and reasons else "no reason given")
             self._arms.disarm("heaters", f"the PV interlock tripped ({why})", auto=True)
 
     def _on_interlocks(self, topic: str, payload: Any) -> None:
@@ -556,7 +713,8 @@ class Supervisor:
         prev, self._interlocks_ok = self._interlocks_ok, ok
         if ok is False and prev is not False and self._live(topic):
             rules = payload.get("rules_active")
-            names = ", ".join(map(str, rules)) if isinstance(rules, list) and rules else "?"
+            names = (", ".join(clean_text(r, 60) for r in rules[:8])
+                     if isinstance(rules, list) and rules else "?")
             self._arms.disarm("heaters", f"slowcontrol interlocks turned not-ok ({names})",
                               auto=True)
 
@@ -575,6 +733,16 @@ class Supervisor:
                                       f"(> {SNAPSHOT_DISARM_AGE_S:.0f} s)", auto=True)
         self._check_service_alive()
         self._check_timers(now)
+        if self._guard is not None:
+            try:
+                self._guard.tick(self._arms.armed_groups())
+            except Exception:                        # one failing check must not stop the rest
+                log.exception("Supervisor: pressure guard failed")
+        if self._pvcheck is not None:
+            try:
+                self._pvcheck.tick()
+            except Exception:
+                log.exception("Supervisor: PV-source check failed")
 
     def _check_service_alive(self) -> None:
         snap_age = self._bus.snapshot_age()
@@ -746,10 +914,11 @@ class Ramps:
     # entries -------------------------------------------------------------
 
     def start_ramp(self, zone: str, target_k: float, rate_k_per_min: float, reason: str,
-                   start_expr: str, current_k: float) -> dict:
+                   start_expr: str, current_k: float, client: Optional[str] = None) -> dict:
         now = self._clock()
         with self._lock:
-            entry = {"id": self._next_id, "zone": zone, "target_k": float(target_k),
+            entry = {"id": self._next_id, "zone": zone, "client": client,
+                     "target_k": float(target_k),
                      "rate_k_per_min": float(rate_k_per_min), "reason": reason,
                      "started_ts": now, "started_utc": utc_iso(now), "start_expr": start_expr,
                      "start_k": float(current_k), "current_k": float(current_k),
@@ -784,9 +953,9 @@ class Ramps:
             return list(self._entries)
 
     def status(self) -> List[dict]:
-        """``[{zone, target_k, rate_k_per_min, current_k, started_utc, steps, reason}]``."""
+        """``[{zone, client, target_k, rate_k_per_min, current_k, started_utc, steps, reason}]``."""
         with self._lock:
-            return [{"zone": e["zone"], "target_k": e["target_k"],
+            return [{"zone": e["zone"], "client": e.get("client"), "target_k": e["target_k"],
                      "rate_k_per_min": e["rate_k_per_min"], "current_k": e["current_k"],
                      "started_utc": e["started_utc"], "steps": e["steps"], "reason": e["reason"]}
                     for e in self._entries.values()]
@@ -803,7 +972,7 @@ class Ramps:
                       f"{e['steps']} step(s): {reason}")
             log.warning("%s", log_text(detail, 500))    # the reason may be the AI's words
             if audit and self._audit is not None:
-                self._audit.record(kind, detail, zone=z)
+                self._audit.record(kind, detail, zone=z, client=e.get("client"))
         if stopped:
             self._changed()
         return list(stopped)
@@ -817,7 +986,8 @@ class Ramps:
         text = f"ramp {zone} reached {e['target_k']:g} K after {e['steps']} step(s)"
         log.info(text)
         if self._audit is not None:
-            self._audit.record("ramp", text + (f" ({detail})" if detail else ""), zone=zone)
+            self._audit.record("ramp", text + (f" ({detail})" if detail else ""), zone=zone,
+                               client=e.get("client"))
         self._changed()
 
     def _on_arm_change(self, group: str, armed: bool, reason: Optional[str]) -> None:
