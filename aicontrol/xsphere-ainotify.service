@@ -1,0 +1,48 @@
+# systemd unit for the xsphere AI notifier: phone alerts (ntfy) about the AI
+# control service, and the disarm-only "Disarm AI" phone e-stop.
+#
+# A separate process on purpose, so it can report xsphere-aicontrol's death:
+# no Requires=/BindsTo=/PartOf= on that unit.  It reads MQTT, pushes to ntfy
+# and publishes only two things: its own retained status
+# (xsphere/status/ai_notify) and, when the phone e-stop is tapped,
+# {"group":"all","armed":false,"by":"phone e-stop"} on
+# xsphere/commands/ai_control/arm.  It never arms and never sends rails.
+#
+# Settings (the topic names are the secret) live in /etc/xsphere/notify.env,
+# mode 600, read by systemd as root before it starts the service as xbox.
+# See aicontrol/README.md, "Phone alerts", for creating that file.
+#
+# Install:
+#   sudo cp aicontrol/xsphere-ainotify.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now xsphere-ainotify
+#
+# Logs:  journalctl -u xsphere-ainotify -f
+
+[Unit]
+Description=xsphere AI notifier (phone alerts + disarm-only phone e-stop)
+After=network-online.target docker.service
+Wants=network-online.target
+# Keep retrying forever: a notifier that gave up is worse than a noisy one.
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=xbox
+WorkingDirectory=/home/xbox/xsphere-slow-control
+ExecStart=/home/xbox/miniconda3/envs/slowcontrol/bin/python -u -m aicontrol.notify
+EnvironmentFile=/etc/xsphere/notify.env
+Environment=PYTHONUNBUFFERED=1
+Environment=XSPHERE_NOTIFY_INSTANCE=production
+Environment=XSPHERE_MQTT_HOST=localhost
+Environment=XSPHERE_MQTT_PORT=1883
+Restart=always
+RestartSec=10
+# Exit status 2 = invalid settings: restarting would not help, so stop
+# ("failed" in systemctl status) instead of looping.
+RestartPreventExitStatus=2
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

@@ -368,8 +368,13 @@ Once the code is on the Pi's checkout (`~/xsphere-slow-control`):
    "Checks after deploying it". The Flux templates and a real Claude Code
    `tools/call` were only tested offline before.
 
+8. **Before any unattended arm:** set up the phone notifier ("Phone alerts"
+   below). Until then nobody is told when the service disarms, auto-closes a
+   valve or dies.
+
 To take it out: `sudo systemctl disable --now xsphere-aicontrol`. It publishes
-"offline, disarmed" as it stops. Nothing else depends on it.
+"offline, disarmed" as it stops. Only the notifier watches it; it will report
+it as down.
 
 ### InfluxDB token
 
@@ -396,12 +401,184 @@ over a whitelist of ids, but a read-only token limits what a bug could do.
    systemd reads the file as root before it starts the service as `xbox`, so
    mode 600 is enough. The log names the token's source, never its value.
 
+## Phone alerts (`xsphere-ainotify`)
+
+Without this, nothing tells a human anything: the service's own warnings
+("check the valve", auto-disarms) only reach the audit log and the Control page
+card. The notifier is a second, independent unit that watches the AI service
+over MQTT and pushes to your phone through [ntfy](https://ntfy.sh). The ntfy
+app needs no account. Because it is a separate process, it can report the AI
+service's own death. It imports only `bus.py` and `config.py` from this
+package, so a broken AI service deploy cannot take it down too.
+
+It reads `xsphere/status/ai_control`, `…/ai_control/audit`,
+`xsphere/status/pneumatic_control` and `xsphere/status/turbo_control`. It
+publishes only two things: its own retained status on
+`xsphere/status/ai_notify` (`online`, pushes sent / failed, e-stop listener
+state; never the topic names), and the phone e-stop's disarm below.
+
+### What it sends
+
+| Priority | When |
+|---|---|
+| **urgent** (5) | an audit entry says "check the valve"; the AI service goes offline or silent while an LN2 timer is pending (nothing closes that valve then); the notifier loses the broker while an LN2 timer is pending; a phone e-stop that could not be sent for 10 min |
+| **high** (4) | an `auto_disarm` or `auto_close` entry; the AI service offline (a crash at once; a clean stop only if it is not back within 60 s) or silent for over 30 s, saying whether LN2 timers were pending; 5 or more refusals in 10 min, or a "counted but not audited" summary (at most once per 30 min each); an arm or rails save whose `by` is not an expected source; the notifier without a broker for 30 s; something armed at Saturday 22:00 (see the Sunday backup below); a phone e-stop not confirmed within 10 s |
+| **normal** (3) | a human arm or disarm; rails saved, one change per line; an arm about to lapse (30 min) while a ramp or an LN2 timer is active; the AI service back online or restarted; the e-stop confirmation; the e-stop listener down for 5 min |
+| **low** (2) | when an arm ends: who armed, for how long, why it ended, actions by tool, refusals by reason, ramps, auto-closes and **every AI note in full**. Every day at 08:00 (America/New_York): the arms, rails revision, LN2 timers, which PLC / turbo gates are enabled and for how long, the last 24 h of AI activity, the next maintenance window and the notifier's own health. |
+
+- **The daily digest is the notifier's heartbeat.** No digest at 08:00 means
+  the notifier is down (or the Pi has no internet).
+- **Expected sources** are `control page` (what the card sends today) and
+  `<name> @ <address> (browser)`, the stamp hardening recommendation R5 plans
+  for webcontrol. Anything else, including `unknown`, curl, python or
+  `mosquitto_pub`, is a high-priority alert. Change the list with
+  `NOTIFY_EXPECTED_BY`.
+- Every push has a **Disarm AI** button (next section). Tapping the message
+  itself opens the Control page, which works on the lab network only (see
+  `NOTIFY_CLICK_URL`).
+- **Pushes are capped at 30 an hour.** Urgent ones always go out; the rest are
+  summed up in one push once the hour has room again. A failed push is retried
+  every 30 s for up to 6 h and then says "Delayed: this happened at …".
+  Messages over about 3.8 kB are split into numbered parts.
+
+### The phone e-stop
+
+Every push carries an ntfy "Disarm AI" action. It POSTs to a second, secret
+topic. The notifier keeps a streaming GET open on that topic. For **any**
+message there it publishes
+`{"group":"all","armed":false,"by":"phone e-stop"}` on
+`xsphere/commands/ai_control/arm` at qos 1, then pushes either "AI disarmed by
+the phone e-stop" (naming what was armed) or "disarm NOT confirmed".
+
+- It never arms and never sends rails. That payload is a constant, and the
+  notifier refuses to publish anything else on a command topic. Whoever
+  learns the e-stop topic can therefore only disarm.
+- Taps from before the notifier started are ignored, and so are repeats of
+  the same message. A tap made while the stream was down still arrives when it
+  reconnects.
+- If the broker is unreachable, it retries every 5 s for 10 min (the AI
+  service disarms itself on reconnecting anyway), then sends an urgent push.
+- It does **not** lock the pneumatic or turbo gates. Disarming moves no
+  hardware, just like the card's **disarm all**.
+
+### The Sunday backup (maintenance window)
+
+The root crontab runs the IOTstack backup every Sunday at 02:00
+(`/usr/local/bin/runbackup.sh`). It recreates every container, mosquitto
+included, so there is **no broker for about 11–15 minutes**. In that window
+slow control restarts, the AI service disarms everything, and an LN2 close
+that falls due has to wait for the broker.
+
+- **Saturday 22:00:** if anything is armed, or an LN2 timer or a ramp is
+  active, the notifier sends a high-priority warning. Disarm, or make sure
+  nothing needs the AI overnight.
+- **Inside Sunday 01:45–02:30**, when nothing was at stake, it holds back the
+  broker-lost and AI-down alerts. If everything is back by 02:30 you only get
+  a line in the next daily digest; if not, the alert goes out at 02:30. When
+  something was armed, the alerts go out at once.
+- Both times are settings (`NOTIFY_MAINTENANCE`, `NOTIFY_MAINTENANCE_WARN`). The
+  AI service itself does not yet refuse LN2 opens or ramps that would cross
+  the window (hardening recommendation R4).
+
+### Setting it up
+
+The topic names are the only secret: anyone who knows the first can read the
+alerts (they contain no passwords, but they describe the experiment), and
+anyone who knows the second can disarm the AI.
+
+1. **Install the ntfy app** on the phone (Google Play, F-Droid or the App
+   Store; "ntfy" by Philipp Heckel). No account is needed.
+2. **Make two topic names**, on any computer:
+   ```bash
+   python3 -c "import secrets; print('xsphere-' + secrets.token_urlsafe(24))"
+   ```
+   Run it twice: the first is the **alert** topic, the second the **e-stop**
+   topic. ntfy.sh creates a topic on first use, so there is nothing to
+   register. Names must be at least 20 characters; the notifier refuses
+   shorter ones, or two identical ones.
+3. **Subscribe in the app** to the alert topic only: **+**, enter the name,
+   keep the server `ntfy.sh`, then **Subscribe**.
+   - Do not subscribe to the e-stop topic. The button posts to it without
+     your subscribing.
+   - On Android, turn on **instant delivery** for the subscription, so battery
+     saving does not delay alerts.
+   - To let urgent alerts through Do Not Disturb, allow it for ntfy's
+     "max priority" notifications in the phone's settings.
+4. **Put the names on the Pi** in a file only root can read:
+   ```bash
+   sudo install -d -m 755 /etc/xsphere
+   sudo install -m 600 /dev/null /etc/xsphere/notify.env
+   sudo nano /etc/xsphere/notify.env
+   ```
+   ```bash
+   NTFY_ALERT_TOPIC=<the first name>
+   NTFY_ESTOP_TOPIC=<the second name>
+   ```
+   systemd reads the file as root before it starts the service as `xbox`, so
+   mode 600 is enough.
+5. **Install and start the unit.** This does not touch the AI service, the
+   arms or slow control:
+   ```bash
+   sudo cp aicontrol/xsphere-ainotify.service /etc/systemd/system/
+   sudo systemctl daemon-reload
+   sudo systemctl enable --now xsphere-ainotify
+   journalctl -u xsphere-ainotify -n 20      # masked topic names, "MQTT connected"
+   ```
+   A bad setting shows as `Refusing to start: …` in the journal. The unit then
+   stops instead of restarting every 10 s.
+6. **Check it end to end, with nothing armed.** The phone should show
+   "notifier started" within a few seconds. Tap **Disarm AI** on that
+   message: within about 10 s it should say "AI disarmed by the phone e-stop —
+   Nothing was armed — the button works." If nothing comes, see
+   `journalctl -u xsphere-ainotify -n 50`. A "phone e-stop not listening"
+   push or an `e-stop stream` line there means the Pi cannot reach the e-stop
+   topic.
+
+To change a setting, edit the file and run
+`sudo systemctl restart xsphere-ainotify`. To take it out, run
+`sudo systemctl disable --now xsphere-ainotify`; it pushes "notifier stopped"
+as it goes.
+
+### Settings (`/etc/xsphere/notify.env`)
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `NTFY_ALERT_TOPIC` | — (required) | the topic your phone subscribes to |
+| `NTFY_ESTOP_TOPIC` | — (required) | the topic the Disarm AI button posts to; must differ from the alert topic |
+| `NTFY_SERVER` | `https://ntfy.sh` | another ntfy server (e.g. self-hosted) |
+| `NTFY_TOKEN` | none | access token for a server or reserved topics that need one; used for the notifier's pushes and its e-stop stream. The phone button sends no token, so the e-stop topic must stay writable without one. |
+| `NOTIFY_EXPECTED_BY` | `control page\|.+ @ \S+ \(browser\)` | regex (full match) for the `by` of arms and rails saves that are expected |
+| `NOTIFY_CLICK_URL` | `http://xbox-pi:8088/control` | opened when you tap a message (empty: none) |
+| `NOTIFY_TZ` | `America/New_York` | for the digest time, the windows and the times in messages |
+| `NOTIFY_DAILY_DIGEST` | `08:00` | local time of the daily digest |
+| `NOTIFY_MAINTENANCE` | `Sun 01:45-02:30` | weekly windows, `;`-separated; `none` to disable |
+| `NOTIFY_MAINTENANCE_WARN` | `Sat 22:00` | when to warn if anything is armed; `none` to disable |
+
+The unit itself sets `XSPHERE_NOTIFY_INSTANCE=production` and the broker
+(`XSPHERE_MQTT_HOST`, `XSPHERE_MQTT_PORT`). Any other instance is a *test*
+notifier, like a test AI service:
+
+- its client id is `xsphere-ainotify-test-<host>-<pid>`;
+- it watches `xsphere/test/ai_control` and disarms on
+  `xsphere/test/commands/ai_control/arm`;
+- it refuses any broker but localhost.
+
+`python -m aicontrol.notify --check` validates the settings and prints them
+with the topic names masked. `--test` sends one push. Add
+`--env-file <file>` to read a file directly.
+
+**Limits:** no internet means no alerts (the card is unaffected), and an
+outage of the notifier itself shows only as a missing daily digest. It watches
+the AI service only; slow control's own interlock alerts still go nowhere but
+MQTT and the Dashboard.
+
 ## Testing
 
 - **On the DAQ PC**, run
   `C:\Users\xbox\anaconda3\python.exe -m pytest tests/test_aicontrol_*.py -q`.
   The tests use an in-process MQTT loopback and a fake slow-control responder,
-  with no broker and no network.
+  with no broker and no network. `tests/test_aicontrol_notify.py` covers the
+  notifier the same way, with a fake ntfy server and a fake clock.
 - **`python -m aicontrol`** without the unit's environment starts a *test*
   instance:
   - its client id and topics live under `xsphere/test/…`;
@@ -434,6 +611,7 @@ over a whitelist of ids, but a read-only token limits what a bug could do.
 | `mcp.py`, `tools.py`, `app.py` | MCP protocol, tool registry, Flask app |
 | `templates/index.html` | the read-only status page |
 | `xsphere-aicontrol.service` | systemd unit |
+| `notify.py`, `xsphere-ainotify.service` | the phone notifier and its own unit |
 | `operator/` | the Claude Code operator profile template |
 | `rails.json`, `audit.jsonl`, `runtime.json` | runtime state on the Pi (gitignored) |
 | `test-state/` | a test instance's own runtime state (gitignored) |
