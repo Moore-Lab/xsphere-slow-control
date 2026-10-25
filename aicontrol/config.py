@@ -20,6 +20,12 @@ deliberately fenced off from the live experiment:
 The InfluxDB token is read from the repo's ``.env`` (``INFLUX_TOKEN``) unless
 ``XSPHERE_AICONTROL_INFLUX_TOKEN`` overrides it.  Only *where* the token came
 from is ever logged or shown, never its value.
+
+Lucas's one-time-code secret (``XSPHERE_AICONTROL_TOTP_SECRET``, base32) and
+the AI clients' token hashes (``XSPHERE_AICONTROL_CLIENTS``,
+``name:sha256hex,…``) come from the process environment only — on the Pi from
+the root-only ``/etc/xsphere/aicontrol.env`` (the unit's ``EnvironmentFile=``),
+never from the repo.  Neither is ever logged or shown; see auth.py.
 """
 
 from __future__ import annotations
@@ -30,6 +36,8 @@ import re
 import socket
 from pathlib import Path
 from typing import Dict, FrozenSet, Iterable, Mapping, Optional
+
+from .auth import ClientTokens, decode_secret
 
 log = logging.getLogger(__name__)
 
@@ -163,7 +171,9 @@ class Settings:
                  influx_bucket: str = DEFAULT_INFLUX_BUCKET,
                  influx_token: Optional[str] = None,
                  influx_token_source: str = "none",
-                 env_file: Optional[Path] = None):
+                 env_file: Optional[Path] = None,
+                 totp_secret: Optional[str] = None,
+                 clients: Optional[str] = None):
         self.instance = (instance or "test").strip() or "test"
         self.production = self.instance == PRODUCTION
         self.mqtt_host = mqtt_host
@@ -195,6 +205,13 @@ class Settings:
         self.influx_bucket = influx_bucket
         self.influx_token = influx_token or None
         self.influx_token_source = influx_token_source if self.influx_token else "none"
+        # Secrets: kept here, never logged, never in repr (auth.py).
+        self._totp_secret = decode_secret(totp_secret)
+        self.totp_problem: Optional[str] = None
+        if totp_secret and self._totp_secret is None:
+            self.totp_problem = ("XSPHERE_AICONTROL_TOTP_SECRET is set but is not base32 text "
+                                 "of at least 10 bytes — treated as not configured")
+        self.client_tokens, self.client_problems = ClientTokens.parse(clients)
 
         if self.production:
             self.client_id = "xsphere-aicontrol"
@@ -213,6 +230,11 @@ class Settings:
                     f"test instance refuses MQTT host {self.mqtt_host!r}: a "
                     f"non-production instance only talks to a broker on localhost "
                     f"(set XSPHERE_AICONTROL_INSTANCE=production for the real service)")
+
+    @property
+    def totp_secret(self) -> Optional[bytes]:
+        """The decoded one-time-code secret (None = not configured)."""
+        return self._totp_secret
 
     @property
     def audit_topic(self) -> str:
@@ -280,6 +302,8 @@ class Settings:
             influx_token=token,
             influx_token_source=source,
             env_file=env_file,
+            totp_secret=env.get("XSPHERE_AICONTROL_TOTP_SECRET") or None,
+            clients=env.get("XSPHERE_AICONTROL_CLIENTS") or None,
         )
 
     def log_startup(self) -> None:
@@ -294,6 +318,17 @@ class Settings:
         log.info("State dir %s", self.state_dir)
         log.info("InfluxDB %s org %s bucket %s; token from %s", self.influx_url,
                  self.influx_org, self.influx_bucket, self.influx_token_source)
+        if self._totp_secret is not None:
+            log.info("One-time codes for arming and rails: configured")
+        else:
+            log.error("One-time codes for arming and rails: NOT configured%s — nothing can be "
+                      "armed and the rails cannot be saved (see aicontrol/README.md, "
+                      "\"Enrolling\")", f" ({self.totp_problem})" if self.totp_problem else "")
+        for problem in self.client_problems:
+            log.error("XSPHERE_AICONTROL_CLIENTS: %s — entry ignored", problem)
+        names = self.client_tokens.names()
+        log.info("AI client write tokens: %s", ", ".join(names) if names else
+                 "none — every write tool is refused (reads still work)")
 
     def __repr__(self) -> str:      # never shows the token
         return (f"Settings(instance={self.instance!r}, mqtt={self.mqtt_host}:{self.mqtt_port}, "

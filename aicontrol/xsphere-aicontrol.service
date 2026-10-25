@@ -18,6 +18,13 @@
 # still starting does not stop it.  The InfluxDB token for query_history is
 # read from the repo's .env (INFLUX_TOKEN) unless XSPHERE_AICONTROL_INFLUX_TOKEN
 # is set here; only its source is logged, never the value.
+#
+# Secrets come from /etc/xsphere/aicontrol.env (root:root, mode 600), which
+# Lucas writes himself — see "Enrolling" in aicontrol/README.md:
+#   XSPHERE_AICONTROL_TOTP_SECRET=<base32>       one-time codes for arming / rails
+#   XSPHERE_AICONTROL_CLIENTS=operator:<sha256>  AI clients' write-token hashes
+# Without the file the service still starts (the LN2 auto-close and the
+# guards keep running), but nothing can be armed and every write is refused.
 
 [Unit]
 Description=xsphere AI control service (MCP for Claude)
@@ -34,6 +41,7 @@ Environment=XSPHERE_AICONTROL_INSTANCE=production
 Environment=XSPHERE_MQTT_HOST=localhost
 Environment=XSPHERE_MQTT_PORT=1883
 Environment=XSPHERE_AICONTROL_PORT=8089
+EnvironmentFile=-/etc/xsphere/aicontrol.env
 Restart=on-failure
 RestartSec=10
 StandardOutput=journal

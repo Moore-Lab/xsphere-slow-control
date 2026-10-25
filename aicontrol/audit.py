@@ -12,9 +12,13 @@ Each entry goes three places:
   at most once a second — the Control page's "Recent AI activity" reads that
   from webcontrol's MQTT cache, so it needs no cross-origin request.
 
-Entry: ``{"utc", "kind", "detail", ...}`` with optional ``tool``, ``args``,
-``reason`` (the AI's own words), ``published``, ``confirmed``, ``by`` and any
-other keyword the caller passes; None-valued fields are left out.  Values are
+Entry: ``{"utc", "kind", "detail", "client", ...}`` with optional ``tool``,
+``args``, ``reason`` (the AI's own words), ``published``, ``confirmed``,
+``previous`` (what the action changed, so a person can put it back), ``by``
+and any other keyword the caller passes; None-valued fields are left out.
+``client`` is always there: the AI client a tool call or lease concerns
+(``anonymous`` for a call without a valid write token), ``human`` for a rails
+save, ``service`` for the service's own entries.  Values are
 made strict-JSON safe (non-finite floats → null) and any key that looks like a
 credential is redacted: nothing secret is ever written or published.
 """
@@ -37,7 +41,7 @@ from typing import Any, Callable, Deque, Dict, List, Optional
 log = logging.getLogger(__name__)
 
 KINDS = ("action", "refused", "arm", "disarm", "auto_disarm", "rails", "rails_refused",
-         "note", "ramp", "auto_close")
+         "note", "ramp", "auto_close", "auth_failed", "dry_run", "guard", "pv_check")
 
 PUBLISH_LAST = 50
 PUBLISH_MIN_INTERVAL_S = 1.0
@@ -98,7 +102,8 @@ class Audit:
         if kind not in KINDS:
             log.warning("Audit entry with unexpected kind %r", kind)
         entry: Dict[str, Any] = {"utc": _utc_now_iso(self._clock()), "kind": str(kind),
-                                 "detail": _clean(str(detail))}
+                                 "detail": _clean(str(detail)),
+                                 "client": _clean(str(fields.pop("client", None) or "service"))}
         for key, value in fields.items():
             if value is None or key in entry:
                 continue

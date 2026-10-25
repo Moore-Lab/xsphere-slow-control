@@ -37,6 +37,11 @@ errors are kept for protocol faults (unknown tool, malformed request).
 Host and Origin are checked by app.py for every route.  The Origin check is
 repeated here as a backstop, because /mcp is the one route a browser page
 must never reach (DNS rebinding).
+
+Who is calling (``client``) is resolved by app.py from ``Authorization:
+Bearer <token>`` (auth.py) and handed to every ``tools/call``.  A missing or
+unknown token is never answered with 401 — Claude Code would take that as an
+OAuth challenge — the write tools refuse in their result instead.
 """
 
 from __future__ import annotations
@@ -94,9 +99,9 @@ class ToolSource(Protocol):
 
     def has(self, name: str) -> bool: ...
 
-    def call(self, name: str, args: dict) -> Tuple[bool, object]:
-        """Run a tool; returns (is_error, result).  A str result is sent as
-        the text verbatim, anything else as JSON."""
+    def call(self, name: str, args: dict, client: Optional[str] = None) -> Tuple[bool, object]:
+        """Run a tool for ``client``; returns (is_error, result).  A str result
+        is sent as the text verbatim, anything else as JSON."""
         ...
 
 
@@ -120,7 +125,7 @@ def _first_time(key: str) -> bool:
 
 def handle(method: str, headers: Mapping[str, str], body: bytes,
            tools: ToolSource, instructions: str,
-           server_version: str = "1.0.0") -> Response:
+           server_version: str = "1.0.0", client: Optional[str] = None) -> Response:
     """Answer one HTTP request to the MCP endpoint.
 
     Returns (status, response headers, response body).  The checks run in a
@@ -182,8 +187,8 @@ def handle(method: str, headers: Mapping[str, str], body: bytes,
     text = _instructions(instructions)
     try:
         if era == "modern":
-            return _modern(rid, rpc, params, hdrs, tools, text, server_info)
-        return _legacy(rid, rpc, params, hdrs, tools, text, server_info)
+            return _modern(rid, rpc, params, hdrs, tools, text, server_info, client)
+        return _legacy(rid, rpc, params, hdrs, tools, text, server_info, client)
     except Exception:  # noqa: BLE001 -- never let a request kill the worker
         log.exception("mcp: %s %s failed", era, rpc)
         return _error(500, rid, INTERNAL_ERROR, "Internal error")
@@ -208,7 +213,7 @@ def _era(rpc: str, params: Any, hdrs: Dict[str, str]) -> str:
 
 def _legacy(rid: Any, rpc: str, params: Any, hdrs: Dict[str, str],
             tools: ToolSource, instructions: str,
-            server_info: dict) -> Response:
+            server_info: dict, client: Optional[str] = None) -> Response:
     if rpc == "initialize":
         p = params if isinstance(params, dict) else {}
         asked = p.get("protocolVersion")
@@ -241,13 +246,13 @@ def _legacy(rid: Any, rpc: str, params: Any, hdrs: Dict[str, str],
     if rpc == "tools/list":
         return _result(rid, {"tools": list(tools.mcp_tools())})
     if rpc == "tools/call":
-        return _tools_call(rid, p, tools, None)
+        return _tools_call(rid, p, tools, None, client)
     return _error(200, rid, METHOD_NOT_FOUND, f"Method not found: {rpc}")
 
 
 def _modern(rid: Any, rpc: str, params: Any, hdrs: Dict[str, str],
             tools: ToolSource, instructions: str,
-            server_info: dict) -> Response:
+            server_info: dict, client: Optional[str] = None) -> Response:
     # The order matters: a dual-era client decides "this server is modern"
     # from the first of these errors it sees.
     meta = params.get("_meta") if isinstance(params, dict) else None
@@ -312,11 +317,11 @@ def _modern(rid: Any, rpc: str, params: Any, hdrs: Dict[str, str],
             "cacheScope": "public",
             "_meta": out_meta,
         })
-    return _tools_call(rid, params, tools, out_meta)
+    return _tools_call(rid, params, tools, out_meta, client)
 
 
 def _tools_call(rid: Any, params: dict, tools: ToolSource,
-                out_meta: Optional[dict]) -> Response:
+                out_meta: Optional[dict], client: Optional[str] = None) -> Response:
     """Shared by both eras; out_meta is None for legacy (no resultType/_meta)."""
     name = params.get("name")
     if not isinstance(name, str):
@@ -332,7 +337,7 @@ def _tools_call(rid: Any, params: dict, tools: ToolSource,
                       "Invalid params: arguments must be an object")
 
     try:
-        is_error, obj = tools.call(name, args)
+        is_error, obj = tools.call(name, args, client)
     except Exception as exc:  # noqa: BLE001 -- the registry should catch; backstop
         log.exception("mcp: tool %s raised", name)
         is_error, obj = True, {"ok": False, "tool": name,

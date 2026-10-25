@@ -9,15 +9,18 @@ change the rails is :meth:`RailsStore.replace`, which the service calls for a
 human's MQTT message on ``<cmd_prefix>/rails`` (the Control page's rails
 editor); no AI tool reaches it.
 
-Schema (version 2; every key required in a stored document, unknown keys
+Schema (version 3; every key required in a stored document, unknown keys
 rejected, numbers finite int/float and never bool)::
 
-    {"version": 2,
+    {"version": 3,
      "revision": int,                          # managed here, ignored in input
      "zone_fingerprints": {zone: str},         # set here on save, ignored in input
      "updated_utc": str, "updated_by": str,    # set here on save, ignored in input
-     "general": {"arm_hours": num|null},       # >0 ≤168; null = arms never expire
+     "general": {"arm_hours": num,             # >0 ≤12: the longest an arm may last (never null)
+                 "write_budget": int},         # 1–1000: AI write calls one arm allows at most
      "heaters": {
+       "pv_cross_check_k": num|null,           # >0 ≤50: a clamp PV source more than this from
+                                               # the zone's cube RTD is refused (null: no clamp)
        "zones": {"top"|"bottom"|"nozzle": {
           "setpoint_min_k": num|null, "setpoint_max_k": num|null,   # both or neither; 0<min<max≤400
           "max_step_k": num|null,                                   # >0
@@ -32,7 +35,20 @@ rejected, numbers finite int/float and never bool)::
           "may_set_auto_open": bool, "may_disarm_auto_close": bool}}},
      "pneumatic": {"valves": {"ballast"|"pump"|"bottle": {"may_open": bool, "may_close": bool}},
                    "forbid_open_together": [[valve, valve], ...],   # two different valves
-                   "min_interval_s": num}}                          # ≥2
+                   "min_interval_s": num},                          # ≥2
+     "guard": {                                # the pressure guard (guard.py); deny by default
+          "p_xe_cube"|"p_primary_bottle": {"warn_mbar": num|null, "trip_mbar": num|null},
+                                               # both or neither; 0 < warn < trip ≤ 20000
+          "fresh_s": num|null,                 # >0 ≤300: max age of a reading a write relies on
+          "blind_disarm_s": num|null,          # >0 ≤3600: no fresh pressure this long disarms
+                                               # heaters and pneumatic (null: never)
+          "xenon_present_mbar": num|null,      # >0 ≤10000: p_xe_cube at/above = xenon present
+          "pump_open_max_mbar": num|null,      # >0 ≤2000: the pump valve opens only below this
+          "pump_open_with": ["ballast"|"bottle", ...]}}   # default []: never pump + ballast/bottle
+
+Version 2 documents (from before the guard, the arm leases and the clamp
+cross-check) are refused like any invalid file: nothing is writable until
+Lucas saves the rails again.
 
 Heater rails are keyed by *software* zone name, and those names are about to
 be re-pointed (branch claude/swap-top-bottom).  Each save therefore stores the
@@ -55,13 +71,14 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
-from .zones import CHANNELS, VALVES, VESSELS, ZONES
+from .untrusted import clean_by
+from .zones import CHANNELS, GAUGES, VALVES, VESSELS, ZONES
 
 log = logging.getLogger(__name__)
 
-RAILS_VERSION = 2
+RAILS_VERSION = 3
 
-CONTENT_KEYS = ("general", "heaters", "ln2", "pneumatic")
+CONTENT_KEYS = ("general", "heaters", "ln2", "pneumatic", "guard")
 META_KEYS = ("revision", "zone_fingerprints", "updated_utc", "updated_by")
 PV_SOURCES = ("cube", "clamp")
 
@@ -73,14 +90,27 @@ _SUPPLY_UNSET = {"voltage_min_v": None, "voltage_max_v": None,
 _VESSEL_UNSET = {"may_operate": False, "max_open_minutes": None,
                  "may_set_auto_open": False, "may_disarm_auto_close": False}
 _VALVE_UNSET = {"may_open": False, "may_close": False}
+_GAUGE_UNSET = {"warn_mbar": None, "trip_mbar": None}
+
+#: Gas valves the pump valve may be allowed to be open together with.
+PUMP_PARTNERS = ("ballast", "bottle")
+MAX_ARM_HOURS = 12
+DEFAULT_ARM_HOURS = 2
+DEFAULT_WRITE_BUDGET = 30
+MAX_WRITE_BUDGET = 1000
+
+_GUARD_UNSET = {**{g: dict(_GAUGE_UNSET) for g in GAUGES},
+                "fresh_s": None, "blind_disarm_s": None, "xenon_present_mbar": None,
+                "pump_open_max_mbar": None, "pump_open_with": []}
 
 #: Nothing writable.  Treat as read-only; use :func:`default_rails` for a copy.
 DEFAULT_RAILS: Dict[str, Any] = {
     "version": RAILS_VERSION,
     "revision": 0,
     "zone_fingerprints": {z: "" for z in ZONES},
-    "general": {"arm_hours": 8},
+    "general": {"arm_hours": DEFAULT_ARM_HOURS, "write_budget": DEFAULT_WRITE_BUDGET},
     "heaters": {
+        "pv_cross_check_k": None,
         "zones": {z: copy.deepcopy(_ZONE_UNSET) for z in ZONES},
         "supply": {ch: copy.deepcopy(_SUPPLY_UNSET) for ch in CHANNELS},
     },
@@ -90,6 +120,7 @@ DEFAULT_RAILS: Dict[str, Any] = {
         "forbid_open_together": [],
         "min_interval_s": 10,
     },
+    "guard": copy.deepcopy(_GUARD_UNSET),
 }
 
 
@@ -218,14 +249,22 @@ def validate_rails(doc: Any, stored: bool = False) -> List[str]:
 
     # general
     if "general" in top:
-        g = _check_obj(top["general"], "general", ("arm_hours",), errs)
+        g = _check_obj(top["general"], "general", ("arm_hours", "write_budget"), errs)
         if g is not None:
-            _check_num(g, "arm_hours", "general", errs, nullable=True, gt=0, le=168,
-                       rule="> 0 and ≤ 168 hours")
+            _check_num(g, "arm_hours", "general", errs, nullable=False, gt=0, le=MAX_ARM_HOURS,
+                       rule=f"> 0 and ≤ {MAX_ARM_HOURS} hours")
+            wb = g.get("write_budget")
+            if "write_budget" in g and (isinstance(wb, bool) or not isinstance(wb, int)
+                                        or not 1 <= wb <= MAX_WRITE_BUDGET):
+                errs.append(f"general.write_budget: must be a whole number from 1 to "
+                            f"{MAX_WRITE_BUDGET} (got {_show(wb)})")
 
     # heaters
     if "heaters" in top:
-        h = _check_obj(top["heaters"], "heaters", ("zones", "supply"), errs)
+        h = _check_obj(top["heaters"], "heaters", ("pv_cross_check_k", "zones", "supply"), errs)
+        if h is not None:
+            _check_num(h, "pv_cross_check_k", "heaters", errs, nullable=True, gt=0, le=50,
+                       rule="> 0 and ≤ 50 K")
         if h is not None and "zones" in h:
             zones = _check_obj(h["zones"], "heaters.zones", ZONES, errs)
             for z in ZONES if zones is not None else ():
@@ -313,6 +352,45 @@ def validate_rails(doc: Any, stored: bool = False) -> List[str]:
                 _check_forbid_pairs(pn["forbid_open_together"], errs)
             _check_num(pn, "min_interval_s", "pneumatic", errs, nullable=False, ge=2,
                        rule="≥ 2 s")
+
+    # guard
+    if "guard" in top:
+        gd = _check_obj(top["guard"], "guard", tuple(_GUARD_UNSET), errs)
+        if gd is not None:
+            for gauge in GAUGES:
+                if gauge not in gd:
+                    continue
+                p = f"guard.{gauge}"
+                gr = _check_obj(gd[gauge], p, tuple(_GAUGE_UNSET), errs)
+                if gr is None:
+                    continue
+                w = _check_num(gr, "warn_mbar", p, errs, nullable=True, gt=0, le=20000,
+                               rule="> 0 and ≤ 20000 mbar")
+                t = _check_num(gr, "trip_mbar", p, errs, nullable=True, gt=0, le=20000,
+                               rule="> 0 and ≤ 20000 mbar")
+                _check_pair(w, t, gr, "warn_mbar", "trip_mbar", p, errs, strict=True)
+            _check_num(gd, "fresh_s", "guard", errs, nullable=True, gt=0, le=300,
+                       rule="> 0 and ≤ 300 s")
+            _check_num(gd, "blind_disarm_s", "guard", errs, nullable=True, gt=0, le=3600,
+                       rule="> 0 and ≤ 3600 s")
+            _check_num(gd, "xenon_present_mbar", "guard", errs, nullable=True, gt=0, le=10000,
+                       rule="> 0 and ≤ 10000 mbar")
+            _check_num(gd, "pump_open_max_mbar", "guard", errs, nullable=True, gt=0, le=2000,
+                       rule="> 0 and ≤ 2000 mbar")
+            if "pump_open_with" in gd:
+                pw = gd["pump_open_with"]
+                if not isinstance(pw, list):
+                    errs.append(f"guard.pump_open_with: must be a list (got {_show(pw)})")
+                else:
+                    seen = set()
+                    for item in pw:
+                        if not isinstance(item, str) or item not in PUMP_PARTNERS:
+                            errs.append(f"guard.pump_open_with: unknown valve {_show(item)} "
+                                        f"(allowed: {', '.join(PUMP_PARTNERS)})")
+                        elif item in seen:
+                            errs.append(f"guard.pump_open_with: {_show(item)} listed twice")
+                        else:
+                            seen.add(item)
     return errs
 
 
@@ -540,9 +618,27 @@ class RailsStore:
             return copy.deepcopy(self._effective["general"])
 
     @property
-    def arm_hours(self) -> Optional[float]:
+    def arm_hours(self) -> float:
+        """The longest an arm may last (hours)."""
         with self._lock:
-            return self._effective["general"]["arm_hours"]
+            return float(self._effective["general"]["arm_hours"])
+
+    @property
+    def write_budget(self) -> int:
+        """The most AI write calls one arm may allow."""
+        with self._lock:
+            return int(self._effective["general"]["write_budget"])
+
+    def guard(self) -> Dict[str, Any]:
+        """The ``guard`` section in force (deep copy)."""
+        with self._lock:
+            return copy.deepcopy(self._effective["guard"])
+
+    @property
+    def pv_cross_check_k(self) -> Optional[float]:
+        with self._lock:
+            v = self._effective["heaters"]["pv_cross_check_k"]
+            return None if v is None else float(v)
 
     def zone_limits(self, zone: str) -> Optional[Tuple[float, float]]:
         """(setpoint_min_k, setpoint_max_k) when both are set and the zone is not stale."""
@@ -559,9 +655,10 @@ class RailsStore:
         Returns ``(ok, error, diff_summary)``.  Refused when ``base_revision``
         is not the current revision (someone saved in between), when the
         document is invalid, or when the file cannot be written; the rails in
-        force are then unchanged.
+        force are then unchanged.  The caller has already checked Lucas's
+        one-time code (the service does that for the MQTT command).
         """
-        who = by.strip()[:80] if isinstance(by, str) and by.strip() else "unknown"
+        who = clean_by(by)
         if isinstance(base_revision, bool) or not isinstance(base_revision, int):
             return False, f"base_revision must be an integer (got {_show(base_revision)})", ""
         with self._lock:
@@ -592,17 +689,47 @@ class RailsStore:
             log.info("Rails revision %d saved by %s: %s", new["revision"], who, diff)
             return True, None, diff
 
+    def precheck_command(self, payload: Any) -> Optional[str]:
+        """Everything :meth:`replace_from_command` would refuse, without
+        saving — so the service checks Lucas's one-time code only for a save
+        that would go through (a refused save does not use up his code)."""
+        if not isinstance(payload, dict):
+            return "rails command must be a JSON object"
+        unknown = [k for k in payload
+                   if k not in ("rails", "base_revision", "by", "request_id", "code")]
+        if unknown:
+            return f"rails command: unknown key {_show(unknown[0])}"
+        if "rails" not in payload or "base_revision" not in payload:
+            return "rails command needs \"rails\" and \"base_revision\""
+        rid = payload.get("request_id")
+        if "request_id" in payload and not (isinstance(rid, str) and len(rid) <= 64):
+            return "rails command: request_id must be a string of at most 64 characters"
+        base = payload["base_revision"]
+        if isinstance(base, bool) or not isinstance(base, int):
+            return f"base_revision must be an integer (got {_show(base)})"
+        if base != self.revision:
+            return (f"rails changed since you opened the editor (now revision {self.revision}, "
+                    f"yours {base}) — reload and re-apply")
+        errs = validate_rails(payload["rails"])
+        if errs:
+            more = f" (+{len(errs) - 10} more)" if len(errs) > 10 else ""
+            return "; ".join(errs[:10]) + more
+        return None
+
     def replace_from_command(self, payload: Any, default_by: str = "unknown"
                              ) -> Tuple[bool, Optional[str], str]:
         """The MQTT ``<cmd_prefix>/rails`` message:
-        ``{"rails": <full doc>, "base_revision": int, "by"?: str, "request_id"?: str}``.
+        ``{"rails": <full doc>, "base_revision": int, "code": str, "by"?: str,
+        "request_id"?: str}``.
 
-        ``request_id`` (≤ 64 characters) is not part of the rails: the service
-        echoes it in ``last_rails_result`` so the editor that sent the save
-        can tell its own answer from another tab's."""
+        ``code`` is Lucas's one-time code — checked by the service before this
+        is called, ignored here.  ``request_id`` (≤ 64 characters) is not part
+        of the rails: the service echoes it in ``last_rails_result`` so the
+        editor that sent the save can tell its own answer from another tab's."""
         if not isinstance(payload, dict):
             return False, "rails command must be a JSON object", ""
-        unknown = [k for k in payload if k not in ("rails", "base_revision", "by", "request_id")]
+        unknown = [k for k in payload
+                   if k not in ("rails", "base_revision", "by", "request_id", "code")]
         if unknown:
             return False, f"rails command: unknown key {_show(unknown[0])}", ""
         if "rails" not in payload or "base_revision" not in payload:
