@@ -26,6 +26,18 @@ the human armed under no longer hold:
 Each automatic disarm is audited (kind ``auto_disarm``), counted and shown as
 the group's ``last_disarm``.
 
+**Level-stale grace.**  The GHS Wi-Fi ESP32 drops off for tens of seconds to
+minutes several times a day, and interlocks.py raises ``level_stale/ballast``
+and ``level_stale/primary_xe`` after 60 s without its levels.  Those rules
+guard the ballast and primary Xe fills, not the heaters.  With
+``level_stale_grace_s`` > 0 (``XSPHERE_AICONTROL_LEVEL_STALE_GRACE_S``;
+default 0, which disarms at once as before), a not-ok made only of those
+rules (:data:`GRACE_RULES`) *holds* the heaters instead: the arm stays, every
+AI heater write is refused (and a running ramp stops), and the heaters
+disarm only if the rules are still active when the grace runs out.  Interlocks
+ok again ends the hold; any other rule disarms at once, as it always has.
+The hold is audited as a ``note`` while the heaters are armed.
+
 **LN2 open timers.**  When the AI opens a fill valve, the open time and a
 deadline ``max_open_minutes`` later are persisted in ``runtime.json`` (before
 the open is published).  At the deadline, if a live status shows the valve
@@ -73,6 +85,12 @@ CONTROL_PAGE = "http://xbox-pi:8088/control"
 HEARTBEAT_TOPIC = "xsphere/status/service/heartbeat"
 PV_INTERLOCK_TOPIC = "xsphere/status/pv_interlock"
 INTERLOCKS_TOPIC = "xsphere/status/interlocks"
+#: The interlock rules a level-stale grace may hold rather than disarm on: the
+#: two LN2 levels only the GHS ESP32 publishes.  The AI's LN2 opens of those
+#: vessels already refuse a stale level or ESP32 heartbeat on their own
+#: (Actions._require_level_fresh).  level_stale/cryostat comes from the PLC
+#: driver and is not in here.
+GRACE_RULES = frozenset({"level_stale/ballast", "level_stale/primary_xe"})
 
 #: Snapshot older than this disarms everything.
 SNAPSHOT_DISARM_AGE_S = 30.0
@@ -471,14 +489,24 @@ class Supervisor:
     """Auto-disarm triggers and the LN2 auto-close, on a 1 s tick + bus observers."""
 
     def __init__(self, bus, arms: ArmState, audit, zones, timers: Ln2Timers, *,
-                 clock: Callable[[], float] = time.time, tick_s: float = 1.0):
+                 clock: Callable[[], float] = time.time, tick_s: float = 1.0,
+                 mono: Optional[Callable[[], float]] = None,
+                 level_stale_grace_s: float = 0.0):
         self._bus = bus
         self._arms = arms
         self._audit = audit
         self._zones = zones
         self._timers = timers
         self._clock = clock
+        self._mono = mono if mono is not None else default_mono(clock)
         self._tick_s = tick_s
+        self.level_stale_grace_s = float(level_stale_grace_s)
+        # The heater hold while a not-ok of GRACE_RULES only waits out the
+        # grace: {rules, since_mono, deadline_mono, since_utc, disarm_at_utc}.
+        # The lock makes each change happen once (an ok message and the
+        # deadline can race); it is never held while disarming.
+        self._hold: Optional[dict] = None
+        self._hold_lock = threading.Lock()
         self._stop = threading.Event()
         self._thread: Optional[threading.Thread] = None
         self._last_uptime: Optional[float] = None
@@ -526,6 +554,7 @@ class Supervisor:
                                   "(a disarm sent meanwhile could have been missed)", auto=True)
         # Edge baselines restart from what the broker replays.
         self._last_uptime = None
+        self._take_hold()
 
     def _on_heartbeat(self, topic: str, payload: Any) -> None:
         if not self._live(topic):
@@ -554,11 +583,80 @@ class Supervisor:
             return
         ok = payload["ok"]
         prev, self._interlocks_ok = self._interlocks_ok, ok
-        if ok is False and prev is not False and self._live(topic):
-            rules = payload.get("rules_active")
+        if not self._live(topic):
+            return
+        if ok:
+            self._end_hold()
+            return
+        rules = payload.get("rules_active")
+        if self._grace_applies(rules):
+            if prev is not False and self._hold is None:
+                self._start_hold(rules)
+            return                      # held, or already handled on the not-ok edge
+        # Any other rule: at once, as always — and it ends a hold early.
+        if self._take_hold() is not None or prev is not False:
             names = ", ".join(map(str, rules)) if isinstance(rules, list) and rules else "?"
             self._arms.disarm("heaters", f"slowcontrol interlocks turned not-ok ({names})",
                               auto=True)
+
+    # level-stale grace ----------------------------------------------------
+
+    def _grace_applies(self, rules: Any) -> bool:
+        """A grace is set and every active rule is one of :data:`GRACE_RULES`."""
+        return (self.level_stale_grace_s > 0 and isinstance(rules, list) and bool(rules)
+                and all(isinstance(r, str) and r in GRACE_RULES for r in rules))
+
+    def heater_hold(self) -> Optional[dict]:
+        """``{rules, since_utc, disarm_at_utc}`` while heater writes are held, else None."""
+        hold = self._hold
+        if hold is None:
+            return None
+        return {"rules": list(hold["rules"]), "since_utc": hold["since_utc"],
+                "disarm_at_utc": hold["disarm_at_utc"]}
+
+    def _take_hold(self) -> Optional[dict]:
+        with self._hold_lock:
+            hold, self._hold = self._hold, None
+        return hold
+
+    def _start_hold(self, rules: List[str]) -> None:
+        now, mono, grace = self._clock(), self._mono(), self.level_stale_grace_s
+        hold = {"rules": sorted(rules), "since_mono": mono, "deadline_mono": mono + grace,
+                "since_utc": utc_iso(now), "disarm_at_utc": utc_iso(now + grace)}
+        with self._hold_lock:
+            if self._hold is not None:
+                return
+            self._hold = hold
+        detail = (f"heaters held, not disarmed: slowcontrol interlocks turned not-ok "
+                  f"({', '.join(hold['rules'])}), only the GHS ESP32 level feeds. AI heater "
+                  f"writes are refused until they clear; the heaters disarm at "
+                  f"{hold['disarm_at_utc']} if they have not (level-stale grace {grace:g} s)")
+        log.warning("AI control: %s", detail)
+        if self._audit is not None and self._arms.is_armed("heaters"):
+            self._audit.record("note", detail)
+
+    def _end_hold(self) -> None:
+        hold = self._take_hold()
+        if hold is None:
+            return
+        held_s = self._mono() - hold["since_mono"]
+        detail = (f"heaters: slowcontrol interlocks ok again after {held_s:.0f} s "
+                  f"({', '.join(hold['rules'])} cleared within the {self.level_stale_grace_s:g} s "
+                  f"level-stale grace); AI heater writes are allowed again")
+        log.warning("AI control: %s", detail)
+        if self._audit is not None and self._arms.is_armed("heaters"):
+            self._audit.record("note", detail)
+
+    def _check_hold(self) -> None:
+        with self._hold_lock:
+            hold = self._hold
+            if hold is None or self._mono() < hold["deadline_mono"]:
+                return
+            self._hold = None
+        self._arms.disarm("heaters", f"slowcontrol interlocks stayed not-ok "
+                                     f"({', '.join(hold['rules'])}) past the "
+                                     f"{self.level_stale_grace_s:g} s level-stale grace",
+                          auto=True)
 
     # tick ----------------------------------------------------------------
 
@@ -573,6 +671,7 @@ class Supervisor:
             elif age > SNAPSHOT_DISARM_AGE_S:
                 self._arms.disarm_all(f"the slowcontrol snapshot is {age:.0f} s old "
                                       f"(> {SNAPSHOT_DISARM_AGE_S:.0f} s)", auto=True)
+        self._check_hold()
         self._check_service_alive()
         self._check_timers(now)
 

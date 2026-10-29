@@ -239,8 +239,9 @@ def _pneumatic_allowance(rails, gate_on: Optional[bool]) -> str:
     return text
 
 
-def may_now(arms, rails, bus) -> Dict[str, str]:
-    """One sentence per group: what the AI could do right now (arms × rails × gates)."""
+def may_now(arms, rails, bus, heater_hold: Optional[dict] = None) -> Dict[str, str]:
+    """One sentence per group: what the AI could do right now (arms × rails × gates).
+    ``heater_hold`` is the supervisor's level-stale hold, if one is running."""
     il = None
     r = bus.raw(PV_INTERLOCK_TOPIC)
     if r and isinstance(r["payload"], dict):
@@ -259,6 +260,11 @@ def may_now(arms, rails, bus) -> Dict[str, str]:
             why = "no rails allow anything in this group"
         if g == "heaters" and allowed and il and il.get("tripped") is True:
             allowed = "nothing while the PV interlock is tripped; after it clears: " + allowed
+        if g == "heaters" and allowed and heater_hold:
+            allowed = (f"nothing while held by the level-stale grace "
+                       f"({', '.join(heater_hold['rules'])}; the heaters disarm at "
+                       f"{heater_hold['disarm_at_utc']} unless it clears); after it clears: "
+                       + allowed)
         if arms.is_armed(g):
             out[g] = allowed if allowed else f"nothing — {why}"
         else:
@@ -277,7 +283,8 @@ class Reads:
 
     def __init__(self, bus, zones, rails, arms, audit, *, actions=None, ramps=None,
                  timers=None, history=None, status_fn: Optional[Callable[[], dict]] = None,
-                 clock: Callable[[], float] = time.time):
+                 clock: Callable[[], float] = time.time,
+                 heater_hold: Optional[Callable[[], Optional[dict]]] = None):
         self.bus = bus
         self.zones = zones
         self.rails = rails
@@ -289,6 +296,7 @@ class Reads:
         self.history = history
         self.status_fn = status_fn
         self._clock = clock
+        self.heater_hold = heater_hold          # Supervisor.heater_hold
 
     def handlers(self) -> Dict[str, Callable[[dict], Tuple[bool, Any]]]:
         return {"get_overview": self.get_overview, "list_states": self.list_states,
@@ -352,8 +360,10 @@ class Reads:
                             "service_alive": val("service_alive"), "counts": counts,
                             "mqtt_connected": self.bus.connected()},
             "arms": self.arms.snapshot(),
-            "may_now": may_now(self.arms, self.rails, self.bus),
         }
+        hold = self.heater_hold() if self.heater_hold is not None else None
+        out["may_now"] = may_now(self.arms, self.rails, self.bus, hold)
+        out["heater_hold"] = hold
         il = self._raw(PV_INTERLOCK_TOPIC)
         out["interlock"] = ({"min_k": il.get("min_k"), "max_k": il.get("max_k"),
                              "tripped": il.get("tripped"), "reasons": il.get("reasons")}
@@ -504,6 +514,11 @@ class Reads:
         ilk = out["interlocks"]
         if ilk and ilk.get("ok") is False:
             w.append(f"slowcontrol interlocks not ok: {ilk.get('rules_active')}")
+        hold = out.get("heater_hold")
+        if hold:
+            w.append(f"AI heater writes are HELD by the level-stale grace "
+                     f"({', '.join(hold['rules'])}): the heaters disarm at "
+                     f"{hold['disarm_at_utc']} unless the interlocks clear first")
         for z, d in out["zones"].items():
             if d["pid_live_age_s"] is None or d["pid_live_age_s"] > 3:
                 w.append(f"zone {z}: no live PID status from the PLC")

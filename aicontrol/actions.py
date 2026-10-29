@@ -501,11 +501,17 @@ class Actions:
         self._pn_last: Dict[str, float] = {}
         # valve → the AI's last gas-valve command {"want", "ts", "seq", "pending"}
         self._pn_cmd: Dict[str, dict] = {}
+        # Supervisor.heater_hold: the level-stale grace's hold, or None.
+        self._heater_hold: Optional[Callable[[], Optional[dict]]] = None
         if ramps is not None:
             ramps.set_stepper(self.ramp_step)
 
     def set_on_change(self, fn: Optional[Callable[[], None]]) -> None:
         self._on_change = fn
+
+    def set_heater_hold(self, fn: Optional[Callable[[], Optional[dict]]]) -> None:
+        """Where to read the supervisor's heater hold (level-stale grace)."""
+        self._heater_hold = fn
 
     def handlers(self) -> Dict[str, Callable[[dict], Tuple[bool, dict]]]:
         """``{tool name: method}`` for the registry."""
@@ -688,13 +694,21 @@ class Actions:
                 log.exception("Error in actions change callback")
 
     def _publish(self, call: _Call, topic: str, payload: dict, *, check_arm: bool = True) -> None:
-        """One command.  The arm is re-checked right here, before every publish."""
+        """One command.  The arm (and a heater hold) is re-checked right here,
+        before every publish."""
         if check_arm and call.group is not None and not self.arms.is_armed(call.group):
             if call.published:
                 raise Refusal(f"{call.group} were disarmed during the call; "
                               f"{len(call.published)} command(s) had already been sent, the "
                               f"rest were not")
             raise Refusal(self.arms.not_armed_text(call.group))
+        held = self._held_text(call.group) if check_arm else None
+        if held is not None:
+            if call.published:
+                raise Refusal(f"heater writes were held during the call; "
+                              f"{len(call.published)} command(s) had already been sent, the "
+                              f"rest were not. {held}")
+            raise Refusal(held)
         if call.ramp_id is not None and self.ramps is not None \
                 and not self.ramps.is_active(call.args["zone"], call.ramp_id):
             raise Refusal("the ramp was stopped")
@@ -709,6 +723,22 @@ class Actions:
     def _require_armed(self, call: _Call) -> None:
         if call.group is not None and not self.arms.is_armed(call.group):
             raise Refusal(self.arms.not_armed_text(call.group))
+        held = self._held_text(call.group)
+        if held is not None:
+            raise Refusal(held)
+
+    def _held_text(self, group: Optional[str]) -> Optional[str]:
+        """The refusal while the heaters are held by the level-stale grace, else None."""
+        if group != "heaters" or self._heater_hold is None:
+            return None
+        h = self._heater_hold()
+        if not h:
+            return None
+        return (f"heater writes are held: slowcontrol interlocks are not ok "
+                f"({', '.join(h['rules'])}): no LN2 level from the GHS ESP32 for over 60 s, "
+                f"and that ESP32 also sends the Setra pressures. The heaters stay armed; "
+                f"writes are allowed again when the interlocks clear, and the heaters disarm "
+                f"at {h['disarm_at_utc']} if they have not.")
 
     def _require_rails_ok(self) -> None:
         err = self.rails.error

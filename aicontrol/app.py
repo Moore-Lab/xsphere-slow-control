@@ -126,11 +126,14 @@ class Service:
                                ramps=self.ramps, timers=self.timers, clock=clock,
                                confirm_timeout_s=confirm_timeout_s, nge_timeout_s=nge_timeout_s)
         self.supervisor = Supervisor(self.bus, self.arms, self.audit, self.zones, self.timers,
-                                     clock=clock)
+                                     clock=clock, mono=mono,
+                                     level_stale_grace_s=settings.level_stale_grace_s)
+        self.actions.set_heater_hold(self.supervisor.heater_hold)
         self.history = self._make_history() if history is _AUTO else history
         self.reads = Reads(self.bus, self.zones, self.rails, self.arms, self.audit,
                            actions=self.actions, ramps=self.ramps, timers=self.timers,
-                           history=self.history, status_fn=self.status_payload, clock=clock)
+                           history=self.history, status_fn=self.status_payload, clock=clock,
+                           heater_hold=self.supervisor.heater_hold)
         self.registry = ToolRegistry(self.actions, self.reads)
 
         # Human-only commands (the Control page card).
@@ -199,6 +202,7 @@ class Service:
         stats = self.actions.stats()
         r = self.bus.raw(PV_INTERLOCK_TOPIC)
         il = r["payload"] if r and isinstance(r["payload"], dict) else None
+        hold = self.supervisor.heater_hold()
         return {
             "online": 1,
             "instance": self.settings.instance,
@@ -213,13 +217,15 @@ class Service:
             "rails_stale_zones": self.rails.stale_zones,
             "rails_updated_utc": self.rails.updated_utc,
             "rails_updated_by": self.rails.updated_by,
-            "may_now": may_now(self.arms, self.rails, self.bus),
+            "may_now": may_now(self.arms, self.rails, self.bus, hold),
             "ramps": self.ramps.status(),
             "ln2_timers": self.timers.status(),
             "actions": stats["actions"],
             "refused": stats["refused"],
             "notes": stats["notes"],
             "auto_disarms": self.arms.auto_disarms,
+            "level_stale_grace_s": self.supervisor.level_stale_grace_s,
+            "heater_hold": hold,
             "last_action": stats["last_action"],
             "last_refused": stats["last_refused"],
             "last_note": stats["last_note"],

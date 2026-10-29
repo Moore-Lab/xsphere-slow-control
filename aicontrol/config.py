@@ -43,6 +43,11 @@ DEFAULT_INFLUX_URL = "http://localhost:8087"
 DEFAULT_INFLUX_ORG = "xbox-server"
 DEFAULT_INFLUX_BUCKET = "xsphere"
 
+#: The longest level-stale grace the environment may ask for (s).  The heaters
+#: are then still disarmed after interlocks.py's 60 s + this, at most ~11 min
+#: after the GHS ESP32 went quiet.
+MAX_LEVEL_STALE_GRACE_S = 600.0
+
 #: Broker hosts a test instance may use.
 _LOCAL_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
 
@@ -127,6 +132,19 @@ def _port(env: Mapping[str, str], name: str, default: int) -> int:
     return port
 
 
+def check_grace_s(value, name: str = "level_stale_grace_s") -> float:
+    """A level-stale grace in seconds: a finite number from 0 to
+    :data:`MAX_LEVEL_STALE_GRACE_S` (0 = disarm at once, as before)."""
+    try:
+        grace = float(value)
+    except (TypeError, ValueError):
+        raise ConfigError(f"{name}={value!r} is not a number of seconds") from None
+    if isinstance(value, bool) or not 0.0 <= grace <= MAX_LEVEL_STALE_GRACE_S:
+        raise ConfigError(f"{name}={value!r} must be from 0 to "
+                          f"{MAX_LEVEL_STALE_GRACE_S:g} s")
+    return grace
+
+
 def _same_path(a: Path, b: Path) -> bool:
     """Whether two paths name the same directory (case-insensitive on Windows)."""
     def norm(p: Path) -> str:
@@ -163,7 +181,8 @@ class Settings:
                  influx_bucket: str = DEFAULT_INFLUX_BUCKET,
                  influx_token: Optional[str] = None,
                  influx_token_source: str = "none",
-                 env_file: Optional[Path] = None):
+                 env_file: Optional[Path] = None,
+                 level_stale_grace_s: float = 0.0):
         self.instance = (instance or "test").strip() or "test"
         self.production = self.instance == PRODUCTION
         self.mqtt_host = mqtt_host
@@ -195,6 +214,10 @@ class Settings:
         self.influx_bucket = influx_bucket
         self.influx_token = influx_token or None
         self.influx_token_source = influx_token_source if self.influx_token else "none"
+        # How long a not-ok interlock made only of the GHS ESP32's level_stale
+        # rules holds heater writes before it disarms the heaters (arms.py,
+        # Supervisor).  0 = disarm at once, the behaviour before this setting.
+        self.level_stale_grace_s = check_grace_s(level_stale_grace_s)
 
         if self.production:
             self.client_id = "xsphere-aicontrol"
@@ -280,6 +303,9 @@ class Settings:
             influx_token=token,
             influx_token_source=source,
             env_file=env_file,
+            level_stale_grace_s=check_grace_s(
+                (env.get("XSPHERE_AICONTROL_LEVEL_STALE_GRACE_S") or "0").strip(),
+                "XSPHERE_AICONTROL_LEVEL_STALE_GRACE_S"),
         )
 
     def log_startup(self) -> None:
@@ -294,6 +320,12 @@ class Settings:
         log.info("State dir %s", self.state_dir)
         log.info("InfluxDB %s org %s bucket %s; token from %s", self.influx_url,
                  self.influx_org, self.influx_bucket, self.influx_token_source)
+        if self.level_stale_grace_s > 0:
+            log.warning("Level-stale grace %g s: a not-ok interlock made only of the GHS ESP32 "
+                        "level_stale rules holds heater writes and disarms the heaters only if "
+                        "it lasts that long", self.level_stale_grace_s)
+        else:
+            log.info("Level-stale grace 0 s: any not-ok interlock disarms the heaters at once")
 
     def __repr__(self) -> str:      # never shows the token
         return (f"Settings(instance={self.instance!r}, mqtt={self.mqtt_host}:{self.mqtt_port}, "
