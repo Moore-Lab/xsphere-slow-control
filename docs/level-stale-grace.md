@@ -12,8 +12,15 @@ on the Pi. How to set it: `aicontrol/README.md`, "Level-stale grace".
   15 s, so the rule fires 60-75 s into a dropout.
 - aicontrol disarms the AI heaters on any not-ok edge of
   `xsphere/status/interlocks`.
-- On 10-28 it did so at 16:49, 18:58 and 19:41. Each time the AI's run stopped
-  until Lucas re-armed.
+- On 10-28 it did so at 16:49, 18:58 and 19:41, and on 10-29 at 00:47:01,
+  01:04:46 and 03:38:31. The last came 79 s after Lucas had armed.
+- Each time the AI's run stopped until Lucas re-armed. That includes the DAQ's
+  LN2 thermostat (`runs/tree_thermo.py`), which stops on a heater disarm by
+  design. The control session now runs a stopgap (`runs/thermo_keeper.py`)
+  that waits for the re-arm.
+- During a hold the heater arm stays, so `tree_thermo.py` is not stopped by a
+  disarm. Its own chamber guard still stops it once Setra #4 is more than 45 s
+  old (`--p-max-age`).
 
 ## 1. What each side protects
 
@@ -66,23 +73,26 @@ ESP32.
 
 ## 4. Choosing G
 
-On 10-28, with the rule active from 60-75 s into each gap (15 s quantised):
+With today's firmware, the rule is active from 60-75 s into each gap
+(15 s quantised):
 
 | Gap | `level_stale` active | G = 90 s | G = 120 s |
 |---|---|---|---|
-| 26, 47, 49, 55 s | never | – | – |
-| 85 s | 15-30 s | kept | kept |
-| 167 s | 105-120 s | disarmed | kept, or disarmed at exactly 120 |
-| 23 min | ~21 min | disarmed | disarmed |
+| 26, 47, 49, 55 s (10-28) | never | – | – |
+| 85 s (10-28) | 15-30 s | kept | kept |
+| 167 s (10-28) | 105-120 s | disarmed | kept, or disarmed at exactly 120 |
+| ~3.5 min (10-29 03:37, back by 03:41) | ~1.5-2.75 min | disarmed | likely disarmed |
+| 23 min (10-28) | ~21 min | disarmed | disarmed |
 
-The firmware branch (`gas-handling-system` `claude/esp32-link-watchdog`) has
-two effects here:
-- it restarts the ESP32 after 120 s without a link, so a stuck link comes back
-  after about 125-145 s;
-- `level_stale` is then active for 60-90 s.
+The firmware branch (`gas-handling-system` `claude/esp32-link-watchdog`)
+changes this:
+- it restarts the ESP32 after 60 s without a link, so a stuck link comes back
+  after about 65-100 s;
+- `level_stale` is then active for 45 s at most, and often not at all.
 
-**Suggestion: G = 120 s.** It covers both the 167 s gap and a firmware
-restart. 90 s covers the restart in most cases.
+**Suggestion.** Flash the firmware, then set G = 90 s. That covers every gap
+a restart fixes, with margin. Without the firmware, G = 120 s saves gaps up to
+about 3 min, such as the 167 s one, but not the 3.5 min or 23 min ones.
 
 ## 5. The alternative not taken
 
