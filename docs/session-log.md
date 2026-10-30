@@ -34,7 +34,10 @@ Deployed at Lucas's request, with him at the Control page to re-arm.
   - The restart waited until the thermostat's XV3 pulse had closed (11:21:00).
   - The day's wobble run (`wobble_ab.py`, block 15) then stopped on
     "ln2 disarmed".
-  - Lucas re-arms; the control session relaunches the run.
+  - Lucas re-armed heaters and LN2 at 13:39 EDT (17:39Z), so the AI's LN2
+    thermostat was off for 2 h 18 min. The arms came back with limits
+    revision 4, the 120 s grace and no hold. The control session relaunches
+    the run.
 - **Rollback.** On the Pi, run `git checkout claude/pid-windup-fix` and
   `sudo systemctl restart xsphere-aicontrol`, then re-arm.
 - **What to look for.** At the next ESP32 dropout, the audit should show
