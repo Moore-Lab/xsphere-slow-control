@@ -843,6 +843,11 @@ class Reads:
 - Arms lapse after general.arm_hours and are dropped automatically when this service
   reconnects to the broker, slowcontrol restarts, or the snapshot is > 30 s old; heaters
   also on a PV-interlock trip or interlocks not-ok. Disarming moves no hardware.
+- With level_stale_grace_s > 0 (get_ai_control), interlocks not-ok with only
+  level_stale/ballast and level_stale/primary_xe (the GHS ESP32, which also sends the Setra
+  pressures, is quiet) HOLD the heaters instead (heater_hold): the arm stays, but every
+  heater write is refused; writes are allowed again when the interlocks clear, and the
+  heaters disarm if the hold outlasts the grace.
 - Every write is refused while the Sequencer runs or a tracker is enabled (they would
   overwrite you a second later), when the snapshot is > 5 s old, or slowcontrol's heartbeat
   is stale. One write at a time; ≤ 20 write calls a minute.

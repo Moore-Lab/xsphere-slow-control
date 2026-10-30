@@ -170,7 +170,7 @@ function entries(obj){
   return Object.entries(obj).sort((a, b) => rank(a[0]) - rank(b[0]) || (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0));
 }
 const KIND_COLOR = {action:"var(--ok)", ramp:"var(--ok)", refused:"var(--bad)", rails_refused:"var(--bad)",
-  arm:"var(--warn)", auto_disarm:"var(--warn)", auto_close:"var(--warn)", rails:"var(--acc)", note:"var(--acc)", disarm:"var(--mut)"};
+  arm:"var(--warn)", auto_disarm:"var(--warn)", auto_close:"var(--warn)", heater_hold:"var(--warn)", rails:"var(--acc)", note:"var(--acc)", disarm:"var(--mut)"};
 
 function cell(v){
   if (v === null || v === undefined) return `<span class="unset" title="not set">—</span>`;

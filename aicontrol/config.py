@@ -43,6 +43,12 @@ DEFAULT_INFLUX_URL = "http://localhost:8087"
 DEFAULT_INFLUX_ORG = "xbox-server"
 DEFAULT_INFLUX_BUCKET = "xsphere"
 
+#: The level-stale grace when ``XSPHERE_AICONTROL_LEVEL_STALE_GRACE_S`` is unset
+#: (s).  interlocks.py raises the rules 60-75 s into a GHS ESP32 dropout, so a
+#: dropout of up to about 3 min keeps the heaters armed, and a dead ESP32 still
+#: disarms them 3-3.3 min after it went quiet.  0 restores the immediate disarm.
+DEFAULT_LEVEL_STALE_GRACE_S = 120.0
+
 #: The longest level-stale grace the environment may ask for (s).  The heaters
 #: are then still disarmed after interlocks.py's 60 s + this, at most ~11 min
 #: after the GHS ESP32 went quiet.
@@ -182,7 +188,7 @@ class Settings:
                  influx_token: Optional[str] = None,
                  influx_token_source: str = "none",
                  env_file: Optional[Path] = None,
-                 level_stale_grace_s: float = 0.0):
+                 level_stale_grace_s: float = DEFAULT_LEVEL_STALE_GRACE_S):
         self.instance = (instance or "test").strip() or "test"
         self.production = self.instance == PRODUCTION
         self.mqtt_host = mqtt_host
@@ -304,7 +310,8 @@ class Settings:
             influx_token_source=source,
             env_file=env_file,
             level_stale_grace_s=check_grace_s(
-                (env.get("XSPHERE_AICONTROL_LEVEL_STALE_GRACE_S") or "0").strip(),
+                (env.get("XSPHERE_AICONTROL_LEVEL_STALE_GRACE_S") or "").strip()
+                or DEFAULT_LEVEL_STALE_GRACE_S,
                 "XSPHERE_AICONTROL_LEVEL_STALE_GRACE_S"),
         )
 
@@ -323,7 +330,8 @@ class Settings:
         if self.level_stale_grace_s > 0:
             log.warning("Level-stale grace %g s: a not-ok interlock made only of the GHS ESP32 "
                         "level_stale rules holds heater writes and disarms the heaters only if "
-                        "it lasts that long", self.level_stale_grace_s)
+                        "it lasts that long (XSPHERE_AICONTROL_LEVEL_STALE_GRACE_S=0 disarms at "
+                        "once)", self.level_stale_grace_s)
         else:
             log.info("Level-stale grace 0 s: any not-ok interlock disarms the heaters at once")
 

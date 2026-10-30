@@ -21,7 +21,8 @@ the human armed under no longer hold:
   armed AI should not "restore" setpoints into that; the snapshot is older
   than 30 s;
 * heaters: the PV interlock trips (``tripped`` false → true on a live
-  message), or ``xsphere/status/interlocks`` turns not-ok.
+  message), or ``xsphere/status/interlocks`` turns not-ok (for the GHS
+  ESP32's two level rules only after the level-stale grace, below).
 
 Each automatic disarm is audited (kind ``auto_disarm``), counted and shown as
 the group's ``last_disarm``.
@@ -30,13 +31,14 @@ the group's ``last_disarm``.
 minutes several times a day, and interlocks.py raises ``level_stale/ballast``
 and ``level_stale/primary_xe`` after 60 s without its levels.  Those rules
 guard the ballast and primary Xe fills, not the heaters.  With
-``level_stale_grace_s`` > 0 (``XSPHERE_AICONTROL_LEVEL_STALE_GRACE_S``;
-default 0, which disarms at once as before), a not-ok made only of those
-rules (:data:`GRACE_RULES`) *holds* the heaters instead: the arm stays, every
-AI heater write is refused (and a running ramp stops), and the heaters
-disarm only if the rules are still active when the grace runs out.  Interlocks
-ok again ends the hold; any other rule disarms at once, as it always has.
-The hold is audited as a ``note`` while the heaters are armed.
+``level_stale_grace_s`` > 0 (``XSPHERE_AICONTROL_LEVEL_STALE_GRACE_S``,
+default ``config.DEFAULT_LEVEL_STALE_GRACE_S``; 0 disarms at once as before),
+a not-ok made only of those rules (:data:`GRACE_RULES`) *holds* the heaters
+instead: the arm stays, every AI heater write is refused (and a running ramp
+stops), and the heaters disarm only if the rules are still active when the
+grace runs out.  Interlocks ok again ends the hold; any other rule disarms at
+once, as it always has.  The hold is audited (kind ``heater_hold``) while the
+heaters are armed.
 
 **LN2 open timers.**  When the AI opens a fill valve, the open time and a
 deadline ``max_open_minutes`` later are persisted in ``runtime.json`` (before
@@ -633,7 +635,7 @@ class Supervisor:
                   f"{hold['disarm_at_utc']} if they have not (level-stale grace {grace:g} s)")
         log.warning("AI control: %s", detail)
         if self._audit is not None and self._arms.is_armed("heaters"):
-            self._audit.record("note", detail)
+            self._audit.record("heater_hold", detail)
 
     def _end_hold(self) -> None:
         hold = self._take_hold()
@@ -645,7 +647,7 @@ class Supervisor:
                   f"level-stale grace); AI heater writes are allowed again")
         log.warning("AI control: %s", detail)
         if self._audit is not None and self._arms.is_armed("heaters"):
-            self._audit.record("note", detail)
+            self._audit.record("heater_hold", detail)
 
     def _check_hold(self) -> None:
         with self._hold_lock:

@@ -141,11 +141,12 @@ shown on the card with its reason.
     goes false → true);
   - the snapshot is older than 30 s.
 - **Heaters:** the PV interlock trips, or `xsphere/status/interlocks` turns
-  not-ok. With a level-stale grace set (below; the default is none), a not-ok
-  made only of `level_stale/ballast` and `level_stale/primary_xe` holds the
-  heaters instead. The arm stays, but every AI heater write is refused and a
-  running ramp stops. The heaters disarm only if those rules are still active
-  when the grace runs out. Any other rule disarms at once, as before.
+  not-ok. A not-ok made only of `level_stale/ballast` and
+  `level_stale/primary_xe` (a GHS ESP32 dropout) holds the heaters instead,
+  for the level-stale grace (below; 120 s unless set). The arm stays, but every
+  AI heater write is refused and a running ramp stops. The heaters disarm only
+  if those rules are still active when the grace runs out. Any other rule
+  disarms at once, as before.
 - **LN2:** the auto-close timer below fires.
 
 ### LN2 auto-close timer
@@ -400,41 +401,43 @@ over a whitelist of ids, but a read-only token limits what a bug could do.
    systemd reads the file as root before it starts the service as `xbox`, so
    mode 600 is enough. The log names the token's source, never its value.
 
-### Level-stale grace (optional, off by default)
+### Level-stale grace (on by default: 120 s)
 
 The GHS ESP32 on the gas cart is on Wi-Fi and drops out for tens of seconds,
 sometimes minutes, several times a day. After 60 s without its LN2 levels,
 `slowcontrol/controllers/interlocks.py` raises `level_stale/ballast` and
-`level_stale/primary_xe` (it checks every 15 s), and by default the heaters
-disarm at once. Those two rules guard the ballast and primary Xe fills. The
-AI's own opens of those valves already refuse a stale level or ESP32 heartbeat.
+`level_stale/primary_xe` (it checks every 15 s, so 60–75 s into the dropout).
+Those two rules guard the ballast and primary Xe fills. The AI's own opens of
+those valves already refuse a stale level or ESP32 heartbeat.
 
-`XSPHERE_AICONTROL_LEVEL_STALE_GRACE_S` (seconds, 0–600, default 0) gives such
-a dropout time to end:
+`XSPHERE_AICONTROL_LEVEL_STALE_GRACE_S` (seconds, 0–600, default 120) gives
+such a dropout time to end:
 
 - the arm stays, but heater writes are refused while the rules are active,
   so the AI never acts on stale Setra readings;
 - if the interlocks turn ok within the grace, writes are allowed again with
   no re-arm;
 - otherwise the heaters disarm when the grace runs out. That is 60–75 s +
-  the grace after the ESP32 went quiet;
-- any other rule disarms at once.
+  the grace after the ESP32 went quiet: 3–3.3 min at the default;
+- any other rule disarms at once;
+- `ln2` and `pneumatic` are untouched: interlocks never disarmed them.
 
-The status (`heater_hold`, `level_stale_grace_s`), `may_now` and the
-overview's warnings show a hold, and the audit has a `note` when one starts
-and ends.
+The status (`heater_hold`, `level_stale_grace_s`), `may_now` (also on the
+Control page card) and the overview's warnings show a hold. The audit has a
+`heater_hold` entry when one starts and ends while the heaters are armed, and
+an `auto_disarm` if the grace runs out.
 
-To set it, use a drop-in and restart between experiments (a restart disarms
-everything):
+To change it (`0` = disarm at once, as before 2026-10-30), use a drop-in and
+restart between experiments (a restart disarms everything):
 ```bash
 sudo mkdir -p /etc/systemd/system/xsphere-aicontrol.service.d
-printf '[Service]\nEnvironment=XSPHERE_AICONTROL_LEVEL_STALE_GRACE_S=90\n' \
+printf '[Service]\nEnvironment=XSPHERE_AICONTROL_LEVEL_STALE_GRACE_S=0\n' \
   | sudo tee /etc/systemd/system/xsphere-aicontrol.service.d/level-stale-grace.conf
 sudo systemctl daemon-reload
 sudo systemctl restart xsphere-aicontrol   # disarms everything (safe)
 journalctl -u xsphere-aicontrol -n 30 | grep -i "level-stale grace"
 ```
-To go back, delete the drop-in, then reload and restart.
+To go back to the default, delete the drop-in, then reload and restart.
 
 ## Testing
 

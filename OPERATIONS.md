@@ -368,7 +368,12 @@ pneumatic.
   disarms by itself in these cases:
   - **All groups:** the arm expires; slow control restarts; the snapshot goes
     stale; the AI service reconnects to the broker.
-  - **Heaters:** the PV interlock trips, or the interlocks go not-ok.
+  - **Heaters:** the PV interlock trips, or the interlocks go not-ok. When
+    the only rules are `level_stale/ballast` and `level_stale/primary_xe` (a
+    GHS ESP32 dropout), the heaters are held instead: the arm stays, Claude's
+    heater writes are refused, and the row says until when. They disarm if
+    the dropout outlasts the grace (120 s; `aicontrol/README.md`,
+    "Level-stale grace").
   - **LN2:** a valve the AI opened is still open (by its live status) at its
     time limit. The service closes the valve, then disarms. It never acts on
     an unknown valve state; if the status stays unknown past the limit, the

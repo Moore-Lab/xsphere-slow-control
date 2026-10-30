@@ -37,7 +37,7 @@ from typing import Any, Callable, Deque, Dict, List, Optional
 log = logging.getLogger(__name__)
 
 KINDS = ("action", "refused", "arm", "disarm", "auto_disarm", "rails", "rails_refused",
-         "note", "ramp", "auto_close")
+         "note", "ramp", "auto_close", "heater_hold")
 
 PUBLISH_LAST = 50
 PUBLISH_MIN_INTERVAL_S = 1.0
