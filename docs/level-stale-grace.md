@@ -129,8 +129,9 @@ restart, which clears the PID expressions and drops every setpoint to 3 K.
 ## 6. Merging
 
 - Now on `claude/heater-arm-esp32-grace`, built on `claude/pid-windup-fix`
-  (b51f193), the code the Pi runs since 2026-10-25. Its slow-control files are
-  unchanged.
+  (b51f193), the code the Pi ran from 2026-10-25. Its slow-control files are
+  unchanged. Deployed on the Pi at 1c20b49 on 2026-10-30 at 15:21Z
+  (`docs/session-log.md`).
 - First written on `claude/ai-control-api` (7023236). Do not deploy that
   branch: it lacks the top/bottom swap and the windup fix.
 - Trial merges of the first version, on 10-29:

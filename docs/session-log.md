@@ -5,6 +5,43 @@ The state layer's own history is in `slowcontrol/SESSION_LOG.md`.
 
 ---
 
+## 2026-10-30, 11:21 EDT: the heater grace is deployed
+
+Deployed at Lucas's request, with him at the Control page to re-arm.
+
+- **Running.** The Pi's `~/xsphere-slow-control` is on
+  `claude/heater-arm-esp32-grace` at 1c20b49 (it was `claude/pid-windup-fix`,
+  b51f193).
+  - Only `xsphere-aicontrol` was restarted, at 15:21:42Z.
+  - Slow control and the web panel kept running; their code is unchanged.
+  - The untracked `query_db.py` on the Pi is left as it was.
+- **Checked.**
+  - The journal shows "Level-stale grace 120 s".
+  - Rails revision 4 and the audit reloaded.
+  - `get_ai_control` shows `level_stale_grace_s` 120 and `heater_hold` null.
+  - The Pi's Python 3.11 imports the branch. Its env has no pytest, so the
+    tests ran on the DAQ PC only.
+- **How the code got there.** The Pi cannot fetch from GitHub: its `origin` is
+  `git@github.com:…`, and GitHub refuses it. So the commit went from the DAQ PC
+  straight into the Pi's repo:
+  ```bash
+  git push ssh://192.168.8.116/home/xbox/xsphere-slow-control <sha>:refs/heads/<branch>
+  ```
+  - On the DAQ PC, `ssh xbox-pi` fails host-key verification, but the IP
+    works (key login, passwordless sudo).
+  - The branch is on GitHub as well.
+- **What it interrupted.** The restart dropped every arm.
+  - The restart waited until the thermostat's XV3 pulse had closed (11:21:00).
+  - The day's wobble run (`wobble_ab.py`, block 15) then stopped on
+    "ln2 disarmed".
+  - Lucas re-arms; the control session relaunches the run.
+- **Rollback.** On the Pi, run `git checkout claude/pid-windup-fix` and
+  `sudo systemctl restart xsphere-aicontrol`, then re-arm.
+- **What to look for.** At the next ESP32 dropout, the audit should show
+  `heater_hold` entries instead of an `auto_disarm`.
+
+---
+
 ## 2026-10-30: the AI heater arm no longer drops on a GHS ESP32 dropout
 
 Branch `claude/heater-arm-esp32-grace`, worktree
@@ -106,6 +143,9 @@ From `runs/hold_20261030.csv` (xsphere-daq), 00:01-02:59 EDT:
   keeper and `--ride-interlock-disarms` treat it as before.
 
 ### Deploy
+
+Done at 11:21 EDT (entry above). Step 2's `git fetch origin` fails on the Pi;
+push straight to the Pi's repo instead, as described there.
 
 Do this between experiments: restarting aicontrol disarms all three groups.
 
